@@ -18,7 +18,7 @@ daclaw memory off        # disable external provider
 
 You can also select the active memory provider via `daclaw plugins` → Provider Plugins → Memory Provider.
 
-Or set manually in `~/.hermes/config.yaml`:
+Or set manually in `~/.daclaw/config.yaml`:
 
 ```yaml
 memory:
@@ -68,7 +68,7 @@ daclaw honcho setup        # (legacy command)
 daclaw memory setup        # select "honcho"
 ```
 
-**Config:** `$HERMES_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global). Resolution order: `$HERMES_HOME/honcho.json` > `~/.hermes/honcho.json` > `~/.honcho/config.json`. See the [config reference](https://github.com/hermes-ai/daclaw-agent/blob/main/plugins/memory/honcho/README.md) and the [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hermes).
+**Config:** `$DACLAW_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global). Resolution order: `$DACLAW_HOME/honcho.json` > `~/.daclaw/honcho.json` > `~/.honcho/config.json`. See the [config reference](https://github.com/daclaw-ai/daclaw-agent/blob/main/plugins/memory/honcho/README.md) and the [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/daclaw).
 
 <details>
 <summary>Full config reference</summary>
@@ -148,7 +148,7 @@ Each DAClaw profile gets its own Honcho AI peer while sharing the same workspace
 daclaw profile create coder --clone   # creates honcho peer "coder", inherits config from default
 ```
 
-What `--clone` does: creates a `hermes.coder` host block in `honcho.json` with `aiPeer: "coder"`, shared `workspace`, inherited `peerName`, `recallMode`, `writeFrequency`, `observation`, etc. The peer is eagerly created in Honcho so it exists before first message.
+What `--clone` does: creates a `daclaw.coder` host block in `honcho.json` with `aiPeer: "coder"`, shared `workspace`, inherited `peerName`, `recallMode`, `writeFrequency`, `observation`, etc. The peer is eagerly created in Honcho so it exists before first message.
 
 For profiles created before Honcho was set up:
 
@@ -188,7 +188,7 @@ This inherits settings from the default `daclaw` host block and creates new AI p
       "messageMaxChars": 25000,
       "saveMessages": true
     },
-    "hermes.coder": {
+    "daclaw.coder": {
       "enabled": true,
       "aiPeer": "coder",
       "workspace": "daclaw",
@@ -199,7 +199,7 @@ This inherits settings from the default `daclaw` host block and creates new AI p
         "ai": { "observeMe": true, "observeOthers": true }
       }
     },
-    "hermes.writer": {
+    "daclaw.writer": {
       "enabled": true,
       "aiPeer": "writer",
       "workspace": "daclaw",
@@ -214,7 +214,7 @@ This inherits settings from the default `daclaw` host block and creates new AI p
 
 </details>
 
-See the [config reference](https://github.com/hermes-ai/daclaw-agent/blob/main/plugins/memory/honcho/README.md) and [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hermes).
+See the [config reference](https://github.com/daclaw-ai/daclaw-agent/blob/main/plugins/memory/honcho/README.md) and [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/daclaw).
 
 
 ---
@@ -242,7 +242,7 @@ openviking-server
 daclaw memory setup    # select "openviking"
 # Or manually:
 daclaw config set memory.provider openviking
-echo "OPENVIKING_ENDPOINT=http://localhost:1933" >> ~/.hermes/.env
+echo "OPENVIKING_ENDPOINT=http://localhost:1933" >> ~/.daclaw/.env
 ```
 
 **Key features:**
@@ -270,14 +270,14 @@ Server-side LLM fact extraction with semantic search, reranking, and automatic d
 daclaw memory setup    # select "mem0"
 # Or manually:
 daclaw config set memory.provider mem0
-echo "MEM0_API_KEY=your-key" >> ~/.hermes/.env
+echo "MEM0_API_KEY=your-key" >> ~/.daclaw/.env
 ```
 
-**Config:** `$HERMES_HOME/mem0.json`
+**Config:** `$DACLAW_HOME/mem0.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `user_id` | `hermes-user` | User identifier |
+| `user_id` | `daclaw-user` | User identifier |
 | `agent_id` | `daclaw` | Agent identifier |
 
 ---
@@ -300,14 +300,14 @@ Long-term memory with knowledge graph, entity resolution, and multi-strategy ret
 daclaw memory setup    # select "hindsight"
 # Or manually:
 daclaw config set memory.provider hindsight
-echo "HINDSIGHT_API_KEY=your-key" >> ~/.hermes/.env
+echo "HINDSIGHT_API_KEY=your-key" >> ~/.daclaw/.env
 ```
 
 The setup wizard installs dependencies automatically and only installs what's needed for the selected mode (`hindsight-client` for cloud, `hindsight-all` for local). Requires `hindsight-client >= 0.4.22` (auto-upgraded on session start if outdated).
 
 **Local mode UI:** `hindsight-embed -p daclaw ui start`
 
-**Config:** `$HERMES_HOME/hindsight/config.json`
+**Config:** `$DACLAW_HOME/hindsight/config.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -345,11 +345,11 @@ daclaw memory setup    # select "holographic"
 daclaw config set memory.provider holographic
 ```
 
-**Config:** `config.yaml` under `plugins.hermes-memory-store`
+**Config:** `config.yaml` under `plugins.daclaw-memory-store`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `db_path` | `$HERMES_HOME/memory_store.db` | SQLite database path |
+| `db_path` | `$DACLAW_HOME/memory_store.db` | SQLite database path |
 | `auto_extract` | `false` | Auto-extract facts at session end |
 | `default_trust` | `0.5` | Default trust score (0.0–1.0) |
 
@@ -379,7 +379,7 @@ Cloud memory API with hybrid search (Vector + BM25 + Reranking), 7 memory types,
 daclaw memory setup    # select "retaindb"
 # Or manually:
 daclaw config set memory.provider retaindb
-echo "RETAINDB_API_KEY=your-key" >> ~/.hermes/.env
+echo "RETAINDB_API_KEY=your-key" >> ~/.daclaw/.env
 ```
 
 ---
@@ -410,7 +410,7 @@ daclaw config set memory.provider byterover
 
 **Key features:**
 - Automatic pre-compression extraction (saves insights before context compression discards them)
-- Knowledge tree stored at `$HERMES_HOME/byterover/` (profile-scoped)
+- Knowledge tree stored at `$DACLAW_HOME/byterover/` (profile-scoped)
 - SOC2 Type II certified cloud sync (optional)
 
 ---
@@ -433,10 +433,10 @@ Semantic long-term memory with profile recall, semantic search, explicit memory 
 daclaw memory setup    # select "supermemory"
 # Or manually:
 daclaw config set memory.provider supermemory
-echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
+echo 'SUPERMEMORY_API_KEY=***' >> ~/.daclaw/.env
 ```
 
-**Config:** `$HERMES_HOME/supermemory.json`
+**Config:** `$DACLAW_HOME/supermemory.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -456,7 +456,7 @@ echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
 - Session-end conversation ingest for richer graph-level knowledge building
 - Profile facts injected on first turn and at configurable intervals
 - Trivial message filtering (skips "ok", "thanks", etc.)
-- **Profile-scoped containers** — use `{identity}` in `container_tag` (e.g. `hermes-{identity}` → `hermes-coder`) to isolate memories per DAClaw profile
+- **Profile-scoped containers** — use `{identity}` in `container_tag` (e.g. `daclaw-{identity}` → `daclaw-coder`) to isolate memories per DAClaw profile
 - **Multi-container mode** — enable `enable_custom_container_tags` with a `custom_containers` list to let the agent read/write across named containers. Automatic operations (sync, prefetch) stay on the primary container.
 
 <details>
@@ -494,8 +494,8 @@ echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
 
 Each provider's data is isolated per [profile](/docs/user-guide/profiles):
 
-- **Local storage providers** (Holographic, ByteRover) use `$HERMES_HOME/` paths which differ per profile
-- **Config file providers** (Honcho, Mem0, Hindsight, Supermemory) store config in `$HERMES_HOME/` so each profile has its own credentials
+- **Local storage providers** (Holographic, ByteRover) use `$DACLAW_HOME/` paths which differ per profile
+- **Config file providers** (Honcho, Mem0, Hindsight, Supermemory) store config in `$DACLAW_HOME/` so each profile has its own credentials
 - **Cloud providers** (RetainDB) auto-derive profile-scoped project names
 - **Env var providers** (OpenViking) are configured via each profile's `.env` file
 

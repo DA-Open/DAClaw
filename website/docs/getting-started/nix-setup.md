@@ -44,7 +44,7 @@ daclaw setup
 daclaw chat
 ```
 
-After `nix profile install`, `daclaw`, `daclaw-agent`, and `hermes-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `daclaw setup` walks you through provider selection, `daclaw gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.hermes/`.
+After `nix profile install`, `daclaw`, `daclaw-agent`, and `daclaw-acp` are on your PATH. From here, the workflow is identical to the [standard installation](./installation.md) — `daclaw setup` walks you through provider selection, `daclaw gateway install` sets up a launchd (macOS) or systemd user service, and config lives in `~/.daclaw/`.
 
 <details>
 <summary><strong>Building from a local clone</strong></summary>
@@ -53,7 +53,7 @@ After `nix profile install`, `daclaw`, `daclaw-agent`, and `hermes-acp` are on y
 git clone https://github.com/NousResearch/daclaw-agent.git
 cd daclaw-agent
 nix build
-./result/bin/hermes setup
+./result/bin/daclaw setup
 ```
 
 </details>
@@ -98,7 +98,7 @@ This module requires NixOS. For non-NixOS systems (macOS, other Linux distros), 
   services.daclaw-agent = {
     enable = true;
     settings.model.default = "anthropic/claude-sonnet-4";
-    environmentFiles = [ config.sops.secrets."hermes-env".path ];
+    environmentFiles = [ config.sops.secrets."daclaw-env".path ];
     addToSystemPackages = true;
   };
 }
@@ -110,16 +110,16 @@ That's it. `nixos-rebuild switch` creates the `daclaw` user, generates `config.y
 The `environmentFiles` line above assumes you have [sops-nix](https://github.com/Mic92/sops-nix) or [agenix](https://github.com/ryantm/agenix) configured. The file should contain at least one LLM provider key (e.g., `OPENROUTER_API_KEY=sk-or-...`). See [Secrets Management](#secrets-management) for full setup. If you don't have a secrets manager yet, you can use a plain file as a starting point — just ensure it's not world-readable:
 
 ```bash
-echo "OPENROUTER_API_KEY=sk-or-your-key" | sudo install -m 0600 -o daclaw /dev/stdin /var/lib/hermes/env
+echo "OPENROUTER_API_KEY=sk-or-your-key" | sudo install -m 0600 -o daclaw /dev/stdin /var/lib/daclaw/env
 ```
 
 ```nix
-services.daclaw-agent.environmentFiles = [ "/var/lib/hermes/env" ];
+services.daclaw-agent.environmentFiles = [ "/var/lib/daclaw/env" ];
 ```
 :::
 
 :::tip addToSystemPackages
-Setting `addToSystemPackages = true` does two things: puts the `daclaw` CLI on your system PATH **and** sets `HERMES_HOME` system-wide so the interactive CLI shares state (sessions, skills, cron) with the gateway service. Without it, running `daclaw` in your shell creates a separate `~/.hermes/` directory.
+Setting `addToSystemPackages = true` does two things: puts the `daclaw` CLI on your system PATH **and** sets `DACLAW_HOME` system-wide so the interactive CLI shares state (sessions, skills, cron) with the gateway service. Without it, running `daclaw` in your shell creates a separate `~/.daclaw/` directory.
 :::
 
 :::info Container-aware CLI
@@ -128,9 +128,9 @@ When `container.enable = true` and `addToSystemPackages = true`, **every** `dacl
 - The routing is transparent: `daclaw chat`, `daclaw sessions list`, `daclaw version`, etc. all exec into the container under the hood
 - All CLI flags are forwarded as-is
 - If the container isn't running, the CLI retries briefly (5s with a spinner for interactive use, 10s silently for scripts) then fails with a clear error — no silent fallback
-- For developers working on the daclaw codebase, set `HERMES_DEV=1` to bypass container routing and run the local checkout directly
+- For developers working on the daclaw codebase, set `DACLAW_DEV=1` to bypass container routing and run the local checkout directly
 
-Set `container.hostUsers` to create a `~/.hermes` symlink to the service state directory, so the host CLI and the container share sessions, config, and memories:
+Set `container.hostUsers` to create a `~/.daclaw` symlink to the service state directory, so the host CLI and the container share sessions, config, and memories:
 
 ```nix
 services.daclaw-agent = {
@@ -263,11 +263,11 @@ Run `nix build .#configKeys && cat result` to see every leaf config key extracte
     };
 
     # ── Secrets ────────────────────────────────────────────────────────
-    environmentFiles = [ config.sops.secrets."hermes-env".path ];
+    environmentFiles = [ config.sops.secrets."daclaw-env".path ];
 
     # ── Documents ──────────────────────────────────────────────────────
     documents = {
-      "SOUL.md" = builtins.readFile /home/user/.hermes/SOUL.md;
+      "SOUL.md" = builtins.readFile /home/user/.daclaw/SOUL.md;
       "USER.md" = ./documents/USER.md;
     };
 
@@ -302,10 +302,10 @@ Run `nix build .#configKeys && cat result` to see every leaf config key extracte
 If you'd rather manage `config.yaml` entirely outside Nix, use `configFile`:
 
 ```nix
-services.daclaw-agent.configFile = /etc/hermes/config.yaml;
+services.daclaw-agent.configFile = /etc/daclaw/config.yaml;
 ```
 
-This bypasses `settings` entirely — no merge, no generation. The file is copied as-is to `$HERMES_HOME/config.yaml` on each activation.
+This bypasses `settings` entirely — no merge, no generation. The file is copied as-is to `$DACLAW_HOME/config.yaml` on each activation.
 
 ### Customization Cheatsheet
 
@@ -315,7 +315,7 @@ Quick reference for the most common things Nix users want to customize:
 |---|---|---|
 | Change the LLM model | `settings.model.default` | `"anthropic/claude-sonnet-4"` |
 | Use a different provider endpoint | `settings.model.base_url` | `"https://openrouter.ai/api/v1"` |
-| Add API keys | `environmentFiles` | `[ config.sops.secrets."hermes-env".path ]` |
+| Add API keys | `environmentFiles` | `[ config.sops.secrets."daclaw-env".path ]` |
 | Give the agent a personality | `documents."SOUL.md"` | `builtins.readFile ./my-soul.md` |
 | Add MCP tool servers | `mcpServers.<name>` | See [MCP Servers](#mcp-servers) |
 | Mount host directories into container | `container.extraVolumes` | `[ "/data:/data:rw" ]` |
@@ -325,7 +325,7 @@ Quick reference for the most common things Nix users want to customize:
 | Add tools to the service PATH (native only) | `extraPackages` | `[ pkgs.pandoc pkgs.imagemagick ]` |
 | Use a custom base image | `container.image` | `"ubuntu:24.04"` |
 | Override the daclaw package | `package` | `inputs.daclaw-agent.packages.${system}.default.override { ... }` |
-| Change state directory | `stateDir` | `"/opt/hermes"` |
+| Change state directory | `stateDir` | `"/opt/daclaw"` |
 | Set the agent's working directory | `workingDirectory` | `"/home/user/projects"` |
 
 ---
@@ -336,20 +336,20 @@ Quick reference for the most common things Nix users want to customize:
 Values in Nix expressions end up in `/nix/store`, which is world-readable. Always use `environmentFiles` with a secrets manager.
 :::
 
-Both `environment` (non-secret vars) and `environmentFiles` (secret files) are merged into `$HERMES_HOME/.env` at activation time (`nixos-rebuild switch`). DAClaw reads this file on every startup, so changes take effect with a `systemctl restart daclaw-agent` — no container recreation needed.
+Both `environment` (non-secret vars) and `environmentFiles` (secret files) are merged into `$DACLAW_HOME/.env` at activation time (`nixos-rebuild switch`). DAClaw reads this file on every startup, so changes take effect with a `systemctl restart daclaw-agent` — no container recreation needed.
 
 ### sops-nix
 
 ```nix
 {
   sops = {
-    defaultSopsFile = ./secrets/hermes.yaml;
+    defaultSopsFile = ./secrets/daclaw.yaml;
     age.keyFile = "/home/user/.config/sops/age/keys.txt";
-    secrets."hermes-env" = { format = "yaml"; };
+    secrets."daclaw-env" = { format = "yaml"; };
   };
 
   services.daclaw-agent.environmentFiles = [
-    config.sops.secrets."hermes-env".path
+    config.sops.secrets."daclaw-env".path
   ];
 }
 ```
@@ -357,8 +357,8 @@ Both `environment` (non-secret vars) and `environmentFiles` (secret files) are m
 The secrets file contains key-value pairs:
 
 ```yaml
-# secrets/hermes.yaml (encrypted with sops)
-hermes-env: |
+# secrets/daclaw.yaml (encrypted with sops)
+daclaw-env: |
     OPENROUTER_API_KEY=sk-or-...
     TELEGRAM_BOT_TOKEN=123456:ABC...
     ANTHROPIC_API_KEY=sk-ant-...
@@ -368,10 +368,10 @@ hermes-env: |
 
 ```nix
 {
-  age.secrets.hermes-env.file = ./secrets/hermes-env.age;
+  age.secrets.daclaw-env.file = ./secrets/daclaw-env.age;
 
   services.daclaw-agent.environmentFiles = [
-    config.age.secrets.hermes-env.path
+    config.age.secrets.daclaw-env.path
   ];
 }
 ```
@@ -383,7 +383,7 @@ For platforms requiring OAuth (e.g., Discord), use `authFile` to seed credential
 ```nix
 {
   services.daclaw-agent = {
-    authFile = config.sops.secrets."hermes/auth.json".path;
+    authFile = config.sops.secrets."daclaw/auth.json".path;
     # authFileForceOverwrite = true;  # overwrite on every activation
   };
 }
@@ -440,7 +440,7 @@ The `mcpServers` option declaratively configures [MCP (Model Context Protocol)](
 ```
 
 :::tip
-Environment variables in `env` values are resolved from `$HERMES_HOME/.env` at runtime. Use `environmentFiles` to inject secrets — never put tokens directly in Nix config.
+Environment variables in `env` values are resolved from `$DACLAW_HOME/.env` at runtime. Use `environmentFiles` to inject secrets — never put tokens directly in Nix config.
 :::
 
 ### HTTP Transport (Remote Servers)
@@ -468,14 +468,14 @@ Set `auth = "oauth"` for servers using OAuth 2.1. DAClaw implements the full PKC
 }
 ```
 
-Tokens are stored in `$HERMES_HOME/mcp-tokens/<server-name>.json` and persist across restarts and rebuilds.
+Tokens are stored in `$DACLAW_HOME/mcp-tokens/<server-name>.json` and persist across restarts and rebuilds.
 
 <details>
 <summary><strong>Initial OAuth authorization on headless servers</strong></summary>
 
 The first OAuth authorization requires a browser-based consent flow. In a headless deployment, DAClaw prints the authorization URL to stdout/logs instead of opening a browser.
 
-**Option A: Interactive bootstrap** — run the flow once via `docker exec` (container) or `sudo -u hermes` (native):
+**Option A: Interactive bootstrap** — run the flow once via `docker exec` (container) or `sudo -u daclaw` (native):
 
 ```bash
 # Container mode
@@ -483,7 +483,7 @@ docker exec -it daclaw-agent \
   daclaw mcp add my-oauth-server --url https://mcp.example.com/mcp --auth oauth
 
 # Native mode
-sudo -u daclaw HERMES_HOME=/var/lib/hermes/.hermes \
+sudo -u daclaw DACLAW_HOME=/var/lib/daclaw/.daclaw \
   daclaw mcp add my-oauth-server --url https://mcp.example.com/mcp --auth oauth
 ```
 
@@ -493,9 +493,9 @@ The container uses `--network=host`, so the OAuth callback listener on `127.0.0.
 
 ```bash
 daclaw mcp add my-oauth-server --url https://mcp.example.com/mcp --auth oauth
-scp ~/.hermes/mcp-tokens/my-oauth-server{,.client}.json \
-    server:/var/lib/hermes/.hermes/mcp-tokens/
-# Ensure: chown hermes:hermes, chmod 0600
+scp ~/.daclaw/mcp-tokens/my-oauth-server{,.client}.json \
+    server:/var/lib/daclaw/.daclaw/mcp-tokens/
+# Ensure: chown daclaw:daclaw, chmod 0600
 ```
 
 </details>
@@ -536,8 +536,8 @@ When daclaw runs via the NixOS module, the following CLI commands are **blocked*
 
 This prevents drift between what Nix declares and what's on disk. Detection uses two signals:
 
-1. **`HERMES_MANAGED=true`** environment variable — set by the systemd service, visible to the gateway process
-2. **`.managed` marker file** in `HERMES_HOME` — set by the activation script, visible to interactive shells (e.g., `docker exec -it daclaw-agent daclaw config set ...` is also blocked)
+1. **`DACLAW_MANAGED=true`** environment variable — set by the systemd service, visible to the gateway process
+2. **`.managed` marker file** in `DACLAW_HOME` — set by the activation script, visible to interactive shells (e.g., `docker exec -it daclaw-agent daclaw config set ...` is also blocked)
 
 To change configuration, edit your Nix config and run `sudo nixos-rebuild switch`.
 
@@ -555,19 +555,19 @@ When container mode is enabled, daclaw runs inside a persistent Ubuntu container
 Host                                    Container
 ────                                    ─────────
 /nix/store/...-daclaw-agent-0.1.0  ──►  /nix/store/... (ro)
-~/.hermes -> /var/lib/hermes/.hermes       (symlink bridge, per hostUsers)
-/var/lib/hermes/                    ──►  /data/          (rw)
+~/.daclaw -> /var/lib/daclaw/.daclaw       (symlink bridge, per hostUsers)
+/var/lib/daclaw/                    ──►  /data/          (rw)
   ├── current-package -> /nix/store/...    (symlink, updated each rebuild)
   ├── .gc-root -> /nix/store/...           (prevents nix-collect-garbage)
   ├── .container-identity                  (sha256 hash, triggers recreation)
-  ├── .hermes/                             (HERMES_HOME)
+  ├── .daclaw/                             (DACLAW_HOME)
   │   ├── .env                             (merged from environment + environmentFiles)
   │   ├── config.yaml                      (Nix-generated, deep-merged by activation)
   │   ├── .managed                         (marker file)
   │   ├── .container-mode                  (routing metadata: backend, exec_user, etc.)
   │   ├── state.db, sessions/, memories/   (runtime state)
   │   └── mcp-tokens/                      (OAuth tokens for MCP servers)
-  ├── home/                                ──►  /home/hermes    (rw)
+  ├── home/                                ──►  /home/daclaw    (rw)
   └── workspace/                           (MESSAGING_CWD)
       ├── SOUL.md                          (from documents option)
       └── (agent-created files)
@@ -575,11 +575,11 @@ Host                                    Container
 Container writable layer (apt/pip/npm):   /usr, /usr/local, /tmp
 ```
 
-The Nix-built binary works inside the Ubuntu container because `/nix/store` is bind-mounted — it brings its own interpreter and all dependencies, so there's no reliance on the container's system libraries. The container entrypoint resolves through a `current-package` symlink: `/data/current-package/bin/hermes gateway run --replace`. On `nixos-rebuild switch`, only the symlink is updated — the container keeps running.
+The Nix-built binary works inside the Ubuntu container because `/nix/store` is bind-mounted — it brings its own interpreter and all dependencies, so there's no reliance on the container's system libraries. The container entrypoint resolves through a `current-package` symlink: `/data/current-package/bin/daclaw gateway run --replace`. On `nixos-rebuild switch`, only the symlink is updated — the container keeps running.
 
 ### What Persists Across What
 
-| Event | Container recreated? | `/data` (state) | `/home/hermes` | Writable layer (`apt`/`pip`/`npm`) |
+| Event | Container recreated? | `/data` (state) | `/home/daclaw` | Writable layer (`apt`/`pip`/`npm`) |
 |---|---|---|---|---|
 | `systemctl restart daclaw-agent` | No | Persists | Persists | Persists |
 | `nixos-rebuild switch` (code change) | No (symlink updated) | Persists | Persists | Persists |
@@ -592,9 +592,9 @@ The Nix-built binary works inside the Ubuntu container because `/nix/store` is b
 The container is only recreated when its **identity hash** changes. The hash covers: schema version, image, `extraVolumes`, `extraOptions`, and the entrypoint script. Changes to environment variables, settings, documents, or the daclaw package itself do **not** trigger recreation.
 
 :::warning Writable layer loss
-When the identity hash changes (image upgrade, new volumes, new container options), the container is destroyed and recreated from a fresh pull of `container.image`. Any `apt install`, `pip install`, or `npm install` packages in the writable layer are lost. State in `/data` and `/home/hermes` is preserved (these are bind mounts).
+When the identity hash changes (image upgrade, new volumes, new container options), the container is destroyed and recreated from a fresh pull of `container.image`. Any `apt install`, `pip install`, or `npm install` packages in the writable layer are lost. State in `/data` and `/home/daclaw` is preserved (these are bind mounts).
 
-If the agent relies on specific packages, consider baking them into a custom image (`container.image = "my-registry/hermes-base:latest"`) or scripting their installation in the agent's SOUL.md.
+If the agent relies on specific packages, consider baking them into a custom image (`container.image = "my-registry/daclaw-base:latest"`) or scripting their installation in the agent's SOUL.md.
 :::
 
 ### GC Root Protection
@@ -644,7 +644,7 @@ nix flake check
 nix build .#checks.x86_64-linux.package-contents   # binaries exist + version
 nix build .#checks.x86_64-linux.entry-points-sync  # pyproject.toml ↔ Nix package sync
 nix build .#checks.x86_64-linux.cli-commands        # gateway/config subcommands
-nix build .#checks.x86_64-linux.managed-guard       # HERMES_MANAGED blocks mutation
+nix build .#checks.x86_64-linux.managed-guard       # DACLAW_MANAGED blocks mutation
 nix build .#checks.x86_64-linux.bundled-skills      # skills present in package
 nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves user keys
 ```
@@ -657,8 +657,8 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 | `package-contents` | `daclaw` and `daclaw-agent` binaries exist and `daclaw version` runs |
 | `entry-points-sync` | Every `[project.scripts]` entry in `pyproject.toml` has a wrapped binary in the Nix package |
 | `cli-commands` | `daclaw --help` exposes `gateway` and `config` subcommands |
-| `managed-guard` | `HERMES_MANAGED=true daclaw config set ...` prints the NixOS error |
-| `bundled-skills` | Skills directory exists, contains SKILL.md files, `HERMES_BUNDLED_SKILLS` is set in wrapper |
+| `managed-guard` | `DACLAW_MANAGED=true daclaw config set ...` prints the NixOS error |
+| `bundled-skills` | Skills directory exists, contains SKILL.md files, `DACLAW_BUNDLED_SKILLS` is set in wrapper |
 | `config-roundtrip` | 7 merge scenarios: fresh install, Nix override, user key preservation, mixed merge, MCP additive merge, nested deep merge, idempotency |
 
 </details>
@@ -676,9 +676,9 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 | `user` | `str` | `"daclaw"` | System user |
 | `group` | `str` | `"daclaw"` | System group |
 | `createUser` | `bool` | `true` | Auto-create user/group |
-| `stateDir` | `str` | `"/var/lib/hermes"` | State directory (`HERMES_HOME` parent) |
+| `stateDir` | `str` | `"/var/lib/daclaw"` | State directory (`DACLAW_HOME` parent) |
 | `workingDirectory` | `str` | `"${stateDir}/workspace"` | Agent working directory (`MESSAGING_CWD`) |
-| `addToSystemPackages` | `bool` | `false` | Add `daclaw` CLI to system PATH and set `HERMES_HOME` system-wide |
+| `addToSystemPackages` | `bool` | `false` | Add `daclaw` CLI to system PATH and set `DACLAW_HOME` system-wide |
 
 ### Configuration
 
@@ -691,7 +691,7 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `environmentFiles` | `listOf str` | `[]` | Paths to env files with secrets. Merged into `$HERMES_HOME/.env` at activation time |
+| `environmentFiles` | `listOf str` | `[]` | Paths to env files with secrets. Merged into `$DACLAW_HOME/.env` at activation time |
 | `environment` | `attrsOf str` | `{}` | Non-secret env vars. **Visible in Nix store** — do not put secrets here |
 | `authFile` | `null` or `path` | `null` | OAuth credentials seed. Only copied on first deploy |
 | `authFileForceOverwrite` | `bool` | `false` | Always overwrite `auth.json` from `authFile` on activation |
@@ -737,7 +737,7 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 | `container.image` | `str` | `"ubuntu:24.04"` | Base image (pulled at runtime) |
 | `container.extraVolumes` | `listOf str` | `[]` | Extra volume mounts (`host:container:mode`) |
 | `container.extraOptions` | `listOf str` | `[]` | Extra args passed to `docker create` |
-| `container.hostUsers` | `listOf str` | `[]` | Interactive users who get a `~/.hermes` symlink to the service stateDir and are auto-added to the `daclaw` group |
+| `container.hostUsers` | `listOf str` | `[]` | Interactive users who get a `~/.daclaw` symlink to the service stateDir and are auto-added to the `daclaw` group |
 
 ---
 
@@ -746,8 +746,8 @@ nix build .#checks.x86_64-linux.config-roundtrip    # merge script preserves use
 ### Native Mode
 
 ```
-/var/lib/hermes/                     # stateDir (owned by hermes:hermes, 0750)
-├── .hermes/                         # HERMES_HOME
+/var/lib/daclaw/                     # stateDir (owned by daclaw:daclaw, 0750)
+├── .daclaw/                         # DACLAW_HOME
 │   ├── config.yaml                  # Nix-generated (deep-merged each rebuild)
 │   ├── .managed                     # Marker: CLI config mutation blocked
 │   ├── .env                         # Merged from environment + environmentFiles
@@ -773,8 +773,8 @@ Same layout, mounted into the container:
 | Container path | Host path | Mode | Notes |
 |---|---|---|---|
 | `/nix/store` | `/nix/store` | `ro` | DAClaw binary + all Nix deps |
-| `/data` | `/var/lib/hermes` | `rw` | All state, config, workspace |
-| `/home/hermes` | `${stateDir}/home` | `rw` | Persistent agent home — `pip install --user`, tool caches |
+| `/data` | `/var/lib/daclaw` | `rw` | All state, config, workspace |
+| `/home/daclaw` | `${stateDir}/home` | `rw` | Persistent agent home — `pip install --user`, tool caches |
 | `/usr`, `/usr/local`, `/tmp` | (writable layer) | `rw` | `apt`/`pip`/`npm` installs — persists across restarts, lost on recreation |
 
 ---
@@ -827,7 +827,7 @@ If you need to reset the writable layer (fresh Ubuntu):
 ```bash
 sudo systemctl stop daclaw-agent
 docker rm -f daclaw-agent
-sudo rm /var/lib/hermes/.container-identity
+sudo rm /var/lib/daclaw/.container-identity
 sudo systemctl start daclaw-agent
 ```
 
@@ -837,10 +837,10 @@ If the agent starts but can't authenticate with the LLM provider, check that the
 
 ```bash
 # Native mode
-sudo -u daclaw cat /var/lib/hermes/.hermes/.env
+sudo -u daclaw cat /var/lib/daclaw/.daclaw/.env
 
 # Container mode
-docker exec daclaw-agent cat /data/.hermes/.env
+docker exec daclaw-agent cat /data/.daclaw/.env
 ```
 
 ### GC Root Verification
@@ -856,7 +856,7 @@ nix-store --query --roots $(docker exec daclaw-agent readlink /data/current-pack
 | `Cannot save configuration: managed by NixOS` | CLI guards active | Edit `configuration.nix` and `nixos-rebuild switch` |
 | Container recreated unexpectedly | `extraVolumes`, `extraOptions`, or `image` changed | Expected — writable layer resets. Reinstall packages or use a custom image |
 | `daclaw version` shows old version | Container not restarted | `systemctl restart daclaw-agent` |
-| Permission denied on `/var/lib/hermes` | State dir is `0750 hermes:hermes` | Use `docker exec` or `sudo -u hermes` |
+| Permission denied on `/var/lib/daclaw` | State dir is `0750 daclaw:daclaw` | Use `docker exec` or `sudo -u daclaw` |
 | `nix-collect-garbage` removed daclaw | GC root missing | Restart the service (preStart recreates the GC root) |
 | `no container with name or ID "daclaw-agent"` (Podman) | Podman rootful container not visible to regular user | Add passwordless sudo for podman (see [Container-aware CLI](#container-aware-cli) section) |
-| `unable to find user hermes` | Container still starting (entrypoint hasn't created user yet) | Wait a few seconds and retry — the CLI retries automatically |
+| `unable to find user daclaw` | Container still starting (entrypoint hasn't created user yet) | Wait a few seconds and retry — the CLI retries automatically |

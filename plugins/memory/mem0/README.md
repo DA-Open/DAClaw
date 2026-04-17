@@ -16,16 +16,16 @@ daclaw memory setup    # select "mem0"
 Or manually:
 ```bash
 daclaw config set memory.provider mem0
-echo "MEM0_API_KEY=your-key" >> ~/.hermes/.env
+echo "MEM0_API_KEY=your-key" >> ~/.daclaw/.env
 ```
 
 ## Config
 
-Config file: `$HERMES_HOME/mem0.json`
+Config file: `$DACLAW_HOME/mem0.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `user_id` | `hermes-user` | User identifier on Mem0 |
+| `user_id` | `daclaw-user` | User identifier on Mem0 |
 | `agent_id` | `daclaw` | Agent identifier |
 | `rerank` | `true` | Enable reranking for recall |
 

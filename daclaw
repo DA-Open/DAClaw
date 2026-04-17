@@ -2,11 +2,9 @@
 """
 DAClaw CLI launcher.
 
-This wrapper behaves like the installed `daclaw` command and routes to the
-same unified CLI entrypoint as the legacy `hermes` command.
+This wrapper behaves like the installed `daclaw` command.
 """
 
 if __name__ == "__main__":
-    from hermes_cli.main import main
+    from daclaw_cli.main import main
     main()
-

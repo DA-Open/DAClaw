@@ -2,6 +2,7 @@
 that only manifest at runtime (not in mocked unit tests)."""
 
 import os
+import errno
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -24,7 +25,7 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
     }
     if config_overrides:
         _clean_config.update(config_overrides)
-    clean_env = {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}
+    clean_env = {"LLM_MODEL": "", "DACLAW_MAX_ITERATIONS": ""}
     if env_overrides:
         clean_env.update(env_overrides)
     prompt_toolkit_stubs = {
@@ -53,6 +54,32 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
             return _cli_mod.DAClawCLI(**kwargs)
 
 
+class TestStdinSelectorError:
+    def test_recognizes_keyerror_from_selector(self):
+        _make_cli()
+        import cli as _cli_mod
+
+        assert _cli_mod._is_stdin_selector_error(KeyError("0 is not registered"))
+
+    def test_recognizes_einval_from_selector(self):
+        _make_cli()
+        import cli as _cli_mod
+
+        assert _cli_mod._is_stdin_selector_error(OSError(errno.EINVAL, "Invalid argument"))
+
+    def test_recognizes_bad_file_descriptor(self):
+        _make_cli()
+        import cli as _cli_mod
+
+        assert _cli_mod._is_stdin_selector_error(OSError(errno.EBADF, "Bad file descriptor"))
+
+    def test_ignores_unrelated_oserror(self):
+        _make_cli()
+        import cli as _cli_mod
+
+        assert not _cli_mod._is_stdin_selector_error(OSError(errno.ENOENT, "No such file"))
+
+
 class TestMaxTurnsResolution:
     """max_turns must always resolve to a positive integer, never None."""
 
@@ -72,7 +99,7 @@ class TestMaxTurnsResolution:
 
     def test_env_var_max_turns(self):
         """Env var is used when config file doesn't set max_turns."""
-        cli_obj = _make_cli(env_overrides={"HERMES_MAX_ITERATIONS": "42"})
+        cli_obj = _make_cli(env_overrides={"DACLAW_MAX_ITERATIONS": "42"})
         assert cli_obj.max_turns == 42
 
     def test_legacy_root_max_turns_is_used_when_agent_key_exists_without_value(self):
@@ -253,11 +280,11 @@ class TestRootLevelProviderOverride:
         """model.provider takes priority — root-level provider is only a fallback."""
         import yaml
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        daclaw_home = tmp_path / ".daclaw"
+        daclaw_home.mkdir()
+        monkeypatch.setenv("DACLAW_HOME", str(daclaw_home))
 
-        config_path = hermes_home / "config.yaml"
+        config_path = daclaw_home / "config.yaml"
         config_path.write_text(yaml.safe_dump({
             "provider": "opencode-go",  # stale root-level key
             "model": {
@@ -267,7 +294,7 @@ class TestRootLevelProviderOverride:
         }))
 
         import cli
-        monkeypatch.setattr(cli, "_hermes_home", hermes_home)
+        monkeypatch.setattr(cli, "_daclaw_home", daclaw_home)
         cfg = cli.load_cli_config()
 
         assert cfg["model"]["provider"] == "openrouter"
@@ -276,11 +303,11 @@ class TestRootLevelProviderOverride:
         """Even when model.provider is the default 'auto', root-level provider is ignored."""
         import yaml
 
-        hermes_home = tmp_path / ".hermes"
-        hermes_home.mkdir()
-        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        daclaw_home = tmp_path / ".daclaw"
+        daclaw_home.mkdir()
+        monkeypatch.setenv("DACLAW_HOME", str(daclaw_home))
 
-        config_path = hermes_home / "config.yaml"
+        config_path = daclaw_home / "config.yaml"
         config_path.write_text(yaml.safe_dump({
             "provider": "opencode-go",  # stale root key
             "model": {
@@ -290,7 +317,7 @@ class TestRootLevelProviderOverride:
         }))
 
         import cli
-        monkeypatch.setattr(cli, "_hermes_home", hermes_home)
+        monkeypatch.setattr(cli, "_daclaw_home", daclaw_home)
         cfg = cli.load_cli_config()
 
         # Root-level "opencode-go" must NOT leak through
@@ -298,7 +325,7 @@ class TestRootLevelProviderOverride:
 
     def test_normalize_root_model_keys_moves_to_model(self):
         """_normalize_root_model_keys migrates root keys into model section."""
-        from hermes_cli.config import _normalize_root_model_keys
+        from daclaw_cli.config import _normalize_root_model_keys
 
         config = {
             "provider": "opencode-go",
@@ -317,7 +344,7 @@ class TestRootLevelProviderOverride:
 
     def test_normalize_root_model_keys_does_not_override_existing(self):
         """Existing model.provider is never overridden by root-level key."""
-        from hermes_cli.config import _normalize_root_model_keys
+        from daclaw_cli.config import _normalize_root_model_keys
 
         config = {
             "provider": "stale-provider",

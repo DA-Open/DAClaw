@@ -6,7 +6,7 @@ author: DAClaw Agent
 license: MIT
 platforms: [macos]
 metadata:
-  hermes:
+  daclaw:
     tags: [Reminders, tasks, todo, macOS, Apple]
 prerequisites:
   commands: [remindctl]

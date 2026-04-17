@@ -12,7 +12,7 @@ Config via environment variables (profile-scoped via each profile's .env):
   OPENVIKING_API_KEY   — API key (required for authenticated servers)
   OPENVIKING_ACCOUNT   — Tenant account (default: default)
   OPENVIKING_USER      — Tenant user (default: default)
-  OPENVIKING_AGENT   — Tenant agent (default: hermes)
+  OPENVIKING_AGENT   — Tenant agent (default: daclaw)
 
 Capabilities:
   - Automatic memory extraction on session commit (6 categories)
@@ -303,7 +303,7 @@ class OpenVikingMemoryProvider(MemoryProvider):
             },
             {
                 "key": "agent",
-                "description": "OpenViking agent ID within the account ([hermes], useful in multi-agent mode)",
+                "description": "OpenViking agent ID within the account ([daclaw], useful in multi-agent mode)",
                 "default": "daclaw",
                 "env_var": "OPENVIKING_AGENT",
             },

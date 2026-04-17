@@ -207,7 +207,7 @@ See [ACP Editor Integration](../user-guide/features/acp.md) for setup details.
 Connect to external tools via the Model Context Protocol:
 
 ```yaml
-# Add to ~/.hermes/config.yaml
+# Add to ~/.daclaw/config.yaml
 mcp_servers:
   github:
     command: npx

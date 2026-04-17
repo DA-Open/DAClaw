@@ -8,7 +8,7 @@ description: "Chat with DAClaw from Telegram, Discord, Slack, WhatsApp, Signal, 
 
 Chat with DAClaw from Telegram, Discord, Slack, WhatsApp, Signal, SMS, Email, Home Assistant, Mattermost, Matrix, DingTalk, Feishu/Lark, WeCom, Weixin, BlueBubbles (iMessage), QQ, or your browser. The gateway is a single background process that connects to all your configured platforms, handles sessions, runs cron jobs, and delivers voice messages.
 
-For the full voice feature set — including CLI microphone mode, spoken replies in messaging, and Discord voice-channel conversations — see [Voice Mode](/docs/user-guide/features/voice-mode) and [Use Voice Mode with DAClaw](/docs/guides/use-voice-mode-with-hermes).
+For the full voice feature set — including CLI microphone mode, spoken replies in messaging, and Discord voice-channel conversations — see [Voice Mode](/docs/user-guide/features/voice-mode) and [Use Voice Mode with DAClaw](/docs/guides/use-voice-mode-with-daclaw).
 
 ## Platform Comparison
 
@@ -159,7 +159,7 @@ Sessions reset based on configurable policies:
 | Idle | 1440 min | Reset after N minutes of inactivity |
 | Both | (combined) | Whichever triggers first |
 
-Configure per-platform overrides in `~/.hermes/gateway.json`:
+Configure per-platform overrides in `~/.daclaw/gateway.json`:
 
 ```json
 {
@@ -222,7 +222,7 @@ Send any message while the agent is working to interrupt it. Key behaviors:
 
 ## Tool Progress Notifications
 
-Control how much tool activity is displayed in `~/.hermes/config.yaml`:
+Control how much tool activity is displayed in `~/.daclaw/config.yaml`:
 
 ```yaml
 display:
@@ -265,7 +265,7 @@ Each `/background` prompt spawns a **separate agent instance** that runs asynchr
 
 ### Background Process Notifications
 
-When the agent running a background session uses `terminal(background=true)` to start long-running processes (servers, builds, etc.), the gateway can push status updates to your chat. Control this with `display.background_process_notifications` in `~/.hermes/config.yaml`:
+When the agent running a background session uses `terminal(background=true)` to start long-running processes (servers, builds, etc.), the gateway can push status updates to your chat. Control this with `display.background_process_notifications` in `~/.daclaw/config.yaml`:
 
 ```yaml
 display:
@@ -282,7 +282,7 @@ display:
 You can also set this via environment variable:
 
 ```bash
-HERMES_BACKGROUND_NOTIFICATIONS=result
+DACLAW_BACKGROUND_NOTIFICATIONS=result
 ```
 
 ### Use Cases
@@ -305,7 +305,7 @@ daclaw gateway install               # Install as user service
 daclaw gateway start                 # Start the service
 daclaw gateway stop                  # Stop the service
 daclaw gateway status                # Check status
-journalctl --user -u hermes-gateway -f  # View logs
+journalctl --user -u daclaw-gateway -f  # View logs
 
 # Enable lingering (keeps running after logout)
 sudo loginctl enable-linger $USER
@@ -314,7 +314,7 @@ sudo loginctl enable-linger $USER
 sudo daclaw gateway install --system
 sudo daclaw gateway start --system
 sudo daclaw gateway status --system
-journalctl -u hermes-gateway -f
+journalctl -u daclaw-gateway -f
 ```
 
 Use the user service on laptops and dev boxes. Use the system service on VPS or headless hosts that should come back at boot without relying on systemd linger.
@@ -322,7 +322,7 @@ Use the user service on laptops and dev boxes. Use the system service on VPS or 
 Avoid keeping both the user and system gateway units installed at once unless you really mean to. DAClaw will warn if it detects both because start/stop/status behavior gets ambiguous.
 
 :::info Multiple installations
-If you run multiple DAClaw installations on the same machine (with different `HERMES_HOME` directories), each gets its own systemd service name. The default `~/.hermes` uses `hermes-gateway`; other installations use `hermes-gateway-<hash>`. The `daclaw gateway` commands automatically target the correct service for your current `HERMES_HOME`.
+If you run multiple DAClaw installations on the same machine (with different `DACLAW_HOME` directories), each gets its own systemd service name. The default `~/.daclaw` uses `daclaw-gateway`; other installations use `daclaw-gateway-<hash>`. The `daclaw gateway` commands automatically target the correct service for your current `DACLAW_HOME`.
 :::
 
 ### macOS (launchd)
@@ -332,21 +332,21 @@ daclaw gateway install               # Install as launchd agent
 daclaw gateway start                 # Start the service
 daclaw gateway stop                  # Stop the service
 daclaw gateway status                # Check status
-tail -f ~/.hermes/logs/gateway.log   # View logs
+tail -f ~/.daclaw/logs/gateway.log   # View logs
 ```
 
-The generated plist lives at `~/Library/LaunchAgents/ai.hermes.gateway.plist`. It includes three environment variables:
+The generated plist lives at `~/Library/LaunchAgents/ai.daclaw.gateway.plist`. It includes three environment variables:
 
 - **PATH** — your full shell PATH at install time, with the venv `bin/` and `node_modules/.bin` prepended. This ensures user-installed tools (Node.js, ffmpeg, etc.) are available to gateway subprocesses like the WhatsApp bridge.
 - **VIRTUAL_ENV** — points to the Python virtualenv so tools can resolve packages correctly.
-- **HERMES_HOME** — scopes the gateway to your DAClaw installation.
+- **DACLAW_HOME** — scopes the gateway to your DAClaw installation.
 
 :::tip PATH changes after install
 launchd plists are static — if you install new tools (e.g. a new Node.js version via nvm, or ffmpeg via Homebrew) after setting up the gateway, run `daclaw gateway install` again to capture the updated PATH. The gateway will detect the stale plist and reload automatically.
 :::
 
 :::info Multiple installations
-Like the Linux systemd service, each `HERMES_HOME` directory gets its own launchd label. The default `~/.hermes` uses `ai.hermes.gateway`; other installations use `ai.hermes.gateway-<suffix>`.
+Like the Linux systemd service, each `DACLAW_HOME` directory gets its own launchd label. The default `~/.daclaw` uses `ai.daclaw.gateway`; other installations use `ai.daclaw.gateway-<suffix>`.
 :::
 
 ## Platform-Specific Toolsets
@@ -355,26 +355,26 @@ Each platform has its own toolset:
 
 | Platform | Toolset | Capabilities |
 |----------|---------|--------------|
-| CLI | `hermes-cli` | Full access |
-| Telegram | `hermes-telegram` | Full tools including terminal |
-| Discord | `hermes-discord` | Full tools including terminal |
-| WhatsApp | `hermes-whatsapp` | Full tools including terminal |
-| Slack | `hermes-slack` | Full tools including terminal |
-| Signal | `hermes-signal` | Full tools including terminal |
-| SMS | `hermes-sms` | Full tools including terminal |
-| Email | `hermes-email` | Full tools including terminal |
-| Home Assistant | `hermes-homeassistant` | Full tools + HA device control (ha_list_entities, ha_get_state, ha_call_service, ha_list_services) |
-| Mattermost | `hermes-mattermost` | Full tools including terminal |
-| Matrix | `hermes-matrix` | Full tools including terminal |
-| DingTalk | `hermes-dingtalk` | Full tools including terminal |
-| Feishu/Lark | `hermes-feishu` | Full tools including terminal |
-| WeCom | `hermes-wecom` | Full tools including terminal |
-| WeCom Callback | `hermes-wecom-callback` | Full tools including terminal |
-| Weixin | `hermes-weixin` | Full tools including terminal |
-| BlueBubbles | `hermes-bluebubbles` | Full tools including terminal |
-| QQBot | `hermes-qqbot` | Full tools including terminal |
+| CLI | `daclaw-cli` | Full access |
+| Telegram | `daclaw-telegram` | Full tools including terminal |
+| Discord | `daclaw-discord` | Full tools including terminal |
+| WhatsApp | `daclaw-whatsapp` | Full tools including terminal |
+| Slack | `daclaw-slack` | Full tools including terminal |
+| Signal | `daclaw-signal` | Full tools including terminal |
+| SMS | `daclaw-sms` | Full tools including terminal |
+| Email | `daclaw-email` | Full tools including terminal |
+| Home Assistant | `daclaw-homeassistant` | Full tools + HA device control (ha_list_entities, ha_get_state, ha_call_service, ha_list_services) |
+| Mattermost | `daclaw-mattermost` | Full tools including terminal |
+| Matrix | `daclaw-matrix` | Full tools including terminal |
+| DingTalk | `daclaw-dingtalk` | Full tools including terminal |
+| Feishu/Lark | `daclaw-feishu` | Full tools including terminal |
+| WeCom | `daclaw-wecom` | Full tools including terminal |
+| WeCom Callback | `daclaw-wecom-callback` | Full tools including terminal |
+| Weixin | `daclaw-weixin` | Full tools including terminal |
+| BlueBubbles | `daclaw-bluebubbles` | Full tools including terminal |
+| QQBot | `daclaw-qqbot` | Full tools including terminal |
 | API Server | `daclaw` (default) | Full tools including terminal |
-| Webhooks | `hermes-webhook` | Full tools including terminal |
+| Webhooks | `daclaw-webhook` | Full tools including terminal |
 
 ## Next Steps
 

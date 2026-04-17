@@ -6,7 +6,7 @@ the best available backend without duplicating fallback logic.
 
 Resolution order for text tasks (auto mode):
   1. OpenRouter  (OPENROUTER_API_KEY)
-  2. Nous Portal (~/.hermes/auth.json active provider)
+  2. Nous Portal (~/.daclaw/auth.json active provider)
   3. Custom endpoint (config.yaml model.base_url + OPENAI_API_KEY)
   4. Codex OAuth (Responses API via chatgpt.com with gpt-5.3-codex,
      wrapped to look like a chat.completions client)
@@ -43,11 +43,16 @@ from pathlib import Path  # noqa: F401 — used by test mocks
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
 
 from agent.credential_pool import load_pool
-from hermes_cli.config import get_hermes_home
-from hermes_constants import OPENROUTER_BASE_URL
+from agent.endpoint_options import (
+    DEFAULT_ENDPOINT_API_VERSION,
+    attach_azure_compatible_client_marker,
+    normalize_endpoint_client_options,
+)
+from daclaw_cli.config import get_daclaw_home
+from daclaw_constants import OPENROUTER_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +142,6 @@ _NOUS_FREE_TIER_VISION_MODEL = "xiaomi/mimo-v2-omni"
 _NOUS_FREE_TIER_AUX_MODEL = "xiaomi/mimo-v2-pro"
 _NOUS_DEFAULT_BASE_URL = "https://inference-api.nousresearch.com/v1"
 _ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
-_AUTH_JSON_PATH = get_hermes_home() / "auth.json"
 
 # Codex fallback: uses the Responses API (the only endpoint the Codex
 # OAuth token can access) with a fast model for auxiliary tasks.
@@ -588,7 +592,7 @@ class AsyncAnthropicAuxiliaryClient:
 
 
 def _read_nous_auth() -> Optional[dict]:
-    """Read and validate ~/.hermes/auth.json for an active Nous provider.
+    """Read and validate ~/.daclaw/auth.json for an active Nous provider.
 
     Returns the provider state dict if Nous is active with tokens,
     otherwise None.
@@ -610,9 +614,10 @@ def _read_nous_auth() -> Optional[dict]:
         }
 
     try:
-        if not _AUTH_JSON_PATH.is_file():
+        auth_json_path = get_daclaw_home() / "auth.json"
+        if not auth_json_path.is_file():
             return None
-        data = json.loads(_AUTH_JSON_PATH.read_text())
+        data = json.loads(auth_json_path.read_text())
         if data.get("active_provider") != "nous":
             return None
         provider = data.get("providers", {}).get("nous", {})
@@ -644,14 +649,8 @@ def _read_codex_access_token() -> Optional[str]:
     fallback-to-Codex working when the pool state is stale but the stored OAuth
     token is still valid.
     """
-    pool_present, entry = _select_pool_entry("openai-codex")
-    if pool_present:
-        token = _pool_runtime_api_key(entry)
-        if token:
-            return token
-
     try:
-        from hermes_cli.auth import _read_codex_tokens
+        from daclaw_cli.auth import _read_codex_tokens
         data = _read_codex_tokens()
         tokens = data.get("tokens", {})
         access_token = tokens.get("access_token")
@@ -675,7 +674,15 @@ def _read_codex_access_token() -> Optional[str]:
         return access_token.strip()
     except Exception as exc:
         logger.debug("Could not read Codex auth for auxiliary client: %s", exc)
-        return None
+        if (get_daclaw_home() / "auth.json").exists():
+            return None
+
+    pool_present, entry = _select_pool_entry("openai-codex")
+    if pool_present:
+        token = _pool_runtime_api_key(entry)
+        if token:
+            return token
+    return None
 
 
 def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
@@ -685,7 +692,7 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
     credentials, or (None, None) if none are configured.
     """
     try:
-        from hermes_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
+        from daclaw_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
     except ImportError:
         logger.debug("Could not import PROVIDER_REGISTRY for API-key fallback")
         return None, None
@@ -698,7 +705,7 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
             # Without this gate, Claude Code credentials get silently used
             # as auxiliary fallback when the user's primary provider fails.
             try:
-                from hermes_cli.auth import is_provider_explicitly_configured
+                from daclaw_cli.auth import is_provider_explicitly_configured
                 if not is_provider_explicitly_configured("anthropic"):
                     continue
             except ImportError:
@@ -722,7 +729,7 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
             if "api.kimi.com" in base_url.lower():
                 extra["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
             elif "api.githubcopilot.com" in base_url.lower():
-                from hermes_cli.models import copilot_default_headers
+                from daclaw_cli.models import copilot_default_headers
 
                 extra["default_headers"] = copilot_default_headers()
             return OpenAI(api_key=api_key, base_url=base_url, **extra), model
@@ -743,7 +750,7 @@ def _resolve_api_key_provider() -> Tuple[Optional[OpenAI], Optional[str]]:
         if "api.kimi.com" in base_url.lower():
             extra["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
         elif "api.githubcopilot.com" in base_url.lower():
-            from hermes_cli.models import copilot_default_headers
+            from daclaw_cli.models import copilot_default_headers
 
             extra["default_headers"] = copilot_default_headers()
         return OpenAI(api_key=api_key, base_url=base_url, **extra), model
@@ -803,7 +810,7 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
     # Free-tier users can't use paid auxiliary models — use the free
     # models instead: mimo-v2-omni for vision, mimo-v2-pro for text tasks.
     try:
-        from hermes_cli.models import check_nous_free_tier
+        from daclaw_cli.models import check_nous_free_tier
         if check_nous_free_tier():
             model = _NOUS_FREE_TIER_VISION_MODEL if vision else _NOUS_FREE_TIER_AUX_MODEL
             logger.debug("Free-tier Nous account — using %s for auxiliary/%s",
@@ -826,7 +833,7 @@ def _read_main_model() -> str:
     model. Environment variables are no longer consulted.
     """
     try:
-        from hermes_cli.config import load_config
+        from daclaw_cli.config import load_config
         cfg = load_config()
         model_cfg = cfg.get("model", {})
         if isinstance(model_cfg, str) and model_cfg.strip():
@@ -847,7 +854,7 @@ def _read_main_provider() -> str:
     if not configured.
     """
     try:
-        from hermes_cli.config import load_config
+        from daclaw_cli.config import load_config
         cfg = load_config()
         model_cfg = cfg.get("model", {})
         if isinstance(model_cfg, dict):
@@ -859,7 +866,7 @@ def _read_main_provider() -> str:
     return ""
 
 
-def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[str]]:
+def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[str], Dict[str, Any]]:
     """Resolve the active custom/main endpoint the same way the main CLI does.
 
     This covers both env-driven OPENAI_BASE_URL setups and config-saved custom
@@ -867,7 +874,7 @@ def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[st
     environment.
     """
     try:
-        from hermes_cli.runtime_provider import resolve_runtime_provider
+        from daclaw_cli.runtime_provider import resolve_runtime_provider
 
         runtime = resolve_runtime_provider(requested="custom")
     except Exception as exc:
@@ -878,7 +885,7 @@ def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[st
         openai_base = os.getenv("OPENAI_BASE_URL", "").strip().rstrip("/")
         openai_key = os.getenv("OPENAI_API_KEY", "").strip()
         if not openai_base:
-            return None, None, None
+            return None, None, None, {}
         runtime = {
             "base_url": openai_base,
             "api_key": openai_key,
@@ -887,14 +894,15 @@ def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[st
     custom_base = runtime.get("base_url")
     custom_key = runtime.get("api_key")
     custom_mode = runtime.get("api_mode")
+    client_options = normalize_endpoint_client_options(runtime.get("client_options"))
     if not isinstance(custom_base, str) or not custom_base.strip():
-        return None, None, None
+        return None, None, None, {}
 
     custom_base = custom_base.strip().rstrip("/")
     if "openrouter.ai" in custom_base.lower():
         # requested='custom' falls back to OpenRouter when no custom endpoint is
         # configured. Treat that as "no custom endpoint" for auxiliary routing.
-        return None, None, None
+        return None, None, None, {}
 
     # Local servers (Ollama, llama.cpp, vLLM, LM Studio) don't require auth.
     # Use a placeholder key — the OpenAI SDK requires a non-empty string but
@@ -906,11 +914,11 @@ def _resolve_custom_runtime() -> Tuple[Optional[str], Optional[str], Optional[st
     if not isinstance(custom_mode, str) or not custom_mode.strip():
         custom_mode = None
 
-    return custom_base, custom_key.strip(), custom_mode
+    return custom_base, custom_key.strip(), custom_mode, client_options
 
 
 def _current_custom_base_url() -> str:
-    custom_base, _, _ = _resolve_custom_runtime()
+    custom_base, _, _, _ = _resolve_custom_runtime()
     return custom_base or ""
 
 
@@ -959,41 +967,83 @@ def _validate_base_url(base_url: str) -> None:
         ) from exc
 
 
+def _build_custom_endpoint_client(
+    *,
+    api_key: str,
+    base_url: str,
+    api_mode: Optional[str],
+    model: str,
+    client_options: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """Build a sync client for custom chat/responses/Azure-compatible modes."""
+    options = normalize_endpoint_client_options(client_options)
+    headers = dict(options.get("default_headers") or {})
+
+    if api_mode == "codex_responses":
+        real_client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            **({"default_headers": headers} if headers else {}),
+        )
+        return CodexAuxiliaryClient(real_client, model)
+
+    if api_mode == "azure_chat_completions":
+        client = AzureOpenAI(
+            api_key=api_key,
+            azure_endpoint=base_url,
+            api_version=options.get("api_version") or DEFAULT_ENDPOINT_API_VERSION,
+            **({"default_headers": headers} if headers else {}),
+        )
+        return attach_azure_compatible_client_marker(
+            client,
+            endpoint=base_url,
+            client_options={
+                "api_version": options.get("api_version") or DEFAULT_ENDPOINT_API_VERSION,
+                "default_headers": headers,
+            },
+        )
+
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        **({"default_headers": headers} if headers else {}),
+    )
+
+
 def _try_custom_endpoint() -> Tuple[Optional[OpenAI], Optional[str]]:
     runtime = _resolve_custom_runtime()
     if len(runtime) == 2:
         custom_base, custom_key = runtime
         custom_mode = None
-    else:
+        client_options = {}
+    elif len(runtime) == 3:
         custom_base, custom_key, custom_mode = runtime
+        client_options = {}
+    else:
+        custom_base, custom_key, custom_mode, client_options = runtime
     if not custom_base or not custom_key:
         return None, None
     if custom_base.lower().startswith(_CODEX_AUX_BASE_URL.lower()):
         return None, None
     model = _read_main_model() or "gpt-4o-mini"
     logger.debug("Auxiliary client: custom endpoint (%s, api_mode=%s)", model, custom_mode or "chat_completions")
-    if custom_mode == "codex_responses":
-        real_client = OpenAI(api_key=custom_key, base_url=custom_base)
-        return CodexAuxiliaryClient(real_client, model), model
-    return OpenAI(api_key=custom_key, base_url=custom_base), model
+    return (
+        _build_custom_endpoint_client(
+            api_key=custom_key,
+            base_url=custom_base,
+            api_mode=custom_mode,
+            model=model,
+            client_options=client_options,
+        ),
+        model,
+    )
 
 
 def _try_codex() -> Tuple[Optional[Any], Optional[str]]:
-    pool_present, entry = _select_pool_entry("openai-codex")
-    if pool_present:
-        codex_token = _pool_runtime_api_key(entry)
-        if codex_token:
-            base_url = _pool_runtime_base_url(entry, _CODEX_AUX_BASE_URL) or _CODEX_AUX_BASE_URL
-        else:
-            codex_token = _read_codex_access_token()
-            if not codex_token:
-                return None, None
-            base_url = _CODEX_AUX_BASE_URL
-    else:
-        codex_token = _read_codex_access_token()
-        if not codex_token:
-            return None, None
-        base_url = _CODEX_AUX_BASE_URL
+    codex_token = _read_codex_access_token()
+    if not codex_token:
+        return None, None
+    base_url = _CODEX_AUX_BASE_URL
     logger.debug("Auxiliary client: Codex OAuth (%s via Responses API)", _CODEX_AUX_MODEL)
     real_client = OpenAI(api_key=codex_token, base_url=base_url)
     return CodexAuxiliaryClient(real_client, _CODEX_AUX_MODEL), _CODEX_AUX_MODEL
@@ -1021,7 +1071,7 @@ def _try_anthropic() -> Tuple[Optional[Any], Optional[str]]:
     # base_url (e.g. Codex endpoint) would leak into Anthropic requests.
     base_url = _pool_runtime_base_url(entry, _ANTHROPIC_DEFAULT_BASE_URL) if pool_present else _ANTHROPIC_DEFAULT_BASE_URL
     try:
-        from hermes_cli.config import load_config
+        from daclaw_cli.config import load_config
         cfg = load_config()
         model_cfg = cfg.get("model")
         if isinstance(model_cfg, dict):
@@ -1205,7 +1255,7 @@ def _resolve_auto(main_runtime: Optional[Dict[str, Any]] = None) -> Tuple[Option
     # ── Warn once if OPENAI_BASE_URL is set but config.yaml uses a named
     #    provider (not 'custom').  This catches the common "env poisoning"
     #    scenario where a user switches providers via `daclaw model` but the
-    #    old OPENAI_BASE_URL lingers in ~/.hermes/.env. ──
+    #    old OPENAI_BASE_URL lingers in ~/.daclaw/.env. ──
     if not _stale_base_url_warned:
         _env_base = os.getenv("OPENAI_BASE_URL", "").strip()
         _cfg_provider = runtime_provider or _read_main_provider()
@@ -1216,7 +1266,7 @@ def _resolve_auto(main_runtime: Optional[Dict[str, Any]] = None) -> Tuple[Option
                 "OPENAI_BASE_URL is set (%s) but model.provider is '%s'. "
                 "Auxiliary clients may route to the wrong endpoint. "
                 "Run: daclaw model to reconfigure, or remove "
-                "OPENAI_BASE_URL from ~/.hermes/.env",
+                "OPENAI_BASE_URL from ~/.daclaw/.env",
                 _env_base, _cfg_provider,
             )
             _stale_base_url_warned = True
@@ -1299,7 +1349,7 @@ def _to_async_client(sync_client, model: str):
     if "openrouter" in base_lower:
         async_kwargs["default_headers"] = dict(_OR_HEADERS)
     elif "api.githubcopilot.com" in base_lower:
-        from hermes_cli.models import copilot_default_headers
+        from daclaw_cli.models import copilot_default_headers
 
         async_kwargs["default_headers"] = copilot_default_headers()
     elif "api.kimi.com" in base_lower:
@@ -1312,7 +1362,7 @@ def _normalize_resolved_model(model_name: Optional[str], provider: str) -> Optio
     if not model_name:
         return model_name
     try:
-        from hermes_cli.model_normalize import normalize_model_for_provider
+        from daclaw_cli.model_normalize import normalize_model_for_provider
 
         return normalize_model_for_provider(model_name, provider)
     except Exception:
@@ -1483,7 +1533,7 @@ def resolve_provider_client(
             if "api.kimi.com" in custom_base.lower():
                 extra["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
             elif "api.githubcopilot.com" in custom_base.lower():
-                from hermes_cli.models import copilot_default_headers
+                from daclaw_cli.models import copilot_default_headers
                 extra["default_headers"] = copilot_default_headers()
             client = OpenAI(api_key=custom_key, base_url=custom_base, **extra)
             client = _wrap_if_needed(client, final_model, custom_base)
@@ -1505,7 +1555,7 @@ def resolve_provider_client(
 
     # ── Named custom providers (config.yaml custom_providers list) ───
     try:
-        from hermes_cli.runtime_provider import _get_named_custom_provider
+        from daclaw_cli.runtime_provider import _get_named_custom_provider
         custom_entry = _get_named_custom_provider(provider)
         if custom_entry:
             custom_base = custom_entry.get("base_url", "").strip()
@@ -1535,13 +1585,13 @@ def resolve_provider_client(
 
     # ── API-key providers from PROVIDER_REGISTRY ─────────────────────
     try:
-        from hermes_cli.auth import (
+        from daclaw_cli.auth import (
             PROVIDER_REGISTRY,
             resolve_api_key_provider_credentials,
             resolve_external_process_provider_credentials,
         )
     except ImportError:
-        logger.debug("hermes_cli.auth not available for provider %s", provider)
+        logger.debug("daclaw_cli.auth not available for provider %s", provider)
         return None, None
 
     pconfig = PROVIDER_REGISTRY.get(provider)
@@ -1581,7 +1631,7 @@ def resolve_provider_client(
         if "api.kimi.com" in base_url.lower():
             headers["User-Agent"] = "KimiCLI/1.30.0"
         elif "api.githubcopilot.com" in base_url.lower():
-            from hermes_cli.models import copilot_default_headers
+            from daclaw_cli.models import copilot_default_headers
 
             headers.update(copilot_default_headers())
 
@@ -1594,7 +1644,7 @@ def resolve_provider_client(
         # routes through responses.stream().
         if provider == "copilot" and final_model and not raw_codex:
             try:
-                from hermes_cli.models import _should_use_copilot_responses_api
+                from daclaw_cli.models import _should_use_copilot_responses_api
                 if _should_use_copilot_responses_api(final_model):
                     logger.debug(
                         "resolve_provider_client: copilot model %s needs "
@@ -1822,8 +1872,9 @@ def resolve_vision_provider_client(
                     return _finalize(main_provider, sync_client, default_model)
             else:
                 # Exotic provider (DeepSeek, Alibaba, Xiaomi, named custom, etc.)
-                # Use provider-specific vision model if available, otherwise main model.
-                vision_model = _PROVIDER_VISION_MODELS.get(main_provider, main_model)
+                # Use the user's explicit main model first; provider-specific
+                # vision defaults only fill in when no main model is configured.
+                vision_model = main_model or _PROVIDER_VISION_MODELS.get(main_provider)
                 rpc_client, rpc_model = resolve_provider_client(
                     main_provider, vision_model,
                     api_mode=resolved_api_mode)
@@ -2139,7 +2190,7 @@ def _resolve_task_provider_model(
 
     if task:
         try:
-            from hermes_cli.config import load_config
+            from daclaw_cli.config import load_config
             config = load_config()
         except ImportError:
             config = {}
@@ -2182,7 +2233,7 @@ def _get_task_timeout(task: str, default: float = _DEFAULT_AUX_TIMEOUT) -> float
     if not task:
         return default
     try:
-        from hermes_cli.config import load_config
+        from daclaw_cli.config import load_config
         config = load_config()
     except ImportError:
         return default

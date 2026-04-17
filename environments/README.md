@@ -16,7 +16,7 @@ This directory contains the integration layer between **daclaw-agent's** tool-ca
                     └───────────┬───────────┘
                                 │ inherits
                     ┌───────────┴───────────┐
-                    │  DAClawAgentBaseEnv    │  hermes_base_env.py
+                    │  DAClawAgentBaseEnv    │  daclaw_base_env.py
                     │  - Terminal backend    │
                     │  - Tool resolution     │
                     │  - Agent loop          │
@@ -39,7 +39,7 @@ This directory contains the integration layer between **daclaw-agent's** tool-ca
 - CLI interface with three subcommands: `serve`, `process`, `evaluate`
 - `evaluate_log()` for saving eval results to JSON + samples.jsonl
 
-**DAClawAgentBaseEnv** (`hermes_base_env.py`) extends BaseEnv with daclaw-agent specifics:
+**DAClawAgentBaseEnv** (`daclaw_base_env.py`) extends BaseEnv with daclaw-agent specifics:
 - Sets `os.environ["TERMINAL_ENV"]` to configure the terminal backend (local, docker, modal, daytona, ssh, singularity)
 - Resolves daclaw-agent toolsets via `_resolve_tools_for_group()` (calls `get_tool_definitions()` which queries `tools/registry.py`)
 - Implements `collect_trajectory()` which runs the full agent loop and computes rewards
@@ -159,14 +159,14 @@ Uses ManagedServer for exact token IDs + logprobs via `/generate`. Client-side t
 environments/
 ├── README.md                     # This file
 ├── __init__.py                   # Package exports
-├── hermes_base_env.py            # Abstract base (DAClawAgentBaseEnv)
+├── daclaw_base_env.py            # Abstract base (DAClawAgentBaseEnv)
 ├── agent_loop.py                 # Multi-turn agent engine (DAClawAgentLoop)
 ├── tool_context.py               # Per-rollout tool access for reward functions
 ├── patches.py                    # Async-safety patches for Modal backend
 │
 ├── tool_call_parsers/            # Phase 2 client-side parsers
 │   ├── __init__.py               # Registry + base class
-│   ├── hermes_parser.py
+│   ├── daclaw_parser.py
 │   ├── mistral_parser.py
 │   ├── llama_parser.py
 │   ├── qwen_parser.py
@@ -181,8 +181,8 @@ environments/
 ├── terminal_test_env/            # Stack validation environment
 │   └── terminal_test_env.py
 │
-├── hermes_swe_env/               # SWE-bench style training environment
-│   └── hermes_swe_env.py
+├── daclaw_swe_env/               # SWE-bench style training environment
+│   └── daclaw_swe_env.py
 │
 └── benchmarks/                   # Evaluation benchmarks
     ├── terminalbench_2/          # 89 terminal tasks, Modal sandboxes
@@ -209,12 +209,12 @@ python environments/terminal_test_env/terminal_test_env.py process \
     --env.data_path_to_save_groups terminal_test_output.jsonl
 ```
 
-### DAClawSweEnv (`hermes_swe_env/`)
+### DAClawSweEnv (`daclaw_swe_env/`)
 
 SWE-bench style training environment. The model gets a coding task, uses terminal + file + web tools to solve it, and the reward function runs tests in the same Modal sandbox.
 
 ```bash
-python environments/hermes_swe_env/hermes_swe_env.py serve \
+python environments/daclaw_swe_env/daclaw_swe_env.py serve \
     --openai.model_name YourModel \
     --env.dataset_name bigcode/humanevalpack \
     --env.terminal_backend modal
@@ -255,7 +255,7 @@ python environments/benchmarks/terminalbench_2/terminalbench2_env.py evaluate \
 3. Implement the four abstract methods + `evaluate()`
 
 ```python
-from environments.hermes_base_env import DAClawAgentBaseEnv, DAClawAgentEnvConfig
+from environments.daclaw_base_env import DAClawAgentBaseEnv, DAClawAgentEnvConfig
 
 class MyEnvConfig(DAClawAgentEnvConfig):
     pass  # Add custom fields as needed

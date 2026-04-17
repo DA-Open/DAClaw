@@ -40,7 +40,7 @@ def _get_max_read_chars() -> int:
     if _max_read_chars_cached is not None:
         return _max_read_chars_cached
     try:
-        from hermes_cli.config import load_config
+        from daclaw_cli.config import load_config
         cfg = load_config()
         val = cfg.get("file_read_max_chars")
         if isinstance(val, (int, float)) and val > 0:
@@ -308,11 +308,11 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
 
         # ── DAClaw internal path guard ────────────────────────────────
         # Prevent prompt injection via catalog or hub metadata files.
-        from hermes_constants import get_hermes_home as _get_hh
-        _hermes_home = _get_hh().resolve()
+        from daclaw_constants import get_daclaw_home as _get_hh
+        _daclaw_home = _get_hh().resolve()
         _blocked_dirs = [
-            _hermes_home / "skills" / ".hub" / "index-cache",
-            _hermes_home / "skills" / ".hub",
+            _daclaw_home / "skills" / ".hub" / "index-cache",
+            _daclaw_home / "skills" / ".hub",
         ]
         for _blocked in _blocked_dirs:
             try:

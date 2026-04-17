@@ -83,7 +83,7 @@ The foundation from `atroposlib`. Provides:
 
 ### DAClawAgentBaseEnv
 
-The daclaw-agent layer (`environments/hermes_base_env.py`). Adds:
+The daclaw-agent layer (`environments/daclaw_base_env.py`). Adds:
 - **Terminal backend configuration** — sets `TERMINAL_ENV` for sandboxed execution (local, Docker, Modal, Daytona, SSH, Singularity)
 - **Tool resolution** — `_resolve_tools_for_group()` calls daclaw-agent's `get_tool_definitions()` to get the right tool schemas based on enabled/disabled toolsets
 - **Agent loop integration** — `collect_trajectory()` runs `DAClawAgentLoop` and scores the result
@@ -278,7 +278,7 @@ python environments/terminal_test_env/terminal_test_env.py serve
 SWE-bench style training environment. The model gets a coding task, uses terminal + file + web tools to solve it, and the reward function runs tests in the same Modal sandbox.
 
 ```bash
-python environments/hermes_swe_env/hermes_swe_env.py serve \
+python environments/daclaw_swe_env/daclaw_swe_env.py serve \
     --openai.model_name YourModel \
     --env.dataset_name bigcode/humanevalpack \
     --env.terminal_backend modal
@@ -321,7 +321,7 @@ Connects the environment to a running Atropos API server (`run-api`). Used durin
 run-api
 
 # Terminal 2: Start the environment
-python environments/hermes_swe_env/hermes_swe_env.py serve \
+python environments/daclaw_swe_env/daclaw_swe_env.py serve \
     --openai.model_name YourModel
 ```
 
@@ -349,7 +349,7 @@ Uses ManagedServer for exact token IDs + logprobs via `/generate`. A client-side
 ### Training Environment
 
 ```python
-from environments.hermes_base_env import DAClawAgentBaseEnv, DAClawAgentEnvConfig
+from environments.daclaw_base_env import DAClawAgentBaseEnv, DAClawAgentEnvConfig
 from atroposlib.envs.server_handling.server_manager import APIServerConfig
 
 class MyEnvConfig(DAClawAgentEnvConfig):
@@ -497,13 +497,13 @@ See [RL Training](/user-guide/features/rl-training) for the agent-driven RL work
 
 ```
 environments/
-├── hermes_base_env.py          # Abstract base class (DAClawAgentBaseEnv)
+├── daclaw_base_env.py          # Abstract base class (DAClawAgentBaseEnv)
 ├── agent_loop.py               # Multi-turn agent engine (DAClawAgentLoop)
 ├── tool_context.py             # Per-rollout tool access for reward functions
 ├── patches.py                  # Async-safety patches for Modal backend
 │
 ├── tool_call_parsers/          # Phase 2 client-side parsers
-│   ├── hermes_parser.py        # DAClaw/ChatML <tool_call> format
+│   ├── daclaw_parser.py        # DAClaw/ChatML <tool_call> format
 │   ├── mistral_parser.py       # Mistral [TOOL_CALLS] format
 │   ├── llama_parser.py         # Llama 3 JSON tool calling
 │   ├── qwen_parser.py          # Qwen format
@@ -511,7 +511,7 @@ environments/
 │   └── ...                     # + kimi_k2, longcat, glm45/47, etc.
 │
 ├── terminal_test_env/          # Stack validation (inline tasks)
-├── hermes_swe_env/             # SWE-bench training environment
+├── daclaw_swe_env/             # SWE-bench training environment
 │
 └── benchmarks/                 # Evaluation benchmarks
     ├── terminalbench_2/        # 89 terminal tasks, Modal sandboxes

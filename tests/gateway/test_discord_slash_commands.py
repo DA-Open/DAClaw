@@ -580,15 +580,15 @@ def test_discord_auto_thread_config_bridge(monkeypatch, tmp_path):
     from pathlib import Path
 
     # Write a config.yaml the loader will find
-    hermes_dir = tmp_path / ".hermes"
-    hermes_dir.mkdir()
-    config_path = hermes_dir / "config.yaml"
+    daclaw_dir = tmp_path / ".daclaw"
+    daclaw_dir.mkdir()
+    config_path = daclaw_dir / "config.yaml"
     config_path.write_text(yaml.dump({
         "discord": {"auto_thread": True},
     }))
 
     monkeypatch.delenv("DISCORD_AUTO_THREAD", raising=False)
-    monkeypatch.setenv("HERMES_HOME", str(hermes_dir))
+    monkeypatch.setenv("DACLAW_HOME", str(daclaw_dir))
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     from gateway.config import load_gateway_config
@@ -619,7 +619,7 @@ def test_register_skill_group_creates_group(adapter):
     ]
 
     with patch(
-        "hermes_cli.commands.discord_skill_commands_by_category",
+        "daclaw_cli.commands.discord_skill_commands_by_category",
         return_value=(mock_categories, mock_uncategorized, 0),
     ):
         adapter._register_slash_commands()
@@ -642,7 +642,7 @@ def test_register_skill_group_creates_group(adapter):
 def test_register_skill_group_empty_skills_no_group(adapter):
     """No /skill group should be added when there are zero skills."""
     with patch(
-        "hermes_cli.commands.discord_skill_commands_by_category",
+        "daclaw_cli.commands.discord_skill_commands_by_category",
         return_value=({}, [], 0),
     ):
         adapter._register_slash_commands()
@@ -660,7 +660,7 @@ def test_register_skill_group_handler_dispatches_command(adapter):
     }
 
     with patch(
-        "hermes_cli.commands.discord_skill_commands_by_category",
+        "daclaw_cli.commands.discord_skill_commands_by_category",
         return_value=(mock_categories, [], 0),
     ):
         adapter._register_slash_commands()

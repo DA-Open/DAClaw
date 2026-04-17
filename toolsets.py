@@ -28,7 +28,7 @@ from typing import List, Dict, Any, Set, Optional
 
 # Shared tool list for CLI and all messaging platform toolsets.
 # Edit this once to update all platforms simultaneously.
-_HERMES_CORE_TOOLS = [
+_DACLAW_CORE_TOOLS = [
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -223,7 +223,7 @@ TOOLSETS = {
     # which is gated on gateway running via its check_fn).
     # ==========================================================================
 
-    "hermes-acp": {
+    "daclaw-acp": {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
             "web_search", "web_extract",
@@ -242,7 +242,7 @@ TOOLSETS = {
         "includes": []
     },
 
-    "hermes-api-server": {
+    "daclaw-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
             # Web
@@ -275,124 +275,124 @@ TOOLSETS = {
         "includes": []
     },
     
-    "hermes-cli": {
+    "daclaw-cli": {
         "description": "Full interactive CLI toolset - all default tools plus cronjob management",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-telegram": {
+    "daclaw-telegram": {
         "description": "Telegram bot toolset - full access for personal use (terminal has safety checks)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-discord": {
+    "daclaw-discord": {
         "description": "Discord bot toolset - full access (terminal has safety checks via dangerous command approval)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-whatsapp": {
+    "daclaw-whatsapp": {
         "description": "WhatsApp bot toolset - similar to Telegram (personal messaging, more trusted)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-slack": {
+    "daclaw-slack": {
         "description": "Slack bot toolset - full access for workspace use (terminal has safety checks)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
     
-    "hermes-signal": {
+    "daclaw-signal": {
         "description": "Signal bot toolset - encrypted messaging platform (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-bluebubbles": {
+    "daclaw-bluebubbles": {
         "description": "BlueBubbles iMessage bot toolset - Apple iMessage via local BlueBubbles server",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-homeassistant": {
+    "daclaw-homeassistant": {
         "description": "Home Assistant bot toolset - smart home event monitoring and control",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-email": {
+    "daclaw-email": {
         "description": "Email bot toolset - interact with DAClaw via email (IMAP/SMTP)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-mattermost": {
+    "daclaw-mattermost": {
         "description": "Mattermost bot toolset - self-hosted team messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-matrix": {
+    "daclaw-matrix": {
         "description": "Matrix bot toolset - decentralized encrypted messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-dingtalk": {
+    "daclaw-dingtalk": {
         "description": "DingTalk bot toolset - enterprise messaging platform (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-feishu": {
+    "daclaw-feishu": {
         "description": "Feishu/Lark bot toolset - enterprise messaging via Feishu/Lark (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-weixin": {
+    "daclaw-weixin": {
         "description": "Weixin bot toolset - personal WeChat messaging via iLink (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-qqbot": {
+    "daclaw-qqbot": {
         "description": "QQBot toolset - QQ messaging via Official Bot API v2 (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-wecom": {
+    "daclaw-wecom": {
         "description": "WeCom bot toolset - enterprise WeChat messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-wecom-callback": {
+    "daclaw-wecom-callback": {
         "description": "WeCom callback toolset - enterprise self-built app messaging (full access)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-sms": {
+    "daclaw-sms": {
         "description": "SMS bot toolset - interact with DAClaw via SMS (Twilio)",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-webhook": {
+    "daclaw-webhook": {
         "description": "Webhook toolset - receive and process external webhook events",
-        "tools": _HERMES_CORE_TOOLS,
+        "tools": _DACLAW_CORE_TOOLS,
         "includes": []
     },
 
-    "hermes-gateway": {
+    "daclaw-gateway": {
         "description": "Gateway toolset - union of all messaging platform tools",
         "tools": [],
-        "includes": ["hermes-telegram", "hermes-discord", "hermes-whatsapp", "hermes-slack", "hermes-signal", "hermes-bluebubbles", "hermes-homeassistant", "hermes-email", "hermes-sms", "hermes-mattermost", "hermes-matrix", "hermes-dingtalk", "hermes-feishu", "hermes-wecom", "hermes-wecom-callback", "hermes-weixin", "hermes-qqbot", "hermes-webhook"]
+        "includes": ["daclaw-telegram", "daclaw-discord", "daclaw-whatsapp", "daclaw-slack", "daclaw-signal", "daclaw-bluebubbles", "daclaw-homeassistant", "daclaw-email", "daclaw-sms", "daclaw-mattermost", "daclaw-matrix", "daclaw-dingtalk", "daclaw-feishu", "daclaw-wecom", "daclaw-wecom-callback", "daclaw-weixin", "daclaw-qqbot", "daclaw-webhook"]
     }
 }
 

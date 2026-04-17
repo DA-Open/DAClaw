@@ -144,7 +144,7 @@ class TestMem0UserIdScoping:
         # Mock _load_config to return a config with default user_id
         with patch("plugins.memory.mem0._load_config", return_value={
             "api_key": "test-key",
-            "user_id": "hermes-user",
+            "user_id": "daclaw-user",
             "agent_id": "daclaw",
             "rerank": True,
         }):
@@ -167,8 +167,8 @@ class TestMem0UserIdScoping:
 
         assert provider._user_id == "custom-default"
 
-    def test_no_user_id_no_config_uses_hermes_user(self):
-        """Without user_id or config override, should default to 'hermes-user'."""
+    def test_no_user_id_no_config_uses_daclaw_user(self):
+        """Without user_id or config override, should default to 'daclaw-user'."""
         from plugins.memory.mem0 import Mem0MemoryProvider
 
         provider = Mem0MemoryProvider()
@@ -179,7 +179,7 @@ class TestMem0UserIdScoping:
         }):
             provider.initialize(session_id="test-sess")
 
-        assert provider._user_id == "hermes-user"
+        assert provider._user_id == "daclaw-user"
 
     def test_different_users_get_different_ids(self):
         """Two providers initialized with different user_ids should be scoped differently."""
@@ -190,7 +190,7 @@ class TestMem0UserIdScoping:
 
         with patch("plugins.memory.mem0._load_config", return_value={
             "api_key": "test-key",
-            "user_id": "hermes-user",
+            "user_id": "daclaw-user",
             "agent_id": "daclaw",
             "rerank": True,
         }):
@@ -273,7 +273,7 @@ class TestAIAgentUserIdPropagation:
 
     def test_user_id_stored_on_agent(self):
         """AIAgent should store user_id as instance attribute."""
-        with patch.dict(os.environ, {"HERMES_HOME": "/tmp/test_hermes"}):
+        with patch.dict(os.environ, {"DACLAW_HOME": "/tmp/test_daclaw"}):
             from run_agent import AIAgent
             agent = object.__new__(AIAgent)
             # Manually set the attribute as __init__ does
@@ -282,7 +282,7 @@ class TestAIAgentUserIdPropagation:
 
     def test_user_id_none_by_default(self):
         """AIAgent should have None user_id when not provided (CLI mode)."""
-        with patch.dict(os.environ, {"HERMES_HOME": "/tmp/test_hermes"}):
+        with patch.dict(os.environ, {"DACLAW_HOME": "/tmp/test_daclaw"}):
             from run_agent import AIAgent
             agent = object.__new__(AIAgent)
             agent._user_id = None

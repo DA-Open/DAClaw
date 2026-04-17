@@ -5,7 +5,7 @@ version: 1.0.0
 author: DAClaw Agent
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [Coding-Agent, Codex, OpenAI, Code-Review, Refactoring]
     related_skills: [claude-code, daclaw-agent]
 ---

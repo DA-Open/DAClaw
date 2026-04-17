@@ -5,7 +5,7 @@ version: 1.0.0
 author: DAClaw Agent (Nous Research)
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [Migration, OpenClaw, DAClaw, Memory, Persona, Import]
     related_skills: [daclaw-agent]
 ---
@@ -32,15 +32,15 @@ The CLI command runs the same migration script described below. Use this skill (
 
 ## What this skill does
 
-It uses `scripts/openclaw_to_hermes.py` to:
+It uses `scripts/openclaw_to_daclaw.py` to:
 
 - import `SOUL.md` into the DAClaw home directory as `SOUL.md`
 - transform OpenClaw `MEMORY.md` and `USER.md` into DAClaw memory entries
 - merge OpenClaw command approval patterns into DAClaw `command_allowlist`
 - migrate DAClaw-compatible messaging settings such as `TELEGRAM_ALLOWED_USERS` and `MESSAGING_CWD`
-- copy OpenClaw skills into `~/.hermes/skills/openclaw-imports/`
+- copy OpenClaw skills into `~/.daclaw/skills/openclaw-imports/`
 - optionally copy the OpenClaw workspace instructions file into a chosen DAClaw workspace
-- mirror compatible workspace assets such as `workspace/tts/` into `~/.hermes/tts/`
+- mirror compatible workspace assets such as `workspace/tts/` into `~/.daclaw/tts/`
 - archive non-secret docs that do not have a direct DAClaw destination
 - produce a structured report listing migrated items, conflicts, skipped items, and reasons
 
@@ -48,17 +48,17 @@ It uses `scripts/openclaw_to_hermes.py` to:
 
 The helper script lives in this skill directory at:
 
-- `scripts/openclaw_to_hermes.py`
+- `scripts/openclaw_to_daclaw.py`
 
 When this skill is installed from the Skills Hub, the normal location is:
 
-- `~/.hermes/skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py`
+- `~/.daclaw/skills/migration/openclaw-migration/scripts/openclaw_to_daclaw.py`
 
-Do not guess a shorter path like `~/.hermes/skills/openclaw-migration/...`.
+Do not guess a shorter path like `~/.daclaw/skills/openclaw-migration/...`.
 
 Before running the helper:
 
-1. Prefer the installed path under `~/.hermes/skills/migration/openclaw-migration/`.
+1. Prefer the installed path under `~/.daclaw/skills/migration/openclaw-migration/`.
 2. If that path fails, inspect the installed skill directory and resolve the script relative to the installed `SKILL.md`.
 3. Only use `find` as a fallback if the installed location is missing or the skill was moved manually.
 4. When calling the terminal tool, do not pass `workdir: "~"`. Use an absolute directory such as the user's home directory, or omit `workdir` entirely.
@@ -228,37 +228,37 @@ The helper script still supports category-level `--include` / `--exclude`, but t
 Dry run with full discovery:
 
 ```bash
-python3 ~/.hermes/skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py
+python3 ~/.daclaw/skills/migration/openclaw-migration/scripts/openclaw_to_daclaw.py
 ```
 
 When using the terminal tool, prefer an absolute invocation pattern such as:
 
 ```json
-{"command":"python3 /home/USER/.hermes/skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py","workdir":"/home/USER"}
+{"command":"python3 /home/USER/.daclaw/skills/migration/openclaw-migration/scripts/openclaw_to_daclaw.py","workdir":"/home/USER"}
 ```
 
 Dry run with the user-data preset:
 
 ```bash
-python3 ~/.hermes/skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py --preset user-data
+python3 ~/.daclaw/skills/migration/openclaw-migration/scripts/openclaw_to_daclaw.py --preset user-data
 ```
 
 Execute a user-data migration:
 
 ```bash
-python3 ~/.hermes/skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py --execute --preset user-data --skill-conflict skip
+python3 ~/.daclaw/skills/migration/openclaw-migration/scripts/openclaw_to_daclaw.py --execute --preset user-data --skill-conflict skip
 ```
 
 Execute a full compatible migration:
 
 ```bash
-python3 ~/.hermes/skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py --execute --preset full --migrate-secrets --skill-conflict skip
+python3 ~/.daclaw/skills/migration/openclaw-migration/scripts/openclaw_to_daclaw.py --execute --preset full --migrate-secrets --skill-conflict skip
 ```
 
 Execute with workspace instructions included:
 
 ```bash
-python3 ~/.hermes/skills/migration/openclaw-migration/scripts/openclaw_to_hermes.py --execute --preset user-data --skill-conflict rename --workspace-target "/absolute/workspace/path"
+python3 ~/.daclaw/skills/migration/openclaw-migration/scripts/openclaw_to_daclaw.py --execute --preset user-data --skill-conflict rename --workspace-target "/absolute/workspace/path"
 ```
 
 Do not use `$PWD` or the home directory as the workspace target by default. Ask for an explicit workspace path first.
@@ -293,5 +293,5 @@ After a successful run, the user should have:
 
 - DAClaw persona state imported
 - DAClaw memory files populated with converted OpenClaw knowledge
-- OpenClaw skills available under `~/.hermes/skills/openclaw-imports/`
+- OpenClaw skills available under `~/.daclaw/skills/openclaw-imports/`
 - a migration report showing any conflicts, omissions, or unsupported data

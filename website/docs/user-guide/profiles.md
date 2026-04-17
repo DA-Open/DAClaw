@@ -38,7 +38,7 @@ Creates a fresh profile with bundled skills seeded. Run `mybot setup` to configu
 daclaw profile create work --clone
 ```
 
-Copies your current profile's `config.yaml`, `.env`, and `SOUL.md` into the new profile. Same API keys and model, but fresh sessions and memory. Edit `~/.hermes/profiles/work/.env` for different API keys, or `~/.hermes/profiles/work/SOUL.md` for a different personality.
+Copies your current profile's `config.yaml`, `.env`, and `SOUL.md` into the new profile. Same API keys and model, but fresh sessions and memory. Edit `~/.daclaw/profiles/work/.env` for different API keys, or `~/.daclaw/profiles/work/SOUL.md` for a different personality.
 
 ### Clone everything (`--clone-all`)
 
@@ -119,10 +119,10 @@ Each profile has its own `.env` file. Configure a different Telegram/Discord/Sla
 
 ```bash
 # Edit coder's tokens
-nano ~/.hermes/profiles/coder/.env
+nano ~/.daclaw/profiles/coder/.env
 
 # Edit assistant's tokens
-nano ~/.hermes/profiles/assistant/.env
+nano ~/.daclaw/profiles/assistant/.env
 ```
 
 ### Safety: token locks
@@ -132,8 +132,8 @@ If two profiles accidentally use the same bot token, the second gateway will be 
 ### Persistent services
 
 ```bash
-coder gateway install         # creates hermes-gateway-coder systemd/launchd service
-assistant gateway install     # creates hermes-gateway-assistant service
+coder gateway install         # creates daclaw-gateway-coder systemd/launchd service
+assistant gateway install     # creates daclaw-gateway-assistant service
 ```
 
 Each profile gets its own service name. They run independently.
@@ -148,7 +148,7 @@ Each profile has its own:
 
 ```bash
 coder config set model.model anthropic/claude-sonnet-4
-echo "You are a focused coding assistant." > ~/.hermes/profiles/coder/SOUL.md
+echo "You are a focused coding assistant." > ~/.daclaw/profiles/coder/SOUL.md
 ```
 
 ## Updating
@@ -184,7 +184,7 @@ This stops the gateway, removes the systemd/launchd service, removes the command
 Use `--yes` to skip confirmation: `daclaw profile delete coder --yes`
 
 :::note
-You cannot delete the default profile (`~/.hermes`). To remove everything, use `daclaw uninstall`.
+You cannot delete the default profile (`~/.daclaw`). To remove everything, use `daclaw uninstall`.
 :::
 
 ## Tab completion
@@ -201,6 +201,6 @@ Add the line to your `~/.bashrc` or `~/.zshrc` for persistent completion. Comple
 
 ## How it works
 
-Profiles use the `HERMES_HOME` environment variable. When you run `coder chat`, the wrapper script sets `HERMES_HOME=~/.hermes/profiles/coder` before launching hermes. Since 119+ files in the codebase resolve paths via `get_hermes_home()`, everything automatically scopes to the profile's directory — config, sessions, memory, skills, state database, gateway PID, logs, and cron jobs.
+Profiles use the `DACLAW_HOME` environment variable. When you run `coder chat`, the wrapper script sets `DACLAW_HOME=~/.daclaw/profiles/coder` before launching daclaw. Since 119+ files in the codebase resolve paths via `get_daclaw_home()`, everything automatically scopes to the profile's directory — config, sessions, memory, skills, state database, gateway PID, logs, and cron jobs.
 
-The default profile is simply `~/.hermes` itself. No migration needed — existing installs work identically.
+The default profile is simply `~/.daclaw` itself. No migration needed — existing installs work identically.

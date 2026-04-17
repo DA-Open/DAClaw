@@ -101,7 +101,7 @@ class TestFromGlobalConfig:
             "workspace": "my-workspace",
             "environment": "staging",
             "peerName": "alice",
-            "aiPeer": "hermes-custom",
+            "aiPeer": "daclaw-custom",
             "enabled": True,
             "saveMessages": False,
             "contextTokens": 2000,
@@ -115,8 +115,8 @@ class TestFromGlobalConfig:
                 }
             }
         }))
-        # Isolate from real ~/.hermes/honcho.json
-        monkeypatch.setenv("HERMES_HOME", str(tmp_path / "isolated"))
+        # Isolate from real ~/.daclaw/honcho.json
+        monkeypatch.setenv("DACLAW_HOME", str(tmp_path / "isolated"))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.api_key == "***"
@@ -339,49 +339,49 @@ class TestResolveSessionName:
 
 
 class TestResolveConfigPath:
-    def test_prefers_hermes_home_when_exists(self, tmp_path):
-        hermes_home = tmp_path / "daclaw"
-        hermes_home.mkdir()
-        local_cfg = hermes_home / "honcho.json"
+    def test_prefers_daclaw_home_when_exists(self, tmp_path):
+        daclaw_home = tmp_path / "daclaw"
+        daclaw_home.mkdir()
+        local_cfg = daclaw_home / "honcho.json"
         local_cfg.write_text('{"apiKey": "local"}')
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}):
+        with patch.dict(os.environ, {"DACLAW_HOME": str(daclaw_home)}):
             result = resolve_config_path()
         assert result == local_cfg
 
     def test_falls_back_to_global_when_no_local(self, tmp_path):
-        hermes_home = tmp_path / "daclaw"
-        hermes_home.mkdir()
-        # No honcho.json in HERMES_HOME — also isolate ~/.hermes so
+        daclaw_home = tmp_path / "daclaw"
+        daclaw_home.mkdir()
+        # No honcho.json in DACLAW_HOME — also isolate ~/.daclaw so
         # the default-profile fallback doesn't hit the real filesystem.
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}), \
+        with patch.dict(os.environ, {"DACLAW_HOME": str(daclaw_home)}), \
              patch.object(Path, "home", return_value=fake_home):
             result = resolve_config_path()
         assert result == GLOBAL_CONFIG_PATH
 
-    def test_falls_back_to_global_without_hermes_home_env(self, tmp_path):
+    def test_falls_back_to_global_without_daclaw_home_env(self, tmp_path):
         fake_home = tmp_path / "fakehome"
         fake_home.mkdir()
 
         with patch.dict(os.environ, {}, clear=False), \
              patch.object(Path, "home", return_value=fake_home):
-            os.environ.pop("HERMES_HOME", None)
+            os.environ.pop("DACLAW_HOME", None)
             result = resolve_config_path()
         assert result == GLOBAL_CONFIG_PATH
 
     def test_from_global_config_uses_local_path(self, tmp_path):
-        hermes_home = tmp_path / "daclaw"
-        hermes_home.mkdir()
-        local_cfg = hermes_home / "honcho.json"
+        daclaw_home = tmp_path / "daclaw"
+        daclaw_home.mkdir()
+        local_cfg = daclaw_home / "honcho.json"
         local_cfg.write_text(json.dumps({
             "apiKey": "***",
             "workspace": "local-ws",
         }))
 
-        with patch.dict(os.environ, {"HERMES_HOME": str(hermes_home)}), \
+        with patch.dict(os.environ, {"DACLAW_HOME": str(daclaw_home)}), \
              patch.object(Path, "home", return_value=tmp_path):
             config = HonchoClientConfig.from_global_config()
         assert config.api_key == "***"
@@ -389,57 +389,57 @@ class TestResolveConfigPath:
 
 
 class TestResolveActiveHost:
-    def test_default_returns_hermes(self):
+    def test_default_returns_daclaw(self):
         with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            os.environ.pop("HERMES_HOME", None)
+            os.environ.pop("DACLAW_HONCHO_HOST", None)
+            os.environ.pop("DACLAW_HOME", None)
             assert resolve_active_host() == "daclaw"
 
     def test_explicit_env_var_wins(self):
-        with patch.dict(os.environ, {"HERMES_HONCHO_HOST": "hermes.coder"}):
-            assert resolve_active_host() == "hermes.coder"
+        with patch.dict(os.environ, {"DACLAW_HONCHO_HOST": "daclaw.coder"}):
+            assert resolve_active_host() == "daclaw.coder"
 
     def test_profile_name_derives_host(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            with patch("hermes_cli.profiles.get_active_profile_name", return_value="coder"):
-                assert resolve_active_host() == "hermes.coder"
+            os.environ.pop("DACLAW_HONCHO_HOST", None)
+            with patch("daclaw_cli.profiles.get_active_profile_name", return_value="coder"):
+                assert resolve_active_host() == "daclaw.coder"
 
-    def test_default_profile_returns_hermes(self):
+    def test_default_profile_returns_daclaw(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            with patch("hermes_cli.profiles.get_active_profile_name", return_value="default"):
+            os.environ.pop("DACLAW_HONCHO_HOST", None)
+            with patch("daclaw_cli.profiles.get_active_profile_name", return_value="default"):
                 assert resolve_active_host() == "daclaw"
 
-    def test_custom_profile_returns_hermes(self):
+    def test_custom_profile_returns_daclaw(self):
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            with patch("hermes_cli.profiles.get_active_profile_name", return_value="custom"):
+            os.environ.pop("DACLAW_HONCHO_HOST", None)
+            with patch("daclaw_cli.profiles.get_active_profile_name", return_value="custom"):
                 assert resolve_active_host() == "daclaw"
 
     def test_profiles_import_failure_falls_back(self):
         import sys
         with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("HERMES_HONCHO_HOST", None)
-            # Temporarily remove hermes_cli.profiles to simulate import failure
-            saved = sys.modules.get("hermes_cli.profiles")
-            sys.modules["hermes_cli.profiles"] = None  # type: ignore
+            os.environ.pop("DACLAW_HONCHO_HOST", None)
+            # Temporarily remove daclaw_cli.profiles to simulate import failure
+            saved = sys.modules.get("daclaw_cli.profiles")
+            sys.modules["daclaw_cli.profiles"] = None  # type: ignore
             try:
                 assert resolve_active_host() == "daclaw"
             finally:
                 if saved is not None:
-                    sys.modules["hermes_cli.profiles"] = saved
+                    sys.modules["daclaw_cli.profiles"] = saved
                 else:
-                    sys.modules.pop("hermes_cli.profiles", None)
+                    sys.modules.pop("daclaw_cli.profiles", None)
 
 
 class TestProfileScopedConfig:
     def test_from_env_uses_profile_host(self):
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
-            config = HonchoClientConfig.from_env(host="hermes.coder")
-        assert config.host == "hermes.coder"
+            config = HonchoClientConfig.from_env(host="daclaw.coder")
+        assert config.host == "daclaw.coder"
         assert config.workspace_id == "daclaw"  # shared workspace
-        assert config.ai_peer == "hermes.coder"
+        assert config.ai_peer == "daclaw.coder"
 
     def test_from_env_default_workspace_preserved_for_default_host(self):
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
@@ -453,19 +453,19 @@ class TestProfileScopedConfig:
             "apiKey": "shared-key",
             "hosts": {
                 "daclaw": {"aiPeer": "daclaw", "peerName": "alice"},
-                "hermes.coder": {
-                    "aiPeer": "hermes.coder",
+                "daclaw.coder": {
+                    "aiPeer": "daclaw.coder",
                     "peerName": "alice-coder",
                     "workspace": "coder-ws",
                 },
             },
         }))
         config = HonchoClientConfig.from_global_config(
-            host="hermes.coder", config_path=config_file,
+            host="daclaw.coder", config_path=config_file,
         )
-        assert config.host == "hermes.coder"
+        assert config.host == "daclaw.coder"
         assert config.workspace_id == "coder-ws"
-        assert config.ai_peer == "hermes.coder"
+        assert config.ai_peer == "daclaw.coder"
         assert config.peer_name == "alice-coder"
 
     def test_from_global_config_auto_resolves_host(self, tmp_path):
@@ -473,12 +473,12 @@ class TestProfileScopedConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "hosts": {
-                "hermes.dreamer": {"peerName": "dreamer-user"},
+                "daclaw.dreamer": {"peerName": "dreamer-user"},
             },
         }))
-        with patch("plugins.memory.honcho.client.resolve_active_host", return_value="hermes.dreamer"):
+        with patch("plugins.memory.honcho.client.resolve_active_host", return_value="daclaw.dreamer"):
             config = HonchoClientConfig.from_global_config(config_path=config_file)
-        assert config.host == "hermes.dreamer"
+        assert config.host == "daclaw.dreamer"
         assert config.peer_name == "dreamer-user"
 
 
@@ -573,7 +573,7 @@ class TestGetHonchoClient:
         not importlib.util.find_spec("honcho"),
         reason="honcho SDK not installed"
     )
-    def test_hermes_config_timeout_override_used_when_config_timeout_missing(self):
+    def test_daclaw_config_timeout_override_used_when_config_timeout_missing(self):
         fake_honcho = MagicMock(name="Honcho")
         cfg = HonchoClientConfig(
             api_key="test-key",
@@ -582,7 +582,7 @@ class TestGetHonchoClient:
         )
 
         with patch("honcho.Honcho", return_value=fake_honcho) as mock_honcho, \
-             patch("hermes_cli.config.load_config", return_value={"honcho": {"timeout": 88}}):
+             patch("daclaw_cli.config.load_config", return_value={"honcho": {"timeout": 88}}):
             client = get_honcho_client(cfg)
 
         assert client is fake_honcho
@@ -593,7 +593,7 @@ class TestGetHonchoClient:
         not importlib.util.find_spec("honcho"),
         reason="honcho SDK not installed"
     )
-    def test_hermes_request_timeout_alias_used(self):
+    def test_daclaw_request_timeout_alias_used(self):
         fake_honcho = MagicMock(name="Honcho")
         cfg = HonchoClientConfig(
             api_key="test-key",
@@ -602,7 +602,7 @@ class TestGetHonchoClient:
         )
 
         with patch("honcho.Honcho", return_value=fake_honcho) as mock_honcho, \
-             patch("hermes_cli.config.load_config", return_value={"honcho": {"request_timeout": "77.5"}}):
+             patch("daclaw_cli.config.load_config", return_value={"honcho": {"request_timeout": "77.5"}}):
             client = get_honcho_client(cfg)
 
         assert client is fake_honcho

@@ -277,13 +277,13 @@ class TestBlueBubblesToolsetIntegration:
     def test_toolset_exists(self):
         from toolsets import TOOLSETS
 
-        assert "hermes-bluebubbles" in TOOLSETS
+        assert "daclaw-bluebubbles" in TOOLSETS
 
     def test_toolset_in_gateway_composite(self):
         from toolsets import TOOLSETS
 
-        gateway = TOOLSETS["hermes-gateway"]
-        assert "hermes-bluebubbles" in gateway["includes"]
+        gateway = TOOLSETS["daclaw-gateway"]
+        assert "daclaw-bluebubbles" in gateway["includes"]
 
 
 class TestBlueBubblesPromptHint:

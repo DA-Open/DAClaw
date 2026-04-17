@@ -97,7 +97,7 @@ The largest optional category — covers the full ML pipeline from data curation
 | **chroma** | Open-source embedding database. Store embeddings and metadata, perform vector and full-text search. Simple 4-function API for RAG and semantic search. |
 | **faiss** | Facebook's library for efficient similarity search and clustering of dense vectors. Supports billions of vectors, GPU acceleration, and various index types (Flat, IVF, HNSW). |
 | **flash-attention** | Optimize transformer attention with Flash Attention for 2-4x speedup and 10-20x memory reduction. Supports PyTorch SDPA, flash-attn library, H100 FP8, and sliding window. |
-| **hermes-atropos-environments** | Build, test, and debug DAClaw Agent RL environments for Atropos training. Covers the DAClawAgentBaseEnv interface, reward functions, agent loop integration, and evaluation. |
+| **daclaw-atropos-environments** | Build, test, and debug DAClaw Agent RL environments for Atropos training. Covers the DAClawAgentBaseEnv interface, reward functions, agent loop integration, and evaluation. |
 | **huggingface-tokenizers** | Fast Rust-based tokenizers for research and production. Tokenizes 1GB in under 20 seconds. Supports BPE, WordPiece, and Unigram algorithms. |
 | **instructor** | Extract structured data from LLM responses with Pydantic validation, retry failed extractions automatically, and stream partial results. |
 | **lambda-labs** | Reserved and on-demand GPU cloud instances for ML training and inference. SSH access, persistent filesystems, and multi-node clusters. |

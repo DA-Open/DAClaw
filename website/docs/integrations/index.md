@@ -92,8 +92,8 @@ See the [Messaging Gateway overview](/docs/user-guide/messaging) for the platfor
 
 ## Plugins
 
-- **[Plugin System](/docs/user-guide/features/plugins)** — Extend DAClaw with custom tools, lifecycle hooks, and CLI commands without modifying core code. Plugins are discovered from `~/.hermes/plugins/`, project-local `.hermes/plugins/`, and pip-installed entry points.
-- **[Build a Plugin](/docs/guides/build-a-hermes-plugin)** — Step-by-step guide for creating DAClaw plugins with tools, hooks, and CLI commands.
+- **[Plugin System](/docs/user-guide/features/plugins)** — Extend DAClaw with custom tools, lifecycle hooks, and CLI commands without modifying core code. Plugins are discovered from `~/.daclaw/plugins/`, project-local `.daclaw/plugins/`, and pip-installed entry points.
+- **[Build a Plugin](/docs/guides/build-a-daclaw-plugin)** — Step-by-step guide for creating DAClaw plugins with tools, hooks, and CLI commands.
 
 ## Training & Evaluation
 

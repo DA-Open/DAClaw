@@ -6,7 +6,7 @@ description: "Catalog of bundled skills that ship with DAClaw Agent"
 
 # Bundled Skills Catalog
 
-DAClaw ships with a large built-in skill library copied into `~/.hermes/skills/` on install. This page catalogs the bundled skills that live in the repository under `skills/`.
+DAClaw ships with a large built-in skill library copied into `~/.daclaw/skills/` on install. This page catalogs the bundled skills that live in the repository under `skills/`.
 
 ## apple
 
@@ -203,7 +203,7 @@ Fine-tuning, RLHF/DPO/GRPO training, distributed training frameworks, and optimi
 | `distributed-llm-pretraining-torchtitan` | Provides PyTorch-native distributed LLM pretraining using torchtitan with 4D parallelism (FSDP2, TP, PP, CP). Use when pretraining Llama 3.1, DeepSeek V3, or custom models at scale from 8 to 512+ GPUs with Float8, torch.compile, and distributed checkpointing. | `mlops/training/torchtitan` |
 | `fine-tuning-with-trl` | Fine-tune LLMs using reinforcement learning with TRL - SFT for instruction tuning, DPO for preference alignment, PPO/GRPO for reward optimization, and reward model training. Use when need RLHF, align model with preferences, or train from human feedback. Works with HuggingFace Tr… | `mlops/training/trl-fine-tuning` |
 | `grpo-rl-training` | Expert guidance for GRPO/RL fine-tuning with TRL for reasoning and task-specific model training | `mlops/training/grpo-rl-training` |
-| `hermes-atropos-environments` | Build, test, and debug DAClaw Agent RL environments for Atropos training. Covers the DAClawAgentBaseEnv interface, reward functions, agent loop integration, evaluation with tools, wandb logging, and the three CLI modes (serve/process/evaluate). Use when creating, reviewing, or f… | `mlops/training/hermes-atropos-environments` |
+| `daclaw-atropos-environments` | Build, test, and debug DAClaw Agent RL environments for Atropos training. Covers the DAClawAgentBaseEnv interface, reward functions, agent loop integration, evaluation with tools, wandb logging, and the three CLI modes (serve/process/evaluate). Use when creating, reviewing, or f… | `mlops/training/daclaw-atropos-environments` |
 | `huggingface-accelerate` | Simplest distributed training API. 4 lines to add distributed support to any PyTorch script. Unified API for DeepSpeed/FSDP/Megatron/DDP. Automatic device placement, mixed precision (FP16/BF16/FP8). Interactive config, single launch command. HuggingFace ecosystem standard. | `mlops/training/accelerate` |
 | `optimizing-attention-flash` | Optimizes transformer attention with Flash Attention for 2-4x speedup and 10-20x memory reduction. Use when training/running transformers with long sequences (&gt;512 tokens), encountering GPU memory issues with attention, or need faster inference. Supports PyTorch native SDPA,… | `mlops/training/flash-attention` |
 | `peft-fine-tuning` | Parameter-efficient fine-tuning for LLMs using LoRA, QLoRA, and 25+ methods. Use when fine-tuning large models (7B-70B) with limited GPU memory, when you need to train &lt;1% of parameters with minimal accuracy loss, or for multi-adapter serving. HuggingFace's official library i… | `mlops/training/peft` |
@@ -288,7 +288,7 @@ Skills for interacting with social platforms — posting, reading, monitoring, a
 | Skill | Description | Path |
 |-------|-------------|------|
 | `code-review` | Guidelines for performing thorough code reviews with security and quality focus | `software-development/code-review` |
-| `plan` | Plan mode for DAClaw — inspect context, write a markdown plan into `.hermes/plans/` in the active workspace/backend working directory, and do not execute the work. | `software-development/plan` |
+| `plan` | Plan mode for DAClaw — inspect context, write a markdown plan into `.daclaw/plans/` in the active workspace/backend working directory, and do not execute the work. | `software-development/plan` |
 | `requesting-code-review` | Use when completing tasks, implementing major features, or before merging. Validates work meets requirements through systematic review process. | `software-development/requesting-code-review` |
 | `subagent-driven-development` | Use when executing implementation plans with independent tasks. Dispatches fresh delegate_task per task with two-stage review (spec compliance then code quality). | `software-development/subagent-driven-development` |
 | `systematic-debugging` | Use when encountering any bug, test failure, or unexpected behavior. 4-phase root cause investigation — NO fixes without understanding the problem first. | `software-development/systematic-debugging` |

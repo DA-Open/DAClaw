@@ -161,21 +161,21 @@ See [Nix Setup](./nix-setup.md) for more details.
 daclaw uninstall
 ```
 
-The uninstaller gives you the option to keep your configuration files (`~/.hermes/`) for a future reinstall.
+The uninstaller gives you the option to keep your configuration files (`~/.daclaw/`) for a future reinstall.
 
 ### Manual Uninstall
 
 ```bash
-rm -f ~/.local/bin/hermes
+rm -f ~/.local/bin/daclaw
 rm -rf /path/to/daclaw-agent
-rm -rf ~/.hermes            # Optional — keep if you plan to reinstall
+rm -rf ~/.daclaw            # Optional — keep if you plan to reinstall
 ```
 
 :::info
 If you installed the gateway as a system service, stop and disable it first:
 ```bash
 daclaw gateway stop
-# Linux: systemctl --user disable hermes-gateway
-# macOS: launchctl remove ai.hermes.gateway
+# Linux: systemctl --user disable daclaw-gateway
+# macOS: launchctl remove ai.daclaw.gateway
 ```
 :::

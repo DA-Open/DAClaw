@@ -5,7 +5,7 @@ version: 2.0.0
 author: DAClaw Agent
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [Honcho, Memory, Profiles, Observation, Dialectic, User-Modeling, Session-Summary]
     homepage: https://docs.honcho.dev
     related_skills: [daclaw-agent]
@@ -42,7 +42,7 @@ daclaw honcho setup
 # select "local", enter base URL (e.g. http://localhost:8000)
 ```
 
-See: https://docs.honcho.dev/v3/guides/integrations/hermes#running-honcho-locally-with-hermes
+See: https://docs.honcho.dev/v3/guides/integrations/daclaw#running-honcho-locally-with-daclaw
 
 ### Verify
 
@@ -203,11 +203,11 @@ Each DAClaw profile gets its own Honcho AI peer while sharing the same workspace
 
 ```bash
 daclaw profile create coder --clone
-# creates host block hermes.coder, AI peer "coder", inherits config from default
+# creates host block daclaw.coder, AI peer "coder", inherits config from default
 ```
 
 What `--clone` does for Honcho:
-1. Creates a `hermes.coder` host block in `honcho.json`
+1. Creates a `daclaw.coder` host block in `honcho.json`
 2. Sets `aiPeer: "coder"` (the profile name)
 3. Inherits `workspace`, `peerName`, `writeFrequency`, `recallMode`, etc. from default
 4. Eagerly creates the peer in Honcho so it exists before first message
@@ -225,7 +225,7 @@ Override any setting in the host block:
 ```json
 {
   "hosts": {
-    "hermes.coder": {
+    "daclaw.coder": {
       "aiPeer": "coder",
       "recallMode": "tools",
       "dialecticDepth": 2,
@@ -334,7 +334,7 @@ In `hybrid` and `context` modes, base context (user representation + card + sess
 
 ## Config Reference
 
-Config file: `$HERMES_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global).
+Config file: `$DACLAW_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global).
 
 ### Key settings
 
@@ -386,7 +386,7 @@ This fix addresses edge cases where raw user conclusions containing markup or sp
 ## Troubleshooting
 
 ### "Honcho not configured"
-Run `daclaw honcho setup`. Ensure `memory.provider: honcho` is in `~/.hermes/config.yaml`.
+Run `daclaw honcho setup`. Ensure `memory.provider: honcho` is in `~/.daclaw/config.yaml`.
 
 ### Memory not persisting across sessions
 Check `daclaw honcho status` -- verify `saveMessages: true` and `writeFrequency` isn't `session` (which only writes on exit).

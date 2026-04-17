@@ -50,10 +50,10 @@
 - **Omit empty tools param** — sends no `tools` parameter when empty instead of `None`, fixing compatibility with strict providers ([#3820](https://github.com/NousResearch/daclaw-agent/pull/3820))
 
 ### Profiles & Multi-Instance
-- **Profiles system** — `daclaw profile create/list/switch/delete/export/import/rename`. Each profile gets isolated HERMES_HOME, gateway service, CLI wrapper. Token locks prevent credential collisions. Tab completion for profile names. ([#3681](https://github.com/NousResearch/daclaw-agent/pull/3681))
-- **Profile-aware display paths** — all user-facing `~/.hermes` paths replaced with `display_hermes_home()` to show the correct profile directory ([#3623](https://github.com/NousResearch/daclaw-agent/pull/3623))
-- **Lazy display_hermes_home imports** — prevents `ImportError` during `daclaw update` when modules cache stale bytecode ([#3776](https://github.com/NousResearch/daclaw-agent/pull/3776))
-- **HERMES_HOME for protected paths** — `.env` write-deny path now respects HERMES_HOME instead of hardcoded `~/.hermes` ([#3840](https://github.com/NousResearch/daclaw-agent/pull/3840))
+- **Profiles system** — `daclaw profile create/list/switch/delete/export/import/rename`. Each profile gets isolated DACLAW_HOME, gateway service, CLI wrapper. Token locks prevent credential collisions. Tab completion for profile names. ([#3681](https://github.com/NousResearch/daclaw-agent/pull/3681))
+- **Profile-aware display paths** — all user-facing `~/.daclaw` paths replaced with `display_daclaw_home()` to show the correct profile directory ([#3623](https://github.com/NousResearch/daclaw-agent/pull/3623))
+- **Lazy display_daclaw_home imports** — prevents `ImportError` during `daclaw update` when modules cache stale bytecode ([#3776](https://github.com/NousResearch/daclaw-agent/pull/3776))
+- **DACLAW_HOME for protected paths** — `.env` write-deny path now respects DACLAW_HOME instead of hardcoded `~/.daclaw` ([#3840](https://github.com/NousResearch/daclaw-agent/pull/3840))
 
 ---
 

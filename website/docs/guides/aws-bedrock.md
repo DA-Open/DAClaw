@@ -41,7 +41,7 @@ daclaw chat
 
 ## Configuration
 
-After running `daclaw model`, your `~/.hermes/config.yaml` will contain:
+After running `daclaw model`, your `~/.daclaw/config.yaml` will contain:
 
 ```yaml
 model:

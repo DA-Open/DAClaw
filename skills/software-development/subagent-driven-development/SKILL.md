@@ -5,7 +5,7 @@ version: 1.1.0
 author: DAClaw Agent (adapted from obra/superpowers)
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [delegation, subagent, implementation, workflow, parallel]
     related_skills: [writing-plans, requesting-code-review, test-driven-development]
 ---

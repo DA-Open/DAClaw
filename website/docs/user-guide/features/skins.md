@@ -18,10 +18,10 @@ Conversational style and visual style are separate concepts:
 ```bash
 /skin                # show the current skin and list available skins
 /skin ares           # switch to a built-in skin
-/skin mytheme        # switch to a custom skin from ~/.hermes/skins/mytheme.yaml
+/skin mytheme        # switch to a custom skin from ~/.daclaw/skins/mytheme.yaml
 ```
 
-Or set the default skin in `~/.hermes/config.yaml`:
+Or set the default skin in `~/.daclaw/config.yaml`:
 
 ```yaml
 display:
@@ -104,17 +104,17 @@ Text strings used throughout the CLI interface.
 |-----|------|-------------|---------|
 | `tool_prefix` | string | Character prefixed to tool output lines in the CLI | `┊` |
 | `tool_emojis` | dict | Per-tool emoji overrides for spinners and progress (`{tool_name: emoji}`) | `{}` |
-| `banner_logo` | string | Rich-markup ASCII art logo (replaces the default HERMES_AGENT banner) | `""` |
+| `banner_logo` | string | Rich-markup ASCII art logo (replaces the default DACLAW_AGENT banner) | `""` |
 | `banner_hero` | string | Rich-markup hero art (replaces the default caduceus art) | `""` |
 
 ## Custom skins
 
-Create YAML files under `~/.hermes/skins/`. User skins inherit missing values from the built-in `default` skin, so you only need to specify the keys you want to change.
+Create YAML files under `~/.daclaw/skins/`. User skins inherit missing values from the built-in `default` skin, so you only need to specify the keys you want to change.
 
 ### Full custom skin YAML template
 
 ```yaml
-# ~/.hermes/skins/mytheme.yaml
+# ~/.daclaw/skins/mytheme.yaml
 # Complete skin template — all keys shown. Delete any you don't need;
 # missing values automatically inherit from the 'default' skin.
 
@@ -212,9 +212,9 @@ tool_prefix: "▏"
 
 ## DAClaw Mod — Visual Skin Editor
 
-[DAClaw Mod](https://github.com/cocktailpeanut/hermes-mod) is a community-built web UI for creating and managing skins visually. Instead of writing YAML by hand, you get a point-and-click editor with live preview.
+[DAClaw Mod](https://github.com/cocktailpeanut/daclaw-mod) is a community-built web UI for creating and managing skins visually. Instead of writing YAML by hand, you get a point-and-click editor with live preview.
 
-![DAClaw Mod skin editor](https://raw.githubusercontent.com/cocktailpeanut/hermes-mod/master/nous.png)
+![DAClaw Mod skin editor](https://raw.githubusercontent.com/cocktailpeanut/daclaw-mod/master/nous.png)
 
 **What it does:**
 
@@ -222,8 +222,8 @@ tool_prefix: "▏"
 - Opens any skin into a visual editor with all DAClaw skin fields (colors, spinner, branding, tool prefix, tool emojis)
 - Generates `banner_logo` text art from a text prompt
 - Converts uploaded images (PNG, JPG, GIF, WEBP) into `banner_hero` ASCII art with multiple render styles (braille, ASCII ramp, blocks, dots)
-- Saves directly to `~/.hermes/skins/`
-- Activates a skin by updating `~/.hermes/config.yaml`
+- Saves directly to `~/.daclaw/skins/`
+- Activates a skin by updating `~/.daclaw/config.yaml`
 - Shows the generated YAML and a live preview
 
 ### Install
@@ -235,14 +235,14 @@ Find it on [pinokio.computer](https://pinokio.computer) and install with one cli
 **Option 2 — npx (quickest from terminal):**
 
 ```bash
-npx -y hermes-mod
+npx -y daclaw-mod
 ```
 
 **Option 3 — Manual:**
 
 ```bash
-git clone https://github.com/cocktailpeanut/hermes-mod.git
-cd hermes-mod/app
+git clone https://github.com/cocktailpeanut/daclaw-mod.git
+cd daclaw-mod/app
 npm install
 npm start
 ```
@@ -254,16 +254,16 @@ npm start
 3. Choose a built-in or custom skin to edit.
 4. Generate a logo from text and/or upload an image for hero art. Pick a render style and width.
 5. Edit colors, spinner, branding, and other fields.
-6. Click **Save** to write the skin YAML to `~/.hermes/skins/`.
+6. Click **Save** to write the skin YAML to `~/.daclaw/skins/`.
 7. Click **Activate** to set it as the current skin (updates `display.skin` in `config.yaml`).
 
-DAClaw Mod respects the `HERMES_HOME` environment variable, so it works with [profiles](/docs/user-guide/profiles) too.
+DAClaw Mod respects the `DACLAW_HOME` environment variable, so it works with [profiles](/docs/user-guide/profiles) too.
 
 ## Operational notes
 
-- Built-in skins load from `hermes_cli/skin_engine.py`.
+- Built-in skins load from `daclaw_cli/skin_engine.py`.
 - Unknown skins automatically fall back to `default`.
 - `/skin` updates the active CLI theme immediately for the current session.
-- User skins in `~/.hermes/skins/` take precedence over built-in skins with the same name.
+- User skins in `~/.daclaw/skins/` take precedence over built-in skins with the same name.
 - Skin changes via `/skin` are session-only. To make a skin your permanent default, set it in `config.yaml`.
 - The `banner_logo` and `banner_hero` fields support Rich console markup (e.g., `[bold #FF0000]text[/]`) for colored ASCII art.

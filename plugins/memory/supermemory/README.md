@@ -17,16 +17,16 @@ Or manually:
 
 ```bash
 daclaw config set memory.provider supermemory
-echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
+echo 'SUPERMEMORY_API_KEY=***' >> ~/.daclaw/.env
 ```
 
 ## Config
 
-Config file: `$HERMES_HOME/supermemory.json`
+Config file: `$DACLAW_HOME/supermemory.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `container_tag` | `daclaw` | Container tag used for search and writes. Supports `{identity}` template for profile-scoped tags (e.g. `hermes-{identity}` → `hermes-coder`). |
+| `container_tag` | `daclaw` | Container tag used for search and writes. Supports `{identity}` template for profile-scoped tags (e.g. `daclaw-{identity}` → `daclaw-coder`). |
 | `auto_recall` | `true` | Inject relevant memory context before turns |
 | `auto_capture` | `true` | Store cleaned user-assistant turns after each response |
 | `max_recall_results` | `10` | Max recalled items to format into context |
@@ -67,11 +67,11 @@ Use `{identity}` in the `container_tag` to scope memories per DAClaw profile:
 
 ```json
 {
-  "container_tag": "hermes-{identity}"
+  "container_tag": "daclaw-{identity}"
 }
 ```
 
-For a profile named `coder`, this resolves to `hermes-coder`. The default profile resolves to `hermes-default`. Without `{identity}`, all profiles share the same container.
+For a profile named `coder`, this resolves to `daclaw-coder`. The default profile resolves to `daclaw-default`. Without `{identity}`, all profiles share the same container.
 
 ## Multi-Container Mode
 

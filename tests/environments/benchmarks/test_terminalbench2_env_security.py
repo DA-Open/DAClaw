@@ -58,8 +58,8 @@ def _load_terminalbench_module(monkeypatch):
             AgentResult=_AgentResult,
             DAClawAgentLoop=_DAClawAgentLoop,
         ),
-        "environments.hermes_base_env": _stub_module(
-            "environments.hermes_base_env",
+        "environments.daclaw_base_env": _stub_module(
+            "environments.daclaw_base_env",
             DAClawAgentBaseEnv=_DAClawAgentBaseEnv,
             DAClawAgentEnvConfig=_DAClawAgentEnvConfig,
         ),

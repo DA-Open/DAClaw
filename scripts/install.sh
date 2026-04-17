@@ -6,7 +6,7 @@
 # Uses uv for desktop/server installs and Python's stdlib venv + pip on Termux.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/DA-Open/DAClaw/main/scripts/install.sh | bash
 #
 # Or with options:
 #   curl -fsSL ... | bash -s -- --no-venv --skip-setup
@@ -26,10 +26,10 @@ NC='\033[0m' # No Color
 BOLD='\033[1m'
 
 # Configuration
-REPO_URL_SSH="git@github.com:NousResearch/daclaw-agent.git"
-REPO_URL_HTTPS="https://github.com/NousResearch/daclaw-agent.git"
-HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
-INSTALL_DIR="${HERMES_INSTALL_DIR:-$HERMES_HOME/daclaw-agent}"
+REPO_URL_SSH="git@github.com:DA-Open/DAClaw.git"
+REPO_URL_HTTPS="https://github.com/DA-Open/DAClaw.git"
+DACLAW_HOME="${DACLAW_HOME:-$HOME/.daclaw}"
+INSTALL_DIR="${DACLAW_INSTALL_DIR:-$DACLAW_HOME/daclaw-agent}"
 PYTHON_VERSION="3.11"
 NODE_VERSION="22"
 
@@ -66,8 +66,8 @@ while [[ $# -gt 0 ]]; do
             INSTALL_DIR="$2"
             shift 2
             ;;
-        --hermes-home)
-            HERMES_HOME="$2"
+        --daclaw-home)
+            DACLAW_HOME="$2"
             shift 2
             ;;
         -h|--help)
@@ -79,8 +79,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --no-venv      Don't create virtual environment"
             echo "  --skip-setup   Skip interactive setup wizard"
             echo "  --branch NAME  Git branch to install (default: main)"
-            echo "  --dir PATH     Installation directory (default: ~/.hermes/daclaw-agent)"
-            echo "  --hermes-home PATH  Data directory (default: ~/.hermes, or \$HERMES_HOME)"
+            echo "  --dir PATH     Installation directory (default: ~/.daclaw/daclaw-agent)"
+            echo "  --daclaw-home PATH  Data directory (default: ~/.daclaw, or \$DACLAW_HOME)"
             echo "  -h, --help     Show this help"
             exit 0
             ;;
@@ -101,7 +101,7 @@ print_banner() {
     echo "┌─────────────────────────────────────────────────────────┐"
     echo "│             ⚕ DAClaw Agent Installer                    │"
     echo "├─────────────────────────────────────────────────────────┤"
-    echo "│  An open source AI agent by Nous Research.              │"
+    echo "│  An open source Data agent by DA-Open.                  │"
     echo "└─────────────────────────────────────────────────────────┘"
     echo -e "${NC}"
 }
@@ -142,11 +142,11 @@ get_command_link_display_dir() {
     fi
 }
 
-get_hermes_command_path() {
+get_daclaw_command_path() {
     local link_dir
     link_dir="$(get_command_link_dir)"
-    if [ -x "$link_dir/hermes" ]; then
-        echo "$link_dir/hermes"
+    if [ -x "$link_dir/daclaw" ]; then
+        echo "$link_dir/daclaw"
     else
         echo "daclaw"
     fi
@@ -180,7 +180,7 @@ detect_os() {
             OS="windows"
             DISTRO="windows"
             log_error "Windows detected. Please use the PowerShell installer:"
-            log_info "  irm https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.ps1 | iex"
+            log_info "  irm https://raw.githubusercontent.com/DA-Open/DAClaw/main/scripts/install.ps1 | iex"
             exit 1
             ;;
         *)
@@ -361,9 +361,9 @@ check_node() {
     fi
 
     # Check our own managed install from a previous run
-    if [ -x "$HERMES_HOME/node/bin/node" ]; then
-        export PATH="$HERMES_HOME/node/bin:$PATH"
-        local found_ver=$("$HERMES_HOME/node/bin/node" --version)
+    if [ -x "$DACLAW_HOME/node/bin/node" ]; then
+        export PATH="$DACLAW_HOME/node/bin:$PATH"
+        local found_ver=$("$DACLAW_HOME/node/bin/node" --version)
         log_success "Node.js $found_ver found (DAClaw-managed)"
         HAS_NODE=true
         return 0
@@ -450,7 +450,7 @@ install_node() {
         return 0
     fi
 
-    log_info "Extracting to ~/.hermes/node/..."
+    log_info "Extracting to ~/.daclaw/node/..."
     if [[ "$tarball_name" == *.tar.xz ]]; then
         tar xf "$tmp_dir/$tarball_name" -C "$tmp_dir"
     else
@@ -467,22 +467,22 @@ install_node() {
         return 0
     fi
 
-    # Place into ~/.hermes/node/ and symlink binaries to ~/.local/bin/
-    rm -rf "$HERMES_HOME/node"
-    mkdir -p "$HERMES_HOME"
-    mv "$extracted_dir" "$HERMES_HOME/node"
+    # Place into ~/.daclaw/node/ and symlink binaries to ~/.local/bin/
+    rm -rf "$DACLAW_HOME/node"
+    mkdir -p "$DACLAW_HOME"
+    mv "$extracted_dir" "$DACLAW_HOME/node"
     rm -rf "$tmp_dir"
 
     mkdir -p "$HOME/.local/bin"
-    ln -sf "$HERMES_HOME/node/bin/node" "$HOME/.local/bin/node"
-    ln -sf "$HERMES_HOME/node/bin/npm"  "$HOME/.local/bin/npm"
-    ln -sf "$HERMES_HOME/node/bin/npx"  "$HOME/.local/bin/npx"
+    ln -sf "$DACLAW_HOME/node/bin/node" "$HOME/.local/bin/node"
+    ln -sf "$DACLAW_HOME/node/bin/npm"  "$HOME/.local/bin/npm"
+    ln -sf "$DACLAW_HOME/node/bin/npx"  "$HOME/.local/bin/npx"
 
-    export PATH="$HERMES_HOME/node/bin:$PATH"
+    export PATH="$DACLAW_HOME/node/bin:$PATH"
 
     local installed_ver
-    installed_ver=$("$HERMES_HOME/node/bin/node" --version 2>/dev/null)
-    log_success "Node.js $installed_ver installed to ~/.hermes/node/"
+    installed_ver=$("$DACLAW_HOME/node/bin/node" --version 2>/dev/null)
+    log_success "Node.js $installed_ver installed to ~/.daclaw/node/"
     HAS_NODE=true
 }
 
@@ -693,7 +693,7 @@ clone_repo() {
             local autostash_ref=""
             if [ -n "$(git status --porcelain)" ]; then
                 local stash_name
-                stash_name="hermes-install-autostash-$(date -u +%Y%m%d-%H%M%S)"
+                stash_name="daclaw-install-autostash-$(date -u +%Y%m%d-%H%M%S)"
                 log_info "Local changes detected, stashing before update..."
                 git stash push --include-untracked -m "$stash_name"
                 autostash_ref="$(git rev-parse --verify refs/stash)"
@@ -907,18 +907,18 @@ setup_path() {
     log_info "Setting up daclaw command..."
 
     if [ "$USE_VENV" = true ]; then
-        HERMES_BIN="$INSTALL_DIR/venv/bin/hermes"
+        DACLAW_BIN="$INSTALL_DIR/venv/bin/daclaw"
     else
-        HERMES_BIN="$(which daclaw 2>/dev/null || echo "")"
-        if [ -z "$HERMES_BIN" ]; then
+        DACLAW_BIN="$(which daclaw 2>/dev/null || echo "")"
+        if [ -z "$DACLAW_BIN" ]; then
             log_warn "daclaw not found on PATH after install"
             return 0
         fi
     fi
 
     # Verify the entry point script was actually generated
-    if [ ! -x "$HERMES_BIN" ]; then
-        log_warn "daclaw entry point not found at $HERMES_BIN"
+    if [ ! -x "$DACLAW_BIN" ]; then
+        log_warn "daclaw entry point not found at $DACLAW_BIN"
         log_info "This usually means the pip install didn't complete successfully."
         if [ "$DISTRO" = "termux" ]; then
             log_info "Try: cd $INSTALL_DIR && python -m pip install -e '.[termux]' -c constraints-termux.txt"
@@ -935,8 +935,8 @@ setup_path() {
 
     # Create a user-facing shim for the daclaw command.
     mkdir -p "$command_link_dir"
-    ln -sf "$HERMES_BIN" "$command_link_dir/hermes"
-    log_success "Symlinked daclaw → $command_link_display_dir/hermes"
+    ln -sf "$DACLAW_BIN" "$command_link_dir/daclaw"
+    log_success "Symlinked daclaw → $command_link_display_dir/daclaw"
 
     if [ "$DISTRO" = "termux" ]; then
         export PATH="$command_link_dir:$PATH"
@@ -1020,35 +1020,35 @@ setup_path() {
 copy_config_templates() {
     log_info "Setting up configuration files..."
 
-    # Create ~/.hermes directory structure (config at top level, code in subdir)
-    mkdir -p "$HERMES_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session}
+    # Create ~/.daclaw directory structure (config at top level, code in subdir)
+    mkdir -p "$DACLAW_HOME"/{cron,sessions,logs,pairing,hooks,image_cache,audio_cache,memories,skills,whatsapp/session}
 
-    # Create .env at ~/.hermes/.env (top level, easy to find)
-    if [ ! -f "$HERMES_HOME/.env" ]; then
+    # Create .env at ~/.daclaw/.env (top level, easy to find)
+    if [ ! -f "$DACLAW_HOME/.env" ]; then
         if [ -f "$INSTALL_DIR/.env.example" ]; then
-            cp "$INSTALL_DIR/.env.example" "$HERMES_HOME/.env"
-            log_success "Created ~/.hermes/.env from template"
+            cp "$INSTALL_DIR/.env.example" "$DACLAW_HOME/.env"
+            log_success "Created ~/.daclaw/.env from template"
         else
-            touch "$HERMES_HOME/.env"
-            log_success "Created ~/.hermes/.env"
+            touch "$DACLAW_HOME/.env"
+            log_success "Created ~/.daclaw/.env"
         fi
     else
-        log_info "~/.hermes/.env already exists, keeping it"
+        log_info "~/.daclaw/.env already exists, keeping it"
     fi
 
-    # Create config.yaml at ~/.hermes/config.yaml (top level, easy to find)
-    if [ ! -f "$HERMES_HOME/config.yaml" ]; then
+    # Create config.yaml at ~/.daclaw/config.yaml (top level, easy to find)
+    if [ ! -f "$DACLAW_HOME/config.yaml" ]; then
         if [ -f "$INSTALL_DIR/cli-config.yaml.example" ]; then
-            cp "$INSTALL_DIR/cli-config.yaml.example" "$HERMES_HOME/config.yaml"
-            log_success "Created ~/.hermes/config.yaml from template"
+            cp "$INSTALL_DIR/cli-config.yaml.example" "$DACLAW_HOME/config.yaml"
+            log_success "Created ~/.daclaw/config.yaml from template"
         fi
     else
-        log_info "~/.hermes/config.yaml already exists, keeping it"
+        log_info "~/.daclaw/config.yaml already exists, keeping it"
     fi
 
     # Create SOUL.md if it doesn't exist (global persona file)
-    if [ ! -f "$HERMES_HOME/SOUL.md" ]; then
-        cat > "$HERMES_HOME/SOUL.md" << 'SOUL_EOF'
+    if [ ! -f "$DACLAW_HOME/SOUL.md" ]; then
+        cat > "$DACLAW_HOME/SOUL.md" << 'SOUL_EOF'
 # DAClaw Agent Persona
 
 <!--
@@ -1065,20 +1065,20 @@ This file is loaded fresh each message -- no restart needed.
 Delete the contents (or this file) to use the default personality.
 -->
 SOUL_EOF
-        log_success "Created ~/.hermes/SOUL.md (edit to customize personality)"
+        log_success "Created ~/.daclaw/SOUL.md (edit to customize personality)"
     fi
 
-    log_success "Configuration directory ready: ~/.hermes/"
+    log_success "Configuration directory ready: ~/.daclaw/"
 
-    # Seed bundled skills into ~/.hermes/skills/ (manifest-based, one-time per skill)
-    log_info "Syncing bundled skills to ~/.hermes/skills/ ..."
+    # Seed bundled skills into ~/.daclaw/skills/ (manifest-based, one-time per skill)
+    log_info "Syncing bundled skills to ~/.daclaw/skills/ ..."
     if "$INSTALL_DIR/venv/bin/python" "$INSTALL_DIR/tools/skills_sync.py" 2>/dev/null; then
-        log_success "Skills synced to ~/.hermes/skills/"
+        log_success "Skills synced to ~/.daclaw/skills/"
     else
         # Fallback: simple directory copy if Python sync fails
-        if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$HERMES_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
-            cp -r "$INSTALL_DIR/skills/"* "$HERMES_HOME/skills/" 2>/dev/null || true
-            log_success "Skills copied to ~/.hermes/skills/"
+        if [ -d "$INSTALL_DIR/skills" ] && [ ! "$(ls -A "$DACLAW_HOME/skills/" 2>/dev/null | grep -v '.bundled_manifest')" ]; then
+            cp -r "$INSTALL_DIR/skills/"* "$DACLAW_HOME/skills/" 2>/dev/null || true
+            log_success "Skills copied to ~/.daclaw/skills/"
         fi
     fi
 }
@@ -1197,15 +1197,15 @@ run_setup_wizard() {
     # Run daclaw setup using the venv Python directly (no activation needed).
     # Redirect stdin from /dev/tty so interactive prompts work when piped from curl.
     if [ "$USE_VENV" = true ]; then
-        "$INSTALL_DIR/venv/bin/python" -m hermes_cli.main setup < /dev/tty
+        "$INSTALL_DIR/venv/bin/python" -m daclaw_cli.main setup < /dev/tty
     else
-        python -m hermes_cli.main setup < /dev/tty
+        python -m daclaw_cli.main setup < /dev/tty
     fi
 }
 
 maybe_start_gateway() {
     # Check if any messaging platform tokens were configured
-    ENV_FILE="$HERMES_HOME/.env"
+    ENV_FILE="$DACLAW_HOME/.env"
     if [ ! -f "$ENV_FILE" ]; then
         return 0
     fi
@@ -1229,7 +1229,7 @@ maybe_start_gateway() {
 
     # If WhatsApp is enabled and no session exists yet, run foreground first for QR scan
     WHATSAPP_VAL=$(grep "^WHATSAPP_ENABLED=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2-)
-    WHATSAPP_SESSION="$HERMES_HOME/whatsapp/session/creds.json"
+    WHATSAPP_SESSION="$DACLAW_HOME/whatsapp/session/creds.json"
     if [ "$WHATSAPP_VAL" = "true" ] && [ ! -f "$WHATSAPP_SESSION" ]; then
         if [ "$IS_INTERACTIVE" = true ]; then
             echo ""
@@ -1239,8 +1239,8 @@ maybe_start_gateway() {
             read -p "Pair WhatsApp now? [Y/n] " -n 1 -r
             echo
             if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                HERMES_CMD="$(get_hermes_command_path)"
-                $HERMES_CMD whatsapp || true
+                DACLAW_CMD="$(get_daclaw_command_path)"
+                $DACLAW_CMD whatsapp || true
             fi
         else
             log_info "WhatsApp pairing skipped (non-interactive). Run 'daclaw whatsapp' to pair."
@@ -1261,13 +1261,13 @@ maybe_start_gateway() {
     echo
 
     if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-        HERMES_CMD="$(get_hermes_command_path)"
+        DACLAW_CMD="$(get_daclaw_command_path)"
 
         if [ "$DISTRO" != "termux" ] && command -v systemctl &> /dev/null; then
             log_info "Installing systemd service..."
-            if $HERMES_CMD gateway install 2>/dev/null; then
+            if $DACLAW_CMD gateway install 2>/dev/null; then
                 log_success "Gateway service installed"
-                if $HERMES_CMD gateway start 2>/dev/null; then
+                if $DACLAW_CMD gateway start 2>/dev/null; then
                     log_success "Gateway started! Your bot is now online."
                 else
                     log_warn "Service installed but failed to start. Try: daclaw gateway start"
@@ -1281,9 +1281,9 @@ maybe_start_gateway() {
             else
                 log_info "systemd not available — starting gateway in background..."
             fi
-            nohup $HERMES_CMD gateway > "$HERMES_HOME/logs/gateway.log" 2>&1 &
+            nohup $DACLAW_CMD gateway > "$DACLAW_HOME/logs/gateway.log" 2>&1 &
             GATEWAY_PID=$!
-            log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.hermes/logs/gateway.log"
+            log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.daclaw/logs/gateway.log"
             log_info "To stop: kill $GATEWAY_PID"
             log_info "To restart later: daclaw gateway"
             if [ "$DISTRO" = "termux" ]; then
@@ -1305,19 +1305,19 @@ print_success() {
     echo ""
 
     # Show file locations
-    echo -e "${CYAN}${BOLD}📁 Your files (all in ~/.hermes/):${NC}"
+    echo -e "${CYAN}${BOLD}📁 Your files (all in ~/.daclaw/):${NC}"
     echo ""
-    echo -e "   ${YELLOW}Config:${NC}    ~/.hermes/config.yaml"
-    echo -e "   ${YELLOW}API Keys:${NC}  ~/.hermes/.env"
-    echo -e "   ${YELLOW}Data:${NC}      ~/.hermes/cron/, sessions/, logs/"
-    echo -e "   ${YELLOW}Code:${NC}      ~/.hermes/daclaw-agent/"
+    echo -e "   ${YELLOW}Config:${NC}    ~/.daclaw/config.yaml"
+    echo -e "   ${YELLOW}API Keys:${NC}  ~/.daclaw/.env"
+    echo -e "   ${YELLOW}Data:${NC}      ~/.daclaw/cron/, sessions/, logs/"
+    echo -e "   ${YELLOW}Code:${NC}      ~/.daclaw/daclaw-agent/"
     echo ""
 
     echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
     echo ""
     echo -e "${CYAN}${BOLD}🚀 Commands:${NC}"
     echo ""
-    echo -e "   ${GREEN}hermes${NC}              Start chatting"
+    echo -e "   ${GREEN}daclaw${NC}              Start chatting"
     echo -e "   ${GREEN}daclaw setup${NC}        Configure API keys & settings"
     echo -e "   ${GREEN}daclaw config${NC}       View/edit configuration"
     echo -e "   ${GREEN}daclaw config edit${NC}  Open config in editor"

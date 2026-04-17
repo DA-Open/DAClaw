@@ -4,10 +4,10 @@ Safe repo rebranding helper: DAClaw -> DAClaw.
 
 This script intentionally focuses on user-facing text and command names.
 It avoids touching internal Python module identifiers such as:
-- hermes_cli
-- hermes_constants
-- HERMES_HOME
-- ~/.hermes paths
+- daclaw_cli
+- daclaw_constants
+- DACLAW_HOME
+- ~/.daclaw paths
 """
 
 from __future__ import annotations
@@ -83,8 +83,8 @@ def transform_text(text: str) -> str:
         text = text.replace(old, new)
 
     # Command replacement: "daclaw xxx" -> "daclaw xxx"
-    # Avoid module identifiers like "hermes_cli" and paths like "~/.hermes".
-    text = re.sub(r"(?<![\w./-])hermes(?=\s)", "daclaw", text)
+    # Avoid module identifiers like "daclaw_cli" and paths like "~/.daclaw".
+    text = re.sub(r"(?<![\w./-])daclaw(?=\s)", "daclaw", text)
 
     # Replace quoted single-token command forms: `daclaw` / "daclaw" / 'daclaw'
     text = re.sub(r"(?<![\w./-])`daclaw`", "`daclaw`", text)

@@ -179,18 +179,18 @@ npm install
 
 ```bash
 # Create the directory structure
-mkdir -p ~/.hermes/{cron,sessions,logs,memories,skills,pairing,hooks,image_cache,audio_cache,whatsapp/session}
+mkdir -p ~/.daclaw/{cron,sessions,logs,memories,skills,pairing,hooks,image_cache,audio_cache,whatsapp/session}
 
 # Copy the example config file
-cp cli-config.yaml.example ~/.hermes/config.yaml
+cp cli-config.yaml.example ~/.daclaw/config.yaml
 
 # Create an empty .env file for API keys
-touch ~/.hermes/.env
+touch ~/.daclaw/.env
 ```
 
 ### Step 7: Add Your API Keys
 
-Open `~/.hermes/.env` and add at minimum an LLM provider key:
+Open `~/.daclaw/.env` and add at minimum an LLM provider key:
 
 ```bash
 # Required — at least one LLM provider:
@@ -210,7 +210,7 @@ daclaw config set OPENROUTER_API_KEY sk-or-v1-your-key-here
 
 ```bash
 mkdir -p ~/.local/bin
-ln -sf "$(pwd)/venv/bin/hermes" ~/.local/bin/hermes
+ln -sf "$(pwd)/venv/bin/daclaw" ~/.local/bin/daclaw
 ```
 
 If `~/.local/bin` isn't on your PATH, add it to your shell config:
@@ -265,14 +265,14 @@ uv pip install -e "./tinker-atropos"
 npm install  # optional, for browser tools and WhatsApp
 
 # Configure
-mkdir -p ~/.hermes/{cron,sessions,logs,memories,skills,pairing,hooks,image_cache,audio_cache,whatsapp/session}
-cp cli-config.yaml.example ~/.hermes/config.yaml
-touch ~/.hermes/.env
-echo 'OPENROUTER_API_KEY=sk-or-v1-your-key' >> ~/.hermes/.env
+mkdir -p ~/.daclaw/{cron,sessions,logs,memories,skills,pairing,hooks,image_cache,audio_cache,whatsapp/session}
+cp cli-config.yaml.example ~/.daclaw/config.yaml
+touch ~/.daclaw/.env
+echo 'OPENROUTER_API_KEY=sk-or-v1-your-key' >> ~/.daclaw/.env
 
 # Make daclaw available globally
 mkdir -p ~/.local/bin
-ln -sf "$(pwd)/venv/bin/hermes" ~/.local/bin/hermes
+ln -sf "$(pwd)/venv/bin/daclaw" ~/.local/bin/daclaw
 
 # Verify
 daclaw doctor
@@ -285,7 +285,7 @@ daclaw
 
 | Problem | Solution |
 |---------|----------|
-| `hermes: command not found` | Reload your shell (`source ~/.bashrc`) or check PATH |
+| `daclaw: command not found` | Reload your shell (`source ~/.bashrc`) or check PATH |
 | `API key not set` | Run `daclaw model` to configure your provider, or `daclaw config set OPENROUTER_API_KEY your_key` |
 | Missing config after update | Run `daclaw config check` then `daclaw config migrate` |
 

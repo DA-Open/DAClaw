@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 
-from hermes_constants import get_hermes_home
+from daclaw_constants import get_daclaw_home
 from plugins.memory.honcho.client import resolve_active_host, resolve_config_path, HOST
 
 
@@ -158,7 +158,7 @@ def cmd_sync(args) -> None:
     have one yet. Inherits settings from the default host block.
     """
     try:
-        from hermes_cli.profiles import list_profiles
+        from daclaw_cli.profiles import list_profiles
         profiles = list_profiles()
     except Exception as e:
         print(f"  Could not list profiles: {e}\n")
@@ -183,7 +183,7 @@ def cmd_sync(args) -> None:
         if p.name == "default":
             continue
         if clone_honcho_for_profile(p.name):
-            print(f"  + {p.name} -> hermes.{p.name}")
+            print(f"  + {p.name} -> daclaw.{p.name}")
             created += 1
         else:
             skipped += 1
@@ -203,7 +203,7 @@ def sync_honcho_profiles_quiet() -> int:
     Called from `daclaw update` -- no output, no exceptions.
     """
     try:
-        from hermes_cli.profiles import list_profiles
+        from daclaw_cli.profiles import list_profiles
         profiles = list_profiles()
     except Exception:
         return 0
@@ -246,11 +246,11 @@ def _config_path() -> Path:
 def _local_config_path() -> Path:
     """Return the instance-local Honcho config path for writing.
 
-    Always returns $HERMES_HOME/honcho.json so each profile/instance gets
+    Always returns $DACLAW_HOME/honcho.json so each profile/instance gets
     its own config file.  The global ~/.honcho/config.json is only used as
     a read fallback (via resolve_config_path) for cross-app interop.
     """
-    return get_hermes_home() / "honcho.json"
+    return get_daclaw_home() / "honcho.json"
 
 
 def _read_config() -> dict:
@@ -341,7 +341,7 @@ def cmd_setup(args) -> None:
         return
 
     hosts = cfg.setdefault("hosts", {})
-    hermes_host = hosts.setdefault(_host_key(), {})
+    daclaw_host = hosts.setdefault(_host_key(), {})
 
     # --- 1. Cloud or local? ---
     print("  Deployment:")
@@ -390,34 +390,34 @@ def cmd_setup(args) -> None:
             return
 
     # --- 3. Identity ---
-    current_peer = hermes_host.get("peerName") or cfg.get("peerName", "")
+    current_peer = daclaw_host.get("peerName") or cfg.get("peerName", "")
     new_peer = _prompt("Your name (user peer)", default=current_peer or os.getenv("USER", "user"))
     if new_peer:
-        hermes_host["peerName"] = new_peer
+        daclaw_host["peerName"] = new_peer
 
-    current_ai = hermes_host.get("aiPeer") or cfg.get("aiPeer", "daclaw")
+    current_ai = daclaw_host.get("aiPeer") or cfg.get("aiPeer", "daclaw")
     new_ai = _prompt("AI peer name", default=current_ai)
     if new_ai:
-        hermes_host["aiPeer"] = new_ai
+        daclaw_host["aiPeer"] = new_ai
 
-    current_workspace = hermes_host.get("workspace") or cfg.get("workspace", "daclaw")
+    current_workspace = daclaw_host.get("workspace") or cfg.get("workspace", "daclaw")
     new_workspace = _prompt("Workspace ID", default=current_workspace)
     if new_workspace:
-        hermes_host["workspace"] = new_workspace
+        daclaw_host["workspace"] = new_workspace
 
     # --- 4. Observation mode ---
-    current_obs = hermes_host.get("observationMode") or cfg.get("observationMode", "directional")
+    current_obs = daclaw_host.get("observationMode") or cfg.get("observationMode", "directional")
     print("\n  Observation mode:")
     print("    directional  -- all observations on, each AI peer builds its own view (default)")
     print("    unified      -- shared pool, user observes self, AI observes others only")
     new_obs = _prompt("Observation mode", default=current_obs)
     if new_obs in ("unified", "directional"):
-        hermes_host["observationMode"] = new_obs
+        daclaw_host["observationMode"] = new_obs
     else:
-        hermes_host["observationMode"] = "directional"
+        daclaw_host["observationMode"] = "directional"
 
     # --- 5. Write frequency ---
-    current_wf = str(hermes_host.get("writeFrequency") or cfg.get("writeFrequency", "async"))
+    current_wf = str(daclaw_host.get("writeFrequency") or cfg.get("writeFrequency", "async"))
     print("\n  Write frequency:")
     print("    async   -- background thread, no token cost (recommended)")
     print("    turn    -- sync write after every turn")
@@ -425,12 +425,12 @@ def cmd_setup(args) -> None:
     print("    N       -- write every N turns (e.g. 5)")
     new_wf = _prompt("Write frequency", default=current_wf)
     try:
-        hermes_host["writeFrequency"] = int(new_wf)
+        daclaw_host["writeFrequency"] = int(new_wf)
     except (ValueError, TypeError):
-        hermes_host["writeFrequency"] = new_wf if new_wf in ("async", "turn", "session") else "async"
+        daclaw_host["writeFrequency"] = new_wf if new_wf in ("async", "turn", "session") else "async"
 
     # --- 6. Recall mode ---
-    _raw_recall = hermes_host.get("recallMode") or cfg.get("recallMode", "hybrid")
+    _raw_recall = daclaw_host.get("recallMode") or cfg.get("recallMode", "hybrid")
     current_recall = "hybrid" if _raw_recall not in ("hybrid", "context", "tools") else _raw_recall
     print("\n  Recall mode:")
     print("    hybrid  -- auto-injected context + Honcho tools available (default)")
@@ -438,29 +438,29 @@ def cmd_setup(args) -> None:
     print("    tools   -- Honcho tools only, no auto-injected context")
     new_recall = _prompt("Recall mode", default=current_recall)
     if new_recall in ("hybrid", "context", "tools"):
-        hermes_host["recallMode"] = new_recall
+        daclaw_host["recallMode"] = new_recall
 
     # --- 7. Context token budget ---
-    current_ctx_tokens = hermes_host.get("contextTokens") or cfg.get("contextTokens")
+    current_ctx_tokens = daclaw_host.get("contextTokens") or cfg.get("contextTokens")
     current_display = str(current_ctx_tokens) if current_ctx_tokens else "uncapped"
     print("\n  Context injection per turn (hybrid/context recall modes only):")
     print("    uncapped -- no limit (default)")
     print("    N        -- token limit per turn (e.g. 1200)")
     new_ctx_tokens = _prompt("Context tokens", default=current_display)
     if new_ctx_tokens.strip().lower() in ("none", "uncapped", "no limit"):
-        hermes_host.pop("contextTokens", None)
+        daclaw_host.pop("contextTokens", None)
     elif new_ctx_tokens.strip() == "":
         pass  # keep current
     else:
         try:
             val = int(new_ctx_tokens)
             if val >= 0:
-                hermes_host["contextTokens"] = val
+                daclaw_host["contextTokens"] = val
         except (ValueError, TypeError):
             pass  # keep current
 
     # --- 7b. Dialectic cadence ---
-    current_dialectic = str(hermes_host.get("dialecticCadence") or cfg.get("dialecticCadence") or "3")
+    current_dialectic = str(daclaw_host.get("dialecticCadence") or cfg.get("dialecticCadence") or "3")
     print("\n  Dialectic cadence:")
     print("    How often Honcho rebuilds its user model (LLM call on Honcho backend).")
     print("    1 = every turn (aggressive), 3 = every 3 turns (recommended), 5+ = sparse.")
@@ -468,12 +468,12 @@ def cmd_setup(args) -> None:
     try:
         val = int(new_dialectic)
         if val >= 1:
-            hermes_host["dialecticCadence"] = val
+            daclaw_host["dialecticCadence"] = val
     except (ValueError, TypeError):
-        hermes_host["dialecticCadence"] = 3
+        daclaw_host["dialecticCadence"] = 3
 
     # --- 8. Session strategy ---
-    current_strat = hermes_host.get("sessionStrategy") or cfg.get("sessionStrategy", "per-session")
+    current_strat = daclaw_host.get("sessionStrategy") or cfg.get("sessionStrategy", "per-session")
     print("\n  Session strategy:")
     print("    per-session   -- each run starts clean, Honcho injects context automatically")
     print("    per-directory -- reuses session per dir, prior context auto-injected each run")
@@ -481,20 +481,20 @@ def cmd_setup(args) -> None:
     print("    global        -- single session across all directories")
     new_strat = _prompt("Session strategy", default=current_strat)
     if new_strat in ("per-session", "per-repo", "per-directory", "global"):
-        hermes_host["sessionStrategy"] = new_strat
+        daclaw_host["sessionStrategy"] = new_strat
 
-    hermes_host["enabled"] = True
-    hermes_host.setdefault("saveMessages", True)
+    daclaw_host["enabled"] = True
+    daclaw_host.setdefault("saveMessages", True)
 
     _write_config(cfg)
     print(f"\n  Config written to {write_path}")
 
     # --- Auto-enable Honcho as memory provider in config.yaml ---
     try:
-        from hermes_cli.config import load_config, save_config
-        hermes_config = load_config()
-        hermes_config.setdefault("memory", {})["provider"] = "honcho"
-        save_config(hermes_config)
+        from daclaw_cli.config import load_config, save_config
+        daclaw_config = load_config()
+        daclaw_config.setdefault("memory", {})["provider"] = "honcho"
+        save_config(daclaw_config)
         print("  Memory provider set to 'honcho' in config.yaml")
     except Exception as e:
         print(f"  Could not auto-enable in config.yaml: {e}")
@@ -540,7 +540,7 @@ def _active_profile_name() -> str:
     if _profile_override:
         return _profile_override
     try:
-        from hermes_cli.profiles import get_active_profile_name
+        from daclaw_cli.profiles import get_active_profile_name
         return get_active_profile_name()
     except Exception:
         return "default"
@@ -552,7 +552,7 @@ def _all_profile_host_configs() -> list[tuple[str, str, dict]]:
     Reads honcho.json once and maps each profile to its host block.
     """
     try:
-        from hermes_cli.profiles import list_profiles
+        from daclaw_cli.profiles import list_profiles
         profiles = list_profiles()
     except Exception:
         return [(_active_profile_name(), _host_key(), {})]
@@ -795,10 +795,10 @@ def cmd_peer(args) -> None:
         # Show current values
         hosts = cfg.get("hosts", {})
         daclaw = hosts.get(_host_key(), {})
-        user = hermes.get('peerName') or cfg.get('peerName') or '(not set)'
-        ai = hermes.get('aiPeer') or cfg.get('aiPeer') or _host_key()
-        lvl = hermes.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
-        max_chars = hermes.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
+        user = daclaw.get('peerName') or cfg.get('peerName') or '(not set)'
+        ai = daclaw.get('aiPeer') or cfg.get('aiPeer') or _host_key()
+        lvl = daclaw.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
+        max_chars = daclaw.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
         print("\nHoncho peers\n" + "─" * 40)
         print(f"  User peer:   {user}")
         print("    Your identity in Honcho. Messages you send build this peer's card.")
@@ -915,9 +915,9 @@ def cmd_tokens(args) -> None:
     dialectic = getattr(args, "dialectic", None)
 
     if context is None and dialectic is None:
-        ctx_tokens = hermes.get("contextTokens") or cfg.get("contextTokens") or "(Honcho default)"
-        d_chars = hermes.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
-        d_level = hermes.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
+        ctx_tokens = daclaw.get("contextTokens") or cfg.get("contextTokens") or "(Honcho default)"
+        d_chars = daclaw.get("dialecticMaxChars") or cfg.get("dialecticMaxChars") or 600
+        d_level = daclaw.get("dialecticReasoningLevel") or cfg.get("dialecticReasoningLevel") or "low"
         print("\nHoncho budgets\n" + "─" * 40)
         print()
         print(f"  Context     {ctx_tokens} tokens")
@@ -1262,7 +1262,7 @@ def honcho_command(args) -> None:
         # Redirect to memory setup — honcho setup goes through the unified path
         print("\n  Honcho is configured via the memory provider system.")
         print("  Running 'daclaw memory setup'...\n")
-        from hermes_cli.memory_setup import cmd_setup_provider
+        from daclaw_cli.memory_setup import cmd_setup_provider
         cmd_setup_provider("honcho")
         return
     elif sub is None:

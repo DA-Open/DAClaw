@@ -29,17 +29,17 @@ import sys
 from pathlib import Path
 
 try:
-    from hermes_constants import display_hermes_home, get_hermes_home
+    from daclaw_constants import display_daclaw_home, get_daclaw_home
 except ModuleNotFoundError:
-    HERMES_AGENT_ROOT = Path(__file__).resolve().parents[4]
-    if HERMES_AGENT_ROOT.exists():
-        sys.path.insert(0, str(HERMES_AGENT_ROOT))
-    from hermes_constants import display_hermes_home, get_hermes_home
+    DACLAW_AGENT_ROOT = Path(__file__).resolve().parents[4]
+    if DACLAW_AGENT_ROOT.exists():
+        sys.path.insert(0, str(DACLAW_AGENT_ROOT))
+    from daclaw_constants import display_daclaw_home, get_daclaw_home
 
-HERMES_HOME = get_hermes_home()
-TOKEN_PATH = HERMES_HOME / "google_token.json"
-CLIENT_SECRET_PATH = HERMES_HOME / "google_client_secret.json"
-PENDING_AUTH_PATH = HERMES_HOME / "google_oauth_pending.json"
+DACLAW_HOME = get_daclaw_home()
+TOKEN_PATH = DACLAW_HOME / "google_token.json"
+CLIENT_SECRET_PATH = DACLAW_HOME / "google_client_secret.json"
+PENDING_AUTH_PATH = DACLAW_HOME / "google_oauth_pending.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -333,7 +333,7 @@ def exchange_auth_code(code: str):
     TOKEN_PATH.write_text(json.dumps(token_payload, indent=2))
     PENDING_AUTH_PATH.unlink(missing_ok=True)
     print(f"OK: Authenticated. Token saved to {TOKEN_PATH}")
-    print(f"Profile-scoped token location: {display_hermes_home()}/google_token.json")
+    print(f"Profile-scoped token location: {display_daclaw_home()}/google_token.json")
 
 
 def revoke():

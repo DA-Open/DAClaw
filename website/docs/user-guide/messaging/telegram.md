@@ -15,7 +15,7 @@ Every Telegram bot requires an API token issued by [@BotFather](https://t.me/Bot
 1. Open Telegram and search for **@BotFather**, or visit [t.me/BotFather](https://t.me/BotFather)
 2. Send `/newbot`
 3. Choose a **display name** (e.g., "DAClaw Agent") — this can be anything
-4. Choose a **username** — this must be unique and end in `bot` (e.g., `my_hermes_bot`)
+4. Choose a **username** — this must be unique and end in `bot` (e.g., `my_daclaw_bot`)
 5. BotFather replies with your **API token**. It looks like this:
 
 ```
@@ -97,7 +97,7 @@ Select **Telegram** when prompted. The wizard asks for your bot token and allowe
 
 ### Option B: Manual Configuration
 
-Add the following to `~/.hermes/.env`:
+Add the following to `~/.daclaw/.env`:
 
 ```bash
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxYZ
@@ -127,7 +127,7 @@ For **cloud deployments** (Fly.io, Railway, Render, etc.), **webhook mode** is m
 
 ### Configuration
 
-Add the following to `~/.hermes/.env`:
+Add the following to `~/.daclaw/.env`:
 
 ```bash
 TELEGRAM_WEBHOOK_URL=https://my-app.fly.dev/telegram
@@ -176,7 +176,7 @@ The gateway log should show: `[telegram] Connected to Telegram (webhook mode)`.
 
 Use the `/sethome` command in any Telegram chat (DM or group) to designate it as the **home channel**. Scheduled tasks (cron jobs) deliver their results to this channel.
 
-You can also set it manually in `~/.hermes/.env`:
+You can also set it manually in `~/.daclaw/.env`:
 
 ```bash
 TELEGRAM_HOME_CHANNEL=-1001234567890
@@ -233,7 +233,7 @@ DAClaw Agent works in Telegram group chats with a few considerations:
 
 ### Example group trigger configuration
 
-Add this to `~/.hermes/config.yaml`:
+Add this to `~/.daclaw/config.yaml`:
 
 ```yaml
 telegram:
@@ -272,7 +272,7 @@ Each topic gets its own conversation session, history, and context — completel
 
 ### Configuration
 
-Add topics under `platforms.telegram.extra.dm_topics` in `~/.hermes/config.yaml`:
+Add topics under `platforms.telegram.extra.dm_topics` in `~/.daclaw/config.yaml`:
 
 ```yaml
 platforms:
@@ -331,7 +331,7 @@ A team supergroup with forum topics for different workstreams:
 
 ### Configuration
 
-Add topic bindings under `platforms.telegram.extra.group_topics` in `~/.hermes/config.yaml`:
+Add topic bindings under `platforms.telegram.extra.group_topics` in `~/.daclaw/config.yaml`:
 
 ```yaml
 platforms:
@@ -422,7 +422,7 @@ TELEGRAM_WEBHOOK_PORT=8443
 TELEGRAM_WEBHOOK_SECRET=my-secret-token
 ```
 
-Or in `~/.hermes/config.yaml`:
+Or in `~/.daclaw/config.yaml`:
 
 ```yaml
 telegram:
@@ -454,7 +454,7 @@ In some restricted networks, `api.telegram.org` may resolve to an IP that is unr
 TELEGRAM_FALLBACK_IPS=149.154.167.220,149.154.167.221
 ```
 
-Or in `~/.hermes/config.yaml`:
+Or in `~/.daclaw/config.yaml`:
 
 ```yaml
 platforms:
@@ -490,7 +490,7 @@ export HTTPS_PROXY=http://proxy.example.com:8080
 daclaw gateway
 ```
 
-Or add it to `~/.hermes/.env`:
+Or add it to `~/.daclaw/.env`:
 
 ```bash
 HTTPS_PROXY=http://proxy.example.com:8080
@@ -561,7 +561,7 @@ Numeric YAML keys are automatically normalized to strings.
 | Bot not responding at all | Verify `TELEGRAM_BOT_TOKEN` is correct. Check `daclaw gateway` logs for errors. |
 | Bot responds with "unauthorized" | Your user ID is not in `TELEGRAM_ALLOWED_USERS`. Double-check with @userinfobot. |
 | Bot ignores group messages | Privacy mode is likely on. Disable it (Step 3) or make the bot a group admin. **Remember to remove and re-add the bot after changing privacy.** |
-| Voice messages not transcribed | Verify STT is available: install `faster-whisper` for local transcription, or set `GROQ_API_KEY` / `VOICE_TOOLS_OPENAI_KEY` in `~/.hermes/.env`. |
+| Voice messages not transcribed | Verify STT is available: install `faster-whisper` for local transcription, or set `GROQ_API_KEY` / `VOICE_TOOLS_OPENAI_KEY` in `~/.daclaw/.env`. |
 | Voice replies are files, not bubbles | Install `ffmpeg` (needed for Edge TTS Opus conversion). |
 | Bot token revoked/invalid | Generate a new token via `/revoke` then `/newbot` or `/token` in BotFather. Update your `.env` file. |
 | Webhook not receiving updates | Verify `TELEGRAM_WEBHOOK_URL` is publicly reachable (test with `curl`). Ensure your platform/reverse proxy routes inbound HTTPS traffic from the URL's port to the local listen port configured by `TELEGRAM_WEBHOOK_PORT` (they do not need to be the same number). Ensure SSL/TLS is active — Telegram only sends to HTTPS URLs. Check firewall rules. |

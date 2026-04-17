@@ -9,14 +9,14 @@ description: "Extend DAClaw with custom tools, hooks, and integrations via the p
 
 DAClaw has a plugin system for adding custom tools, hooks, and integrations without modifying core code.
 
-**→ [Build a DAClaw Plugin](/docs/guides/build-a-hermes-plugin)** — step-by-step guide with a complete working example.
+**→ [Build a DAClaw Plugin](/docs/guides/build-a-daclaw-plugin)** — step-by-step guide with a complete working example.
 
 ## Quick overview
 
-Drop a directory into `~/.hermes/plugins/` with a `plugin.yaml` and Python code:
+Drop a directory into `~/.daclaw/plugins/` with a `plugin.yaml` and Python code:
 
 ```
-~/.hermes/plugins/my-plugin/
+~/.daclaw/plugins/my-plugin/
 ├── plugin.yaml      # manifest
 ├── __init__.py      # register() — wires schemas to handlers
 ├── schemas.py       # tool schemas (what the LLM sees)
@@ -29,7 +29,7 @@ Start DAClaw — your tools appear alongside built-in tools. The model can call 
 
 Here is a complete plugin that adds a `hello_world` tool and logs every tool call via a hook.
 
-**`~/.hermes/plugins/hello-world/plugin.yaml`**
+**`~/.daclaw/plugins/hello-world/plugin.yaml`**
 
 ```yaml
 name: hello-world
@@ -37,7 +37,7 @@ version: "1.0"
 description: A minimal example plugin
 ```
 
-**`~/.hermes/plugins/hello-world/__init__.py`**
+**`~/.daclaw/plugins/hello-world/__init__.py`**
 
 ```python
 """Minimal DAClaw plugin — registers a tool and a hook."""
@@ -73,9 +73,9 @@ def register(ctx):
     ctx.register_hook("post_tool_call", on_tool_call)
 ```
 
-Drop both files into `~/.hermes/plugins/hello-world/`, restart DAClaw, and the model can immediately call `hello_world`. The hook prints a log line after every tool invocation.
+Drop both files into `~/.daclaw/plugins/hello-world/`, restart DAClaw, and the model can immediately call `hello_world`. The hook prints a log line after every tool invocation.
 
-Project-local plugins under `./.hermes/plugins/` are disabled by default. Enable them only for trusted repositories by setting `HERMES_ENABLE_PROJECT_PLUGINS=true` before starting DAClaw.
+Project-local plugins under `./.daclaw/plugins/` are disabled by default. Enable them only for trusted repositories by setting `DACLAW_ENABLE_PROJECT_PLUGINS=true` before starting DAClaw.
 
 ## What plugins can do
 
@@ -88,15 +88,15 @@ Project-local plugins under `./.hermes/plugins/` are disabled by default. Enable
 | Ship data files | `Path(__file__).parent / "data" / "file.yaml"` |
 | Bundle skills | `ctx.register_skill(name, path)` — namespaced as `plugin:skill`, loaded via `skill_view("plugin:skill")` |
 | Gate on env vars | `requires_env: [API_KEY]` in plugin.yaml — prompted during `daclaw plugins install` |
-| Distribute via pip | `[project.entry-points."hermes_agent.plugins"]` |
+| Distribute via pip | `[project.entry-points."daclaw_agent.plugins"]` |
 
 ## Plugin discovery
 
 | Source | Path | Use case |
 |--------|------|----------|
-| User | `~/.hermes/plugins/` | Personal plugins |
-| Project | `.hermes/plugins/` | Project-specific plugins (requires `HERMES_ENABLE_PROJECT_PLUGINS=true`) |
-| pip | `hermes_agent.plugins` entry_points | Distributed packages |
+| User | `~/.daclaw/plugins/` | Personal plugins |
+| Project | `.daclaw/plugins/` | Project-specific plugins (requires `DACLAW_ENABLE_PROJECT_PLUGINS=true`) |
+| pip | `daclaw_agent.plugins` entry_points | Distributed packages |
 
 ## Available hooks
 
@@ -117,7 +117,7 @@ DAClaw has three kinds of plugins:
 
 | Type | What it does | Selection | Location |
 |------|-------------|-----------|----------|
-| **General plugins** | Add tools, hooks, CLI commands | Multi-select (enable/disable) | `~/.hermes/plugins/` |
+| **General plugins** | Add tools, hooks, CLI commands | Multi-select (enable/disable) | `~/.daclaw/plugins/` |
 | **Memory providers** | Replace or augment built-in memory | Single-select (one active) | `plugins/memory/` |
 | **Context engines** | Replace the built-in context compressor | Single-select (one active) | `plugins/context_engine/` |
 
@@ -200,4 +200,4 @@ This enables plugins like remote control viewers, messaging bridges, or webhook 
 `inject_message` is only available in CLI mode. In gateway mode, there is no CLI reference and the method returns `False`.
 :::
 
-See the **[full guide](/docs/guides/build-a-hermes-plugin)** for handler contracts, schema format, hook behavior, error handling, and common mistakes.
+See the **[full guide](/docs/guides/build-a-daclaw-plugin)** for handler contracts, schema format, hook behavior, error handling, and common mistakes.

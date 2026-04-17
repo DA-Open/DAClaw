@@ -13,9 +13,9 @@ from dataclasses import dataclass, fields, replace
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from hermes_constants import OPENROUTER_BASE_URL
-import hermes_cli.auth as auth_mod
-from hermes_cli.auth import (
+from daclaw_constants import OPENROUTER_BASE_URL
+import daclaw_cli.auth as auth_mod
+from daclaw_cli.auth import (
     CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS,
     DEFAULT_AGENT_KEY_MIN_TTL_SECONDS,
     PROVIDER_REGISTRY,
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 def _load_config_safe() -> Optional[dict]:
     """Load config.yaml, returning None on any error."""
     try:
-        from hermes_cli.config import load_config
+        from daclaw_cli.config import load_config
 
         return load_config()
     except Exception:
@@ -290,7 +290,7 @@ def _iter_custom_providers(config: Optional[dict] = None):
     if not isinstance(custom_providers, list):
         # Fall back to the v12+ providers dict via the compatibility layer
         try:
-            from hermes_cli.config import get_compatible_custom_providers
+            from daclaw_cli.config import get_compatible_custom_providers
 
             custom_providers = get_compatible_custom_providers(config)
         except Exception:
@@ -563,7 +563,7 @@ class CredentialPool:
 
                 refreshed = refresh_anthropic_oauth_pure(
                     entry.refresh_token,
-                    use_json=entry.source.endswith("hermes_pkce"),
+                    use_json=entry.source.endswith("daclaw_pkce"),
                 )
                 updated = replace(
                     entry,
@@ -648,7 +648,7 @@ class CredentialPool:
                         from agent.anthropic_adapter import refresh_anthropic_oauth_pure
                         refreshed = refresh_anthropic_oauth_pure(
                             synced.refresh_token,
-                            use_json=synced.source.endswith("hermes_pkce"),
+                            use_json=synced.source.endswith("daclaw_pkce"),
                         )
                         updated = replace(
                             synced,
@@ -1053,7 +1053,7 @@ def _normalize_pool_priorities(provider: str, entries: List[PooledCredential]) -
     source_rank = {
         "env:ANTHROPIC_TOKEN": 0,
         "env:CLAUDE_CODE_OAUTH_TOKEN": 1,
-        "hermes_pkce": 2,
+        "daclaw_pkce": 2,
         "claude_code": 3,
         "env:ANTHROPIC_API_KEY": 4,
     }
@@ -1091,22 +1091,22 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         # Without this gate, auxiliary client fallback chains silently read
         # ~/.claude/.credentials.json without user consent.  See PR #4210.
         try:
-            from hermes_cli.auth import is_provider_explicitly_configured
+            from daclaw_cli.auth import is_provider_explicitly_configured
             if not is_provider_explicitly_configured("anthropic"):
                 return changed, active_sources
         except ImportError:
             pass
 
-        from agent.anthropic_adapter import read_claude_code_credentials, read_hermes_oauth_credentials
+        from agent.anthropic_adapter import read_claude_code_credentials, read_daclaw_oauth_credentials
 
         for source_name, creds in (
-            ("hermes_pkce", read_hermes_oauth_credentials()),
+            ("daclaw_pkce", read_daclaw_oauth_credentials()),
             ("claude_code", read_claude_code_credentials()),
         ):
             if creds and creds.get("accessToken"):
                 # Check if user explicitly removed this source
                 try:
-                    from hermes_cli.auth import is_source_suppressed
+                    from daclaw_cli.auth import is_source_suppressed
                     if is_source_suppressed(provider, source_name):
                         continue
                 except ImportError:
@@ -1157,7 +1157,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         # env vars (COPILOT_GITHUB_TOKEN / GH_TOKEN).  They don't live in
         # the auth store or credential pool, so we resolve them here.
         try:
-            from hermes_cli.copilot_auth import resolve_copilot_token
+            from daclaw_cli.copilot_auth import resolve_copilot_token
             token, source = resolve_copilot_token()
             if token:
                 source_name = "gh_cli" if "gh" in source.lower() else f"env:{source}"
@@ -1185,7 +1185,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         # Use refresh_if_expiring=False to avoid network calls during
         # pool loading / provider discovery.
         try:
-            from hermes_cli.auth import resolve_qwen_runtime_credentials
+            from daclaw_cli.auth import resolve_qwen_runtime_credentials
             creds = resolve_qwen_runtime_credentials(refresh_if_expiring=False)
             token = creds.get("api_key", "")
             if token:
@@ -1214,9 +1214,9 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         # store has no tokens.  This mirrors resolve_codex_runtime_credentials()
         # so that load_pool() and list_authenticated_providers() detect tokens
         # that only exist in the Codex CLI shared file.
-        if not (isinstance(tokens, dict) and tokens.get("access_token")):
+        if not entries and not (isinstance(tokens, dict) and tokens.get("access_token")):
             try:
-                from hermes_cli.auth import _import_codex_cli_tokens, _save_codex_tokens
+                from daclaw_cli.auth import _import_codex_cli_tokens, _save_codex_tokens
                 cli_tokens = _import_codex_cli_tokens()
                 if cli_tokens:
                     logger.info("Importing Codex CLI tokens into DAClaw auth store.")
@@ -1320,7 +1320,7 @@ def _prune_stale_seeded_entries(entries: List[PooledCredential], active_sources:
         or entry.source in active_sources
         or not (
             entry.source.startswith("env:")
-            or entry.source in {"claude_code", "hermes_pkce"}
+            or entry.source in {"claude_code", "daclaw_pkce"}
         )
     ]
     if len(retained) == len(entries):

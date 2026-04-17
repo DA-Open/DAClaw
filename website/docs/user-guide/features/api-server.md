@@ -14,7 +14,7 @@ Your agent handles requests with its full toolset (terminal, file operations, we
 
 ### 1. Enable the API server
 
-Add to `~/.hermes/.env`:
+Add to `~/.daclaw/.env`:
 
 ```bash
 API_SERVER_ENABLED=true
@@ -83,10 +83,10 @@ Standard OpenAI Chat Completions format. Stateless — the full conversation is 
 }
 ```
 
-**Streaming** (`"stream": true`): Returns Server-Sent Events (SSE) with token-by-token response chunks. For **Chat Completions**, the stream uses standard `chat.completion.chunk` events plus DAClaw' custom `hermes.tool.progress` event for tool-start UX. For **Responses**, the stream uses OpenAI Responses event types such as `response.created`, `response.output_text.delta`, `response.output_item.added`, `response.output_item.done`, and `response.completed`.
+**Streaming** (`"stream": true`): Returns Server-Sent Events (SSE) with token-by-token response chunks. For **Chat Completions**, the stream uses standard `chat.completion.chunk` events plus DAClaw' custom `daclaw.tool.progress` event for tool-start UX. For **Responses**, the stream uses OpenAI Responses event types such as `response.created`, `response.output_text.delta`, `response.output_item.added`, `response.output_item.done`, and `response.completed`.
 
 **Tool progress in streams**:
-- **Chat Completions**: DAClaw emits `event: hermes.tool.progress` for tool-start visibility without polluting persisted assistant text.
+- **Chat Completions**: DAClaw emits `event: daclaw.tool.progress` for tool-start visibility without polluting persisted assistant text.
 - **Responses**: DAClaw emits spec-native `function_call` and `function_call_output` output items during the SSE stream, so clients can render structured tool UI in real time.
 
 ### POST /v1/responses

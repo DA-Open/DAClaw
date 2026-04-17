@@ -6,7 +6,7 @@ author: Cocoon AI (hello@cocoon-ai.com), ported by DAClaw Agent
 license: MIT
 dependencies: []
 metadata:
-  hermes:
+  daclaw:
     tags: [architecture, diagrams, SVG, HTML, visualization, infrastructure, cloud]
     related_skills: [excalidraw]
 ---

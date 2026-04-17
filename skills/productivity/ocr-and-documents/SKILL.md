@@ -5,7 +5,7 @@ version: 2.3.0
 author: DAClaw Agent
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [PDF, Documents, Research, Arxiv, Text-Extraction, OCR]
     related_skills: [powerpoint]
 ---

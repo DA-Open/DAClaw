@@ -5,7 +5,7 @@ version: 1.0.0
 author: DAClaw Agent
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [LOC, Code Analysis, pygount, Codebase, Metrics, Repository]
     related_skills: [github-repo-management]
 prerequisites:

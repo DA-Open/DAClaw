@@ -5,7 +5,7 @@ version: 2.0.0
 author: DAClaw Agent
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [wiki, knowledge-base, research, notes, markdown, rag-alternative]
     category: research
     related_skills: [obsidian, arxiv, agentic-research-ideas]
@@ -39,7 +39,7 @@ Use this skill when the user:
 
 ## Wiki Location
 
-Configured via `skills.config.wiki.path` in `~/.hermes/config.yaml` (prompted
+Configured via `skills.config.wiki.path` in `~/.daclaw/config.yaml` (prompted
 during `daclaw config migrate` or `daclaw setup`):
 
 ```yaml

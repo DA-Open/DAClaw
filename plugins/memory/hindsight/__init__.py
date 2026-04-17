@@ -7,12 +7,12 @@ Original PR #1811 by benfrank241, adapted to MemoryProvider ABC.
 
 Config via environment variables:
   HINDSIGHT_API_KEY   — API key for Hindsight Cloud
-  HINDSIGHT_BANK_ID   — memory bank identifier (default: hermes)
+  HINDSIGHT_BANK_ID   — memory bank identifier (default: daclaw)
   HINDSIGHT_BUDGET    — recall budget: low/mid/high (default: mid)
   HINDSIGHT_API_URL   — API endpoint
   HINDSIGHT_MODE      — cloud or local (default: cloud)
 
-Or via $HERMES_HOME/hindsight/config.json (profile-scoped), falling back to
+Or via $DACLAW_HOME/hindsight/config.json (profile-scoped), falling back to
 ~/.hindsight/config.json (legacy, shared) for backward compatibility.
 """
 
@@ -24,11 +24,11 @@ import logging
 import os
 import threading
 
-from hermes_constants import get_hermes_home
+from daclaw_constants import get_daclaw_home
 from typing import Any, Dict, List
 
 from agent.memory_provider import MemoryProvider
-from hermes_constants import get_hermes_home
+from daclaw_constants import get_daclaw_home
 from tools.registry import tool_error
 
 logger = logging.getLogger(__name__)
@@ -143,14 +143,14 @@ def _load_config() -> dict:
     """Load config from profile-scoped path, legacy path, or env vars.
 
     Resolution order:
-      1. $HERMES_HOME/hindsight/config.json  (profile-scoped)
+      1. $DACLAW_HOME/hindsight/config.json  (profile-scoped)
       2. ~/.hindsight/config.json             (legacy, shared)
       3. Environment variables
     """
     from pathlib import Path
 
     # Profile-scoped path (preferred)
-    profile_path = get_hermes_home() / "hindsight" / "config.json"
+    profile_path = get_daclaw_home() / "hindsight" / "config.json"
     if profile_path.exists():
         try:
             return json.loads(profile_path.read_text(encoding="utf-8"))
@@ -242,11 +242,11 @@ class HindsightMemoryProvider(MemoryProvider):
         except Exception:
             return False
 
-    def save_config(self, values, hermes_home):
-        """Write config to $HERMES_HOME/hindsight/config.json."""
+    def save_config(self, values, daclaw_home):
+        """Write config to $DACLAW_HOME/hindsight/config.json."""
         import json
         from pathlib import Path
-        config_dir = Path(hermes_home) / "hindsight"
+        config_dir = Path(daclaw_home) / "hindsight"
         config_dir.mkdir(parents=True, exist_ok=True)
         config_path = config_dir / "config.json"
         existing = {}
@@ -258,7 +258,7 @@ class HindsightMemoryProvider(MemoryProvider):
         existing.update(values)
         config_path.write_text(json.dumps(existing, indent=2))
 
-    def post_setup(self, hermes_home: str, config: dict) -> None:
+    def post_setup(self, daclaw_home: str, config: dict) -> None:
         """Custom setup wizard — installs only the deps needed for the selected mode."""
         import getpass
         import subprocess
@@ -266,9 +266,9 @@ class HindsightMemoryProvider(MemoryProvider):
         import sys
         from pathlib import Path
 
-        from hermes_cli.config import save_config
+        from daclaw_cli.config import save_config
 
-        from hermes_cli.memory_setup import _curses_select
+        from daclaw_cli.memory_setup import _curses_select
 
         print("\n  Configuring Hindsight memory:\n")
 
@@ -376,10 +376,10 @@ class HindsightMemoryProvider(MemoryProvider):
         config["memory"]["provider"] = "hindsight"
         save_config(config)
 
-        self.save_config(provider_config, hermes_home)
+        self.save_config(provider_config, daclaw_home)
 
         if env_writes:
-            env_path = Path(hermes_home) / ".env"
+            env_path = Path(daclaw_home) / ".env"
             env_path.parent.mkdir(parents=True, exist_ok=True)
             existing_lines = []
             if env_path.exists():
@@ -560,7 +560,7 @@ class HindsightMemoryProvider(MemoryProvider):
         if self._mode == "local_embedded":
             def _start_daemon():
                 import traceback
-                log_dir = get_hermes_home() / "logs"
+                log_dir = get_daclaw_home() / "logs"
                 log_dir.mkdir(parents=True, exist_ok=True)
                 log_path = log_dir / "hindsight-embed.log"
                 try:

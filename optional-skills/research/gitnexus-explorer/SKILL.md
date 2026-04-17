@@ -5,7 +5,7 @@ version: 1.0.0
 author: DAClaw Agent + Teknium
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [gitnexus, code-intelligence, knowledge-graph, visualization]
     related_skills: [native-mcp, codebase-inspection]
 ---

@@ -6,7 +6,7 @@ author: DAClaw Agent
 license: MIT
 platforms: [macos]
 metadata:
-  hermes:
+  daclaw:
     tags: [FindMy, AirTag, location, tracking, macOS, Apple]
 ---
 

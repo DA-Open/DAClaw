@@ -72,8 +72,8 @@ class TestSendMessageTool:
         with patch.dict(
             os.environ,
             {
-                "HERMES_CRON_AUTO_DELIVER_PLATFORM": "telegram",
-                "HERMES_CRON_AUTO_DELIVER_CHAT_ID": "-1001",
+                "DACLAW_CRON_AUTO_DELIVER_PLATFORM": "telegram",
+                "DACLAW_CRON_AUTO_DELIVER_CHAT_ID": "-1001",
             },
             clear=False,
         ), \
@@ -105,8 +105,8 @@ class TestSendMessageTool:
         with patch.dict(
             os.environ,
             {
-                "HERMES_CRON_AUTO_DELIVER_PLATFORM": "telegram",
-                "HERMES_CRON_AUTO_DELIVER_CHAT_ID": "-1001",
+                "DACLAW_CRON_AUTO_DELIVER_PLATFORM": "telegram",
+                "DACLAW_CRON_AUTO_DELIVER_CHAT_ID": "-1001",
             },
             clear=False,
         ), \
@@ -143,9 +143,9 @@ class TestSendMessageTool:
         with patch.dict(
             os.environ,
             {
-                "HERMES_CRON_AUTO_DELIVER_PLATFORM": "telegram",
-                "HERMES_CRON_AUTO_DELIVER_CHAT_ID": "-1001",
-                "HERMES_CRON_AUTO_DELIVER_THREAD_ID": "17585",
+                "DACLAW_CRON_AUTO_DELIVER_PLATFORM": "telegram",
+                "DACLAW_CRON_AUTO_DELIVER_CHAT_ID": "-1001",
+                "DACLAW_CRON_AUTO_DELIVER_THREAD_ID": "17585",
             },
             clear=False,
         ), \
@@ -709,12 +709,12 @@ class TestSendToPlatformWhatsapp:
                     Platform.WHATSAPP,
                     SimpleNamespace(enabled=True, token=None, extra={"bridge_port": 3000}),
                     chat_id,
-                    "hello from hermes",
+                    "hello from daclaw",
                 )
             )
 
         assert result["success"] is True
-        async_mock.assert_awaited_once_with({"bridge_port": 3000}, chat_id, "hello from hermes")
+        async_mock.assert_awaited_once_with({"bridge_port": 3000}, chat_id, "hello from daclaw")
 
 
 class TestSendTelegramHtmlDetection:
@@ -873,8 +873,8 @@ class TestParseTargetRefMatrix:
 
     def test_matrix_user_mxid_is_explicit(self):
         """Matrix user MXIDs (@) are recognized as explicit targets."""
-        chat_id, thread_id, is_explicit = _parse_target_ref("matrix", "@hermes:matrix.org")
-        assert chat_id == "@hermes:matrix.org"
+        chat_id, thread_id, is_explicit = _parse_target_ref("matrix", "@daclaw:matrix.org")
+        assert chat_id == "@daclaw:matrix.org"
         assert thread_id is None
         assert is_explicit is True
 

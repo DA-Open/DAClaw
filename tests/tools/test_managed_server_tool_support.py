@@ -141,13 +141,13 @@ class TestParserCompatibility:
 
 
 class TestBaseEnvCompatibility:
-    """Test that hermes_base_env.py's tool-parser wiring matches the current API."""
+    """Test that daclaw_base_env.py's tool-parser wiring matches the current API."""
 
-    def test_hermes_base_env_sets_server_manager_tool_parser(self):
+    def test_daclaw_base_env_sets_server_manager_tool_parser(self):
         """DAClaw wires parser selection through ServerManager.tool_parser."""
         import ast
 
-        base_env_path = Path(__file__).parent.parent.parent / "environments" / "hermes_base_env.py"
+        base_env_path = Path(__file__).parent.parent.parent / "environments" / "daclaw_base_env.py"
         source = base_env_path.read_text()
         tree = ast.parse(source)
 
@@ -166,12 +166,12 @@ class TestBaseEnvCompatibility:
                             found_assignment = True
 
         assert found_assignment, (
-            "hermes_base_env.py should set self.server.tool_parser from config.tool_call_parser"
+            "daclaw_base_env.py should set self.server.tool_parser from config.tool_call_parser"
         )
 
-    def test_hermes_base_env_uses_config_tool_call_parser(self):
-        """Verify hermes_base_env uses the config field rather than a local parser instance."""
-        base_env_path = Path(__file__).parent.parent.parent / "environments" / "hermes_base_env.py"
+    def test_daclaw_base_env_uses_config_tool_call_parser(self):
+        """Verify daclaw_base_env uses the config field rather than a local parser instance."""
+        base_env_path = Path(__file__).parent.parent.parent / "environments" / "daclaw_base_env.py"
         source = base_env_path.read_text()
 
         assert 'tool_call_parser: str = Field(' in source

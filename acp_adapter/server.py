@@ -62,9 +62,9 @@ from acp_adapter.session import SessionManager, SessionState
 logger = logging.getLogger(__name__)
 
 try:
-    from hermes_cli import __version__ as HERMES_VERSION
+    from daclaw_cli import __version__ as DACLAW_VERSION
 except Exception:
-    HERMES_VERSION = "0.0.0"
+    DACLAW_VERSION = "0.0.0"
 
 # Thread pool for running AIAgent (synchronous) in parallel.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="acp-agent")
@@ -187,7 +187,7 @@ class DAClawACPAgent(acp.Agent):
         try:
             from model_tools import get_tool_definitions
 
-            enabled_toolsets = getattr(state.agent, "enabled_toolsets", None) or ["hermes-acp"]
+            enabled_toolsets = getattr(state.agent, "enabled_toolsets", None) or ["daclaw-acp"]
             disabled_toolsets = getattr(state.agent, "disabled_toolsets", None)
             state.agent.tools = get_tool_definitions(
                 enabled_toolsets=enabled_toolsets,
@@ -244,7 +244,7 @@ class DAClawACPAgent(acp.Agent):
 
         return InitializeResponse(
             protocol_version=acp.PROTOCOL_VERSION,
-            agent_info=Implementation(name="daclaw-agent", version=HERMES_VERSION),
+            agent_info=Implementation(name="daclaw-agent", version=DACLAW_VERSION),
             agent_capabilities=AgentCapabilities(
                 load_session=True,
                 session_capabilities=SessionCapabilities(
@@ -562,7 +562,7 @@ class DAClawACPAgent(acp.Agent):
 
         # Auto-detect provider for the requested model
         try:
-            from hermes_cli.models import parse_model_input, detect_provider_for_model
+            from daclaw_cli.models import parse_model_input, detect_provider_for_model
             target_provider, new_model = parse_model_input(new_model, current_provider)
             if target_provider == current_provider:
                 detected = detect_provider_for_model(new_model, current_provider)
@@ -586,7 +586,7 @@ class DAClawACPAgent(acp.Agent):
     def _cmd_tools(self, args: str, state: SessionState) -> str:
         try:
             from model_tools import get_tool_definitions
-            toolsets = getattr(state.agent, "enabled_toolsets", None) or ["hermes-acp"]
+            toolsets = getattr(state.agent, "enabled_toolsets", None) or ["daclaw-acp"]
             tools = get_tool_definitions(enabled_toolsets=toolsets, quiet_mode=True)
             if not tools:
                 return "No tools available."
@@ -668,7 +668,7 @@ class DAClawACPAgent(acp.Agent):
             return f"Compression failed: {e}"
 
     def _cmd_version(self, args: str, state: SessionState) -> str:
-        return f"DAClaw Agent v{HERMES_VERSION}"
+        return f"DAClaw Agent v{DACLAW_VERSION}"
 
     # ---- Model switching (ACP protocol method) -------------------------------
 

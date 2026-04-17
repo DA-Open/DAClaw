@@ -19,7 +19,7 @@ DAClaw Agent can generate images from text prompts using FAL.ai's **FLUX 2 Pro**
 ### Configure the Key
 
 ```bash
-# Add to ~/.hermes/.env
+# Add to ~/.daclaw/.env
 FAL_KEY=your-fal-api-key-here
 ```
 

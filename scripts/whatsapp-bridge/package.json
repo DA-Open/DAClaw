@@ -1,5 +1,5 @@
 {
-  "name": "hermes-whatsapp-bridge",
+  "name": "daclaw-whatsapp-bridge",
   "version": "1.0.0",
   "description": "WhatsApp bridge for DAClaw Agent using Baileys",
   "private": true,

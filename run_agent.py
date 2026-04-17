@@ -38,20 +38,20 @@ import threading
 from types import SimpleNamespace
 import uuid
 from typing import List, Dict, Any, Optional
-from openai import OpenAI
+from openai import OpenAI, AzureOpenAI
 import fire
 from datetime import datetime
 from pathlib import Path
 
-from hermes_constants import get_hermes_home
+from daclaw_constants import get_daclaw_home
 
-# Load .env from ~/.hermes/.env first, then project root as dev fallback.
+# Load .env from ~/.daclaw/.env first, then project root as dev fallback.
 # User-managed env files should override stale shell exports on restart.
-from hermes_cli.env_loader import load_hermes_dotenv
+from daclaw_cli.env_loader import load_daclaw_dotenv
 
-_hermes_home = get_hermes_home()
+_daclaw_home = get_daclaw_home()
 _project_env = Path(__file__).parent / '.env'
-_loaded_env_paths = load_hermes_dotenv(hermes_home=_hermes_home, project_env=_project_env)
+_loaded_env_paths = load_daclaw_dotenv(daclaw_home=_daclaw_home, project_env=_project_env)
 if _loaded_env_paths:
     for _env_path in _loaded_env_paths:
         logger.info("Loaded environment variables from %s", _env_path)
@@ -72,7 +72,7 @@ from tools.interrupt import set_interrupt as _set_interrupt
 from tools.browser_tool import cleanup_browser
 
 
-from hermes_constants import OPENROUTER_BASE_URL
+from daclaw_constants import OPENROUTER_BASE_URL
 
 # Agent internals extracted to agent/ package for modularity
 from agent.memory_manager import build_memory_context_block, sanitize_context
@@ -105,6 +105,12 @@ from agent.display import (
 from agent.trajectory import (
     convert_scratchpad_to_think, has_incomplete_scratchpad,
     save_trajectory as _save_trajectory_to_file,
+)
+from agent.endpoint_options import (
+    DEFAULT_ENDPOINT_API_VERSION,
+    attach_azure_compatible_client_marker,
+    get_azure_compatible_client_marker,
+    normalize_endpoint_client_options,
 )
 from utils import atomic_json_write, env_var_enabled
 
@@ -562,6 +568,7 @@ class AIAgent:
         api_key: str = None,
         provider: str = None,
         api_mode: str = None,
+        client_options: Dict[str, Any] = None,
         acp_command: str = None,
         acp_args: list[str] | None = None,
         command: str = None,
@@ -623,6 +630,7 @@ class AIAgent:
             api_key (str): API key for authentication (optional, uses env var if not provided)
             provider (str): Provider identifier (optional; used for telemetry/routing hints)
             api_mode (str): API mode override: "chat_completions" or "codex_responses"
+            client_options (Dict): Extra OpenAI-compatible client options from config, such as default_headers.
             model (str): Model name to use (default: "anthropic/claude-opus-4.6")
             max_iterations (int): Maximum number of tool calling iterations (default: 90)
             tool_delay (float): Delay between tool calls in seconds (default: 1.0)
@@ -685,9 +693,17 @@ class AIAgent:
         self.base_url = base_url or ""
         provider_name = provider.strip().lower() if isinstance(provider, str) and provider.strip() else None
         self.provider = provider_name or ""
+        self.client_options = normalize_endpoint_client_options(client_options)
         self.acp_command = acp_command or command
         self.acp_args = list(acp_args or args or [])
-        if api_mode in {"chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse"}:
+        self._uses_azure_compatible_client = api_mode == "azure_chat_completions"
+        if api_mode in {
+            "chat_completions",
+            "codex_responses",
+            "anthropic_messages",
+            "azure_chat_completions",
+            "bedrock_converse",
+        }:
             self.api_mode = api_mode
         elif self.provider == "openai-codex":
             self.api_mode = "codex_responses"
@@ -707,9 +723,12 @@ class AIAgent:
             self.api_mode = "bedrock_converse"
         else:
             self.api_mode = "chat_completions"
+        if self.api_mode == "azure_chat_completions":
+            self.api_mode = "chat_completions"
+            self._uses_azure_compatible_client = True
 
         try:
-            from hermes_cli.model_normalize import (
+            from daclaw_cli.model_normalize import (
                 _AGGREGATOR_PROVIDERS,
                 normalize_model_for_provider,
             )
@@ -841,10 +860,10 @@ class AIAgent:
         self._rate_limit_state: Optional["RateLimitState"] = None
 
         # Centralized logging — agent.log (INFO+) and errors.log (WARNING+)
-        # both live under ~/.hermes/logs/.  Idempotent, so gateway mode
+        # both live under ~/.daclaw/logs/.  Idempotent, so gateway mode
         # (which creates a new AIAgent per message) won't duplicate handlers.
-        from hermes_logging import setup_logging, setup_verbose_logging
-        setup_logging(hermes_home=_hermes_home)
+        from daclaw_logging import setup_logging, setup_verbose_logging
+        setup_logging(daclaw_home=_daclaw_home)
 
         if self.verbose_logging:
             setup_verbose_logging()
@@ -860,7 +879,7 @@ class AIAgent:
                     'run_agent',            # agent runner internals
                     'trajectory_compressor',
                     'cron',                 # scheduler (only relevant in daemon mode)
-                    'hermes_cli',           # CLI helpers
+                    'daclaw_cli',           # CLI helpers
                 ]:
                     logging.getLogger(quiet_logger).setLevel(logging.ERROR)
         
@@ -943,7 +962,7 @@ class AIAgent:
             # Guardrail config — read from config.yaml at init time.
             self._bedrock_guardrail_config = None
             try:
-                from hermes_cli.config import load_config as _load_br_cfg
+                from daclaw_cli.config import load_config as _load_br_cfg
                 _gr = _load_br_cfg().get("bedrock", {}).get("guardrail", {})
                 if _gr.get("guardrail_identifier") and _gr.get("guardrail_version"):
                     self._bedrock_guardrail_config = {
@@ -966,26 +985,35 @@ class AIAgent:
                 # Explicit credentials from CLI/gateway — construct directly.
                 # The runtime provider resolver already handled auth for us.
                 client_kwargs = {"api_key": api_key, "base_url": base_url}
+                configured_headers = self.client_options.get("default_headers")
+                if isinstance(configured_headers, dict) and configured_headers:
+                    client_kwargs["default_headers"] = dict(configured_headers)
                 if self.provider == "copilot-acp":
                     client_kwargs["command"] = self.acp_command
                     client_kwargs["args"] = self.acp_args
                 effective_base = base_url
                 if "openrouter" in effective_base.lower():
-                    client_kwargs["default_headers"] = {
+                    headers = dict(client_kwargs.get("default_headers") or {})
+                    headers.update({
                         "HTTP-Referer": "https://daclaw-agent.nousresearch.com",
                         "X-OpenRouter-Title": "DAClaw Agent",
                         "X-OpenRouter-Categories": "productivity,cli-agent",
-                    }
+                    })
+                    client_kwargs["default_headers"] = headers
                 elif "api.githubcopilot.com" in effective_base.lower():
-                    from hermes_cli.models import copilot_default_headers
+                    from daclaw_cli.models import copilot_default_headers
 
-                    client_kwargs["default_headers"] = copilot_default_headers()
+                    headers = dict(client_kwargs.get("default_headers") or {})
+                    headers.update(copilot_default_headers())
+                    client_kwargs["default_headers"] = headers
                 elif "api.kimi.com" in effective_base.lower():
-                    client_kwargs["default_headers"] = {
-                        "User-Agent": "KimiCLI/1.30.0",
-                    }
+                    headers = dict(client_kwargs.get("default_headers") or {})
+                    headers["User-Agent"] = "KimiCLI/1.30.0"
+                    client_kwargs["default_headers"] = headers
                 elif "portal.qwen.ai" in effective_base.lower():
-                    client_kwargs["default_headers"] = _qwen_portal_headers()
+                    headers = dict(client_kwargs.get("default_headers") or {})
+                    headers.update(_qwen_portal_headers())
+                    client_kwargs["default_headers"] = headers
             else:
                 # No explicit creds — use the centralized provider router
                 from agent.auxiliary_client import resolve_provider_client
@@ -999,6 +1027,20 @@ class AIAgent:
                     # Preserve any default_headers the router set
                     if hasattr(_routed_client, '_default_headers') and _routed_client._default_headers:
                         client_kwargs["default_headers"] = dict(_routed_client._default_headers)
+                    if self._uses_azure_compatible_client:
+                        azure_marker = get_azure_compatible_client_marker(_routed_client)
+                        if azure_marker:
+                            client_kwargs["api_version"] = azure_marker.get(
+                                "api_version", DEFAULT_ENDPOINT_API_VERSION
+                            )
+                            client_kwargs["azure_endpoint"] = azure_marker.get(
+                                "endpoint", client_kwargs["base_url"]
+                            )
+                            azure_headers = dict(azure_marker.get("default_headers") or {})
+                            if azure_headers:
+                                merged_headers = dict(client_kwargs.get("default_headers") or {})
+                                merged_headers.update(azure_headers)
+                                client_kwargs["default_headers"] = merged_headers
                 else:
                     # When the user explicitly chose a non-OpenRouter provider
                     # but no credentials were found, fail fast with a clear
@@ -1010,7 +1052,7 @@ class AIAgent:
                         # (e.g. alibaba → DASHSCOPE_API_KEY, not ALIBABA_API_KEY).
                         _env_hint = f"{_explicit.upper()}_API_KEY"
                         try:
-                            from hermes_cli.auth import PROVIDER_REGISTRY
+                            from daclaw_cli.auth import PROVIDER_REGISTRY
                             _pcfg = PROVIDER_REGISTRY.get(_explicit)
                             if _pcfg and _pcfg.api_key_env_vars:
                                 _env_hint = _pcfg.api_key_env_vars[0]
@@ -1031,6 +1073,17 @@ class AIAgent:
                             "X-OpenRouter-Categories": "productivity,cli-agent",
                         },
                     }
+            if self._uses_azure_compatible_client:
+                azure_options = dict(self.client_options)
+                azure_headers = dict(azure_options.get("default_headers") or {})
+                if azure_headers:
+                    merged_headers = dict(client_kwargs.get("default_headers") or {})
+                    merged_headers.update(azure_headers)
+                    client_kwargs["default_headers"] = merged_headers
+                client_kwargs["api_version"] = azure_options.get(
+                    "api_version", DEFAULT_ENDPOINT_API_VERSION
+                )
+                client_kwargs["azure_endpoint"] = client_kwargs.get("base_url", self.base_url)
             
             self._client_kwargs = client_kwargs  # stored for rebuilding after interrupt
 
@@ -1149,9 +1202,9 @@ class AIAgent:
             short_uuid = uuid.uuid4().hex[:6]
             self.session_id = f"{timestamp_str}_{short_uuid}"
         
-        # Session logs go into ~/.hermes/sessions/ alongside gateway sessions
-        hermes_home = get_hermes_home()
-        self.logs_dir = hermes_home / "sessions"
+        # Session logs go into ~/.daclaw/sessions/ alongside gateway sessions
+        daclaw_home = get_daclaw_home()
+        self.logs_dir = daclaw_home / "sessions"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
         
@@ -1176,7 +1229,7 @@ class AIAgent:
             try:
                 self._session_db.create_session(
                     session_id=self.session_id,
-                    source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                    source=self.platform or os.environ.get("DACLAW_SESSION_SOURCE", "cli"),
                     model=self.model,
                     model_config={
                         "max_iterations": self.max_iterations,
@@ -1203,7 +1256,7 @@ class AIAgent:
         
         # Load config once for memory, skills, and compression sections
         try:
-            from hermes_cli.config import load_config as _load_agent_config
+            from daclaw_cli.config import load_config as _load_agent_config
             _agent_cfg = _load_agent_config()
         except Exception:
             _agent_cfg = {}
@@ -1255,7 +1308,7 @@ class AIAgent:
                             _mem_provider_name = "honcho"
                             # Persist so this only auto-migrates once
                             try:
-                                from hermes_cli.config import load_config as _lc, save_config as _sc
+                                from daclaw_cli.config import load_config as _lc, save_config as _sc
                                 _cfg = _lc()
                                 _cfg.setdefault("memory", {})["provider"] = "honcho"
                                 _sc(_cfg)
@@ -1275,11 +1328,11 @@ class AIAgent:
                     if _mp and _mp.is_available():
                         self._memory_manager.add_provider(_mp)
                     if self._memory_manager.providers:
-                        from hermes_constants import get_hermes_home as _ghh
+                        from daclaw_constants import get_daclaw_home as _ghh
                         _init_kwargs = {
                             "session_id": self.session_id,
                             "platform": platform or "cli",
-                            "hermes_home": str(_ghh()),
+                            "daclaw_home": str(_ghh()),
                             "agent_context": "primary",
                         }
                         # Thread session title for memory provider scoping
@@ -1299,7 +1352,7 @@ class AIAgent:
                             _init_kwargs["gateway_session_key"] = self._gateway_session_key
                         # Profile identity for per-profile provider scoping
                         try:
-                            from hermes_cli.profiles import get_active_profile_name
+                            from daclaw_cli.profiles import get_active_profile_name
                             _profile = get_active_profile_name()
                             _init_kwargs["agent_identity"] = _profile
                             _init_kwargs["agent_workspace"] = "daclaw"
@@ -1393,7 +1446,7 @@ class AIAgent:
         # Check custom_providers per-model context_length
         if _config_context_length is None:
             try:
-                from hermes_cli.config import get_compatible_custom_providers
+                from daclaw_cli.config import get_compatible_custom_providers
                 _custom_providers = get_compatible_custom_providers(_agent_cfg)
             except Exception:
                 _custom_providers = _agent_cfg.get("custom_providers")
@@ -1453,7 +1506,7 @@ class AIAgent:
             # Try general plugin system as fallback
             if _selected_engine is None:
                 try:
-                    from hermes_cli.plugins import get_plugin_context_engine
+                    from daclaw_cli.plugins import get_plugin_context_engine
                     _candidate = get_plugin_context_engine()
                     if _candidate and _candidate.name == _engine_name:
                         _selected_engine = _candidate
@@ -1533,7 +1586,7 @@ class AIAgent:
             try:
                 self.context_compressor.on_session_start(
                     self.session_id,
-                    hermes_home=str(get_hermes_home()),
+                    daclaw_home=str(get_daclaw_home()),
                     platform=self.platform or "cli",
                     model=self.model,
                     context_length=getattr(self.context_compressor, "context_length", 0),
@@ -1683,7 +1736,7 @@ class AIAgent:
         turn-scoped).
         """
         import logging
-        from hermes_cli.providers import determine_api_mode
+        from daclaw_cli.providers import determine_api_mode
 
         # ── Determine api_mode if not provided ──
         if not api_mode:
@@ -2051,7 +2104,7 @@ class AIAgent:
         normalized_provider = (provider or "").strip().lower()
         if normalized_provider == "copilot":
             try:
-                from hermes_cli.models import _should_use_copilot_responses_api
+                from daclaw_cli.models import _should_use_copilot_responses_api
                 return _should_use_copilot_responses_api(model)
             except Exception:
                 # Fall back to the generic GPT-5 rule if Copilot-specific
@@ -2915,7 +2968,11 @@ class AIAgent:
                 "reason": reason,
                 "request": {
                     "method": "POST",
-                    "url": f"{self.base_url.rstrip('/')}{'/responses' if self.api_mode == 'codex_responses' else '/chat/completions'}",
+                    "url": (
+                        self.base_url.rstrip("/")
+                        if getattr(self, "_uses_azure_compatible_client", False)
+                        else f"{self.base_url.rstrip('/')}{'/responses' if self.api_mode == 'codex_responses' else '/chat/completions'}"
+                    ),
                     "headers": {
                         "Authorization": f"Bearer {self._mask_api_key_for_logs(api_key)}",
                         "Content-Type": "application/json",
@@ -2957,7 +3014,7 @@ class AIAgent:
 
             self._vprint(f"{self.log_prefix}🧾 Request debug dump written to: {dump_file}")
 
-            if env_var_enabled("HERMES_DUMP_REQUEST_STDOUT"):
+            if env_var_enabled("DACLAW_DUMP_REQUEST_STDOUT"):
                 print(json.dumps(dump_payload, ensure_ascii=False, indent=2, default=str))
 
             return dump_file
@@ -3420,8 +3477,8 @@ class AIAgent:
             if context_files_prompt:
                 prompt_parts.append(context_files_prompt)
 
-        from hermes_time import now as _hermes_now
-        now = _hermes_now()
+        from daclaw_time import now as _daclaw_now
+        now = _daclaw_now()
         timestamp_line = f"Conversation started: {now.strftime('%A, %B %d, %Y %I:%M %p')}"
         if self.pass_session_id and self.session_id:
             timestamp_line += f"\nSession ID: {self.session_id}"
@@ -4297,6 +4354,35 @@ class AIAgent:
                 self._client_log_context(),
             )
             return client
+        if getattr(self, "_uses_azure_compatible_client", False):
+            azure_kwargs = {
+                "api_key": client_kwargs.get("api_key"),
+                "azure_endpoint": (
+                    client_kwargs.get("azure_endpoint")
+                    or client_kwargs.get("base_url")
+                    or self.base_url
+                ),
+                "api_version": client_kwargs.get("api_version") or DEFAULT_ENDPOINT_API_VERSION,
+            }
+            default_headers = client_kwargs.get("default_headers")
+            if default_headers:
+                azure_kwargs["default_headers"] = dict(default_headers)
+            client = AzureOpenAI(**azure_kwargs)
+            client = attach_azure_compatible_client_marker(
+                client,
+                endpoint=azure_kwargs["azure_endpoint"],
+                client_options={
+                    "api_version": azure_kwargs["api_version"],
+                    "default_headers": dict(default_headers or {}),
+                },
+            )
+            logger.info(
+                "Azure-compatible OpenAI client created (%s, shared=%s) %s",
+                reason,
+                shared,
+                self._client_log_context(),
+            )
+            return client
         client = OpenAI(**client_kwargs)
         logger.info(
             "OpenAI client created (%s, shared=%s) %s",
@@ -4711,7 +4797,7 @@ class AIAgent:
             return False
 
         try:
-            from hermes_cli.auth import resolve_codex_runtime_credentials
+            from daclaw_cli.auth import resolve_codex_runtime_credentials
 
             creds = resolve_codex_runtime_credentials(force_refresh=force)
         except Exception as exc:
@@ -4740,11 +4826,11 @@ class AIAgent:
             return False
 
         try:
-            from hermes_cli.auth import resolve_nous_runtime_credentials
+            from daclaw_cli.auth import resolve_nous_runtime_credentials
 
             creds = resolve_nous_runtime_credentials(
-                min_key_ttl_seconds=max(60, int(os.getenv("HERMES_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
-                timeout_seconds=float(os.getenv("HERMES_NOUS_TIMEOUT_SECONDS", "15")),
+                min_key_ttl_seconds=max(60, int(os.getenv("DACLAW_NOUS_MIN_KEY_TTL_SECONDS", "1800"))),
+                timeout_seconds=float(os.getenv("DACLAW_NOUS_TIMEOUT_SECONDS", "15")),
                 force_mint=force,
             )
         except Exception as exc:
@@ -4813,16 +4899,24 @@ class AIAgent:
         from agent.auxiliary_client import _OR_HEADERS
 
         normalized = (base_url or "").lower()
+        configured_headers = self.client_options.get("default_headers")
+        headers = dict(configured_headers or {}) if isinstance(configured_headers, dict) else {}
         if "openrouter" in normalized:
-            self._client_kwargs["default_headers"] = dict(_OR_HEADERS)
+            headers.update(_OR_HEADERS)
+            self._client_kwargs["default_headers"] = headers
         elif "api.githubcopilot.com" in normalized:
-            from hermes_cli.models import copilot_default_headers
+            from daclaw_cli.models import copilot_default_headers
 
-            self._client_kwargs["default_headers"] = copilot_default_headers()
+            headers.update(copilot_default_headers())
+            self._client_kwargs["default_headers"] = headers
         elif "api.kimi.com" in normalized:
-            self._client_kwargs["default_headers"] = {"User-Agent": "KimiCLI/1.30.0"}
+            headers["User-Agent"] = "KimiCLI/1.30.0"
+            self._client_kwargs["default_headers"] = headers
         elif "portal.qwen.ai" in normalized:
-            self._client_kwargs["default_headers"] = _qwen_portal_headers()
+            headers.update(_qwen_portal_headers())
+            self._client_kwargs["default_headers"] = headers
+        elif headers:
+            self._client_kwargs["default_headers"] = headers
         else:
             self._client_kwargs.pop("default_headers", None)
 
@@ -4997,7 +5091,7 @@ class AIAgent:
         # httpx timeout (default 1800s) with zero feedback.  The stale
         # detector kills the connection early so the main retry loop can
         # apply richer recovery (credential rotation, provider fallback).
-        _stale_base = float(os.getenv("HERMES_API_CALL_STALE_TIMEOUT", 300.0))
+        _stale_base = float(os.getenv("DACLAW_API_CALL_STALE_TIMEOUT", 300.0))
         _base_url = getattr(self, "_base_url", None) or ""
         if _stale_base == 300.0 and _base_url and is_local_endpoint(_base_url):
             _stale_timeout = float("inf")
@@ -5299,12 +5393,12 @@ class AIAgent:
         def _call_chat_completions():
             """Stream a chat completions response."""
             import httpx as _httpx
-            _base_timeout = float(os.getenv("HERMES_API_TIMEOUT", 1800.0))
-            _stream_read_timeout = float(os.getenv("HERMES_STREAM_READ_TIMEOUT", 120.0))
+            _base_timeout = float(os.getenv("DACLAW_API_TIMEOUT", 1800.0))
+            _stream_read_timeout = float(os.getenv("DACLAW_STREAM_READ_TIMEOUT", 120.0))
             # Local providers (Ollama, llama.cpp, vLLM) can take minutes for
             # prefill on large contexts before producing the first token.
             # Auto-increase the httpx read timeout unless the user explicitly
-            # overrode HERMES_STREAM_READ_TIMEOUT.
+            # overrode DACLAW_STREAM_READ_TIMEOUT.
             if _stream_read_timeout == 120.0 and self.base_url and is_local_endpoint(self.base_url):
                 _stream_read_timeout = _base_timeout
                 logger.debug(
@@ -5566,7 +5660,7 @@ class AIAgent:
         def _call():
             import httpx as _httpx
 
-            _max_stream_retries = int(os.getenv("HERMES_STREAM_RETRIES", 2))
+            _max_stream_retries = int(os.getenv("DACLAW_STREAM_RETRIES", 2))
 
             try:
                 for _stream_attempt in range(_max_stream_retries + 1):
@@ -5704,10 +5798,10 @@ class AIAgent:
                 if request_client is not None:
                     self._close_request_openai_client(request_client, reason="stream_request_complete")
 
-        _stream_stale_timeout_base = float(os.getenv("HERMES_STREAM_STALE_TIMEOUT", 180.0))
+        _stream_stale_timeout_base = float(os.getenv("DACLAW_STREAM_STALE_TIMEOUT", 180.0))
         # Local providers (Ollama, oMLX, llama-cpp) can take 300+ seconds
         # for prefill on large contexts.  Disable the stale detector unless
-        # the user explicitly set HERMES_STREAM_STALE_TIMEOUT.
+        # the user explicitly set DACLAW_STREAM_STALE_TIMEOUT.
         if _stream_stale_timeout_base == 180.0 and self.base_url and is_local_endpoint(self.base_url):
             _stream_stale_timeout = float("inf")
             logger.debug("Local provider detected (%s) — stale stream timeout disabled", self.base_url)
@@ -5886,7 +5980,7 @@ class AIAgent:
                     fb_provider)
                 return self._try_activate_fallback()  # try next in chain
             try:
-                from hermes_cli.model_normalize import normalize_model_for_provider
+                from daclaw_cli.model_normalize import normalize_model_for_provider
 
                 fb_model = normalize_model_for_provider(fb_model, fb_provider)
             except Exception:
@@ -6554,7 +6648,7 @@ class AIAgent:
         api_kwargs = {
             "model": self.model,
             "messages": sanitized_messages,
-            "timeout": float(os.getenv("HERMES_API_TIMEOUT", 1800.0)),
+            "timeout": float(os.getenv("DACLAW_API_TIMEOUT", 1800.0)),
         }
         if self._is_qwen_portal():
             api_kwargs["metadata"] = {
@@ -6671,7 +6765,7 @@ class AIAgent:
             return True
         if "models.github.ai" in self._base_url_lower or "api.githubcopilot.com" in self._base_url_lower:
             try:
-                from hermes_cli.models import github_model_reasoning_efforts
+                from daclaw_cli.models import github_model_reasoning_efforts
 
                 return bool(github_model_reasoning_efforts(self.model))
             except Exception:
@@ -6695,7 +6789,7 @@ class AIAgent:
     def _github_models_reasoning_extra_body(self) -> dict | None:
         """Format reasoning payload for GitHub Models/OpenAI-compatible routes."""
         try:
-            from hermes_cli.models import github_model_reasoning_efforts
+            from daclaw_cli.models import github_model_reasoning_efforts
         except Exception:
             return None
 
@@ -7095,7 +7189,7 @@ class AIAgent:
                 self.session_log_file = self.logs_dir / f"session_{self.session_id}.json"
                 self._session_db.create_session(
                     session_id=self.session_id,
-                    source=self.platform or os.environ.get("HERMES_SESSION_SOURCE", "cli"),
+                    source=self.platform or os.environ.get("DACLAW_SESSION_SOURCE", "cli"),
                     model=self.model,
                     parent_session_id=old_session_id,
                 )
@@ -7194,7 +7288,7 @@ class AIAgent:
         # Check plugin hooks for a block directive before executing anything.
         block_message: Optional[str] = None
         try:
-            from hermes_cli.plugins import get_pre_tool_call_block_message
+            from daclaw_cli.plugins import get_pre_tool_call_block_message
             block_message = get_pre_tool_call_block_message(
                 function_name, function_args, task_id=effective_task_id or "",
             )
@@ -7566,7 +7660,7 @@ class AIAgent:
             # Check plugin hooks for a block directive before executing.
             _block_msg: Optional[str] = None
             try:
-                from hermes_cli.plugins import get_pre_tool_call_block_message
+                from daclaw_cli.plugins import get_pre_tool_call_block_message
                 _block_msg = get_pre_tool_call_block_message(
                     function_name, function_args, task_id=effective_task_id or "",
                 )
@@ -8138,7 +8232,7 @@ class AIAgent:
 
         # Tag all log records on this thread with the session ID so
         # ``daclaw logs --session <id>`` can filter a single conversation.
-        from hermes_logging import set_session_context
+        from daclaw_logging import set_session_context
         set_session_context(self.session_id)
 
         # If the previous turn activated fallback, restore the primary
@@ -8293,7 +8387,7 @@ class AIAgent:
                 # continuation).  Plugins can use this to initialise
                 # session-scoped state (e.g. warm a memory cache).
                 try:
-                    from hermes_cli.plugins import invoke_hook as _invoke_hook
+                    from daclaw_cli.plugins import invoke_hook as _invoke_hook
                     _invoke_hook(
                         "on_session_start",
                         session_id=self.session_id,
@@ -8394,7 +8488,7 @@ class AIAgent:
         # All injected context is ephemeral (not persisted to session DB).
         _plugin_user_context = ""
         try:
-            from hermes_cli.plugins import invoke_hook as _invoke_hook
+            from daclaw_cli.plugins import invoke_hook as _invoke_hook
             _pre_results = _invoke_hook(
                 "pre_llm_call",
                 session_id=self.session_id,
@@ -8750,7 +8844,7 @@ class AIAgent:
                         api_kwargs = self._preflight_codex_api_kwargs(api_kwargs, allow_stream=False)
 
                     try:
-                        from hermes_cli.plugins import invoke_hook as _invoke_hook
+                        from daclaw_cli.plugins import invoke_hook as _invoke_hook
                         _invoke_hook(
                             "pre_api_request",
                             task_id=effective_task_id,
@@ -8770,7 +8864,7 @@ class AIAgent:
                     except Exception:
                         pass
 
-                    if env_var_enabled("HERMES_DUMP_REQUESTS"):
+                    if env_var_enabled("DACLAW_DUMP_REQUESTS"):
                         self._dump_api_request_debug(api_kwargs, reason="preflight")
 
                     # Always prefer the streaming path — even without stream
@@ -9555,7 +9649,7 @@ class AIAgent:
                         print(f"{self.log_prefix}   Auth method: {auth_method}")
                         print(f"{self.log_prefix}   Token prefix: {key[:12]}..." if key and len(key) > 12 else f"{self.log_prefix}   Token: (empty or short)")
                         print(f"{self.log_prefix}   Troubleshooting:")
-                        from hermes_constants import display_hermes_home as _dhh_fn
+                        from daclaw_constants import display_daclaw_home as _dhh_fn
                         _dhh = _dhh_fn()
                         print(f"{self.log_prefix}     • Check ANTHROPIC_TOKEN in {_dhh}/.env for DAClaw-managed OAuth/setup tokens")
                         print(f"{self.log_prefix}     • Check ANTHROPIC_API_KEY in {_dhh}/.env for API keys or legacy token values")
@@ -10247,7 +10341,7 @@ class AIAgent:
                         assistant_message.content = str(raw)
 
                 try:
-                    from hermes_cli.plugins import invoke_hook as _invoke_hook
+                    from daclaw_cli.plugins import invoke_hook as _invoke_hook
                     _assistant_tool_calls = getattr(assistant_message, "tool_calls", None) or []
                     _assistant_text = assistant_message.content or ""
                     _invoke_hook(
@@ -11141,7 +11235,7 @@ class AIAgent:
         # to an external memory system).
         if final_response and not interrupted:
             try:
-                from hermes_cli.plugins import invoke_hook as _invoke_hook
+                from daclaw_cli.plugins import invoke_hook as _invoke_hook
                 _invoke_hook(
                     "post_llm_call",
                     session_id=self.session_id,
@@ -11240,7 +11334,7 @@ class AIAgent:
         # Fired at the very end of every run_conversation call.
         # Plugins can use this for cleanup, flushing buffers, etc.
         try:
-            from hermes_cli.plugins import invoke_hook as _invoke_hook
+            from daclaw_cli.plugins import invoke_hook as _invoke_hook
             _invoke_hook(
                 "on_session_end",
                 session_id=self.session_id,

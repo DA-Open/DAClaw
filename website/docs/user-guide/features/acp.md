@@ -19,7 +19,7 @@ ACP is a good fit when you want DAClaw to behave like an editor-native coding ag
 
 ## What DAClaw exposes in ACP mode
 
-DAClaw runs with a curated `hermes-acp` toolset designed for editor workflows. It includes:
+DAClaw runs with a curated `daclaw-acp` toolset designed for editor workflows. It includes:
 
 - file tools: `read_file`, `write_file`, `patch`, `search_files`
 - terminal tools: `terminal`, `process`
@@ -42,7 +42,7 @@ pip install -e '.[acp]'
 This installs the `agent-client-protocol` dependency and enables:
 
 - `daclaw acp`
-- `hermes-acp`
+- `daclaw-acp`
 - `python -m acp_adapter`
 
 ## Launching the ACP server
@@ -54,7 +54,7 @@ daclaw acp
 ```
 
 ```bash
-hermes-acp
+daclaw-acp
 ```
 
 ```bash
@@ -124,10 +124,10 @@ daclaw acp
 
 ACP mode uses the same DAClaw configuration as the CLI:
 
-- `~/.hermes/.env`
-- `~/.hermes/config.yaml`
-- `~/.hermes/skills/`
-- `~/.hermes/state.db`
+- `~/.daclaw/.env`
+- `~/.daclaw/config.yaml`
+- `~/.daclaw/skills/`
+- `~/.daclaw/state.db`
 
 Provider resolution uses DAClaw' normal runtime resolver, so ACP inherits the currently configured provider and credentials.
 
@@ -187,7 +187,7 @@ ACP mode does not have its own login flow. It uses DAClaw' existing provider set
 daclaw model
 ```
 
-or by editing `~/.hermes/.env`.
+or by editing `~/.daclaw/.env`.
 
 ## See also
 

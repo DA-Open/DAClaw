@@ -18,13 +18,13 @@ This page covers option 1. The container stores all user data (config, API keys,
 If this is your first time running DAClaw Agent, create a data directory on the host and start the container interactively to run the setup wizard:
 
 ```sh
-mkdir -p ~/.hermes
+mkdir -p ~/.daclaw
 docker run -it --rm \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   nousresearch/daclaw-agent setup
 ```
 
-This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.hermes/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
+This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.daclaw/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
 
 ## Running in gateway mode
 
@@ -34,7 +34,7 @@ Once configured, run the container in the background as a persistent gateway (Te
 docker run -d \
   --name daclaw \
   --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   -p 8642:8642 \
   nousresearch/daclaw-agent gateway run
 ```
@@ -51,9 +51,9 @@ To run the dashboard as its own container, point it at the gateway's health endp
 
 ```sh
 docker run -d \
-  --name hermes-dashboard \
+  --name daclaw-dashboard \
   --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   -p 9119:9119 \
   -e GATEWAY_HEALTH_URL=http://$HOST_IP:8642 \
   nousresearch/daclaw-agent dashboard
@@ -74,13 +74,13 @@ To open an interactive chat session against a running data directory:
 
 ```sh
 docker run -it --rm \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   nousresearch/daclaw-agent
 ```
 
 ## Persistent volumes
 
-The `/opt/data` volume is the single source of truth for all DAClaw state. It maps to your host's `~/.hermes/` directory and contains:
+The `/opt/data` volume is the single source of truth for all DAClaw state. It maps to your host's `~/.daclaw/` directory and contains:
 
 | Path | Contents |
 |------|----------|
@@ -105,7 +105,7 @@ API keys are read from `/opt/data/.env` inside the container. You can also pass 
 
 ```sh
 docker run -it --rm \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -e OPENAI_API_KEY="sk-..." \
   nousresearch/daclaw-agent
@@ -119,7 +119,7 @@ For persistent deployment with both the gateway and dashboard, a `docker-compose
 
 ```yaml
 services:
-  hermes:
+  daclaw:
     image: nousresearch/daclaw-agent:latest
     container_name: daclaw
     restart: unless-stopped
@@ -127,9 +127,9 @@ services:
     ports:
       - "8642:8642"
     volumes:
-      - ~/.hermes:/opt/data
+      - ~/.daclaw:/opt/data
     networks:
-      - hermes-net
+      - daclaw-net
     # Uncomment to forward specific env vars instead of using .env file:
     # environment:
     #   - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -143,17 +143,17 @@ services:
 
   dashboard:
     image: nousresearch/daclaw-agent:latest
-    container_name: hermes-dashboard
+    container_name: daclaw-dashboard
     restart: unless-stopped
     command: dashboard --host 0.0.0.0
     ports:
       - "9119:9119"
     volumes:
-      - ~/.hermes:/opt/data
+      - ~/.daclaw:/opt/data
     environment:
-      - GATEWAY_HEALTH_URL=http://hermes:8642
+      - GATEWAY_HEALTH_URL=http://daclaw:8642
     networks:
-      - hermes-net
+      - daclaw-net
     depends_on:
       - daclaw
     deploy:
@@ -163,7 +163,7 @@ services:
           cpus: "0.5"
 
 networks:
-  hermes-net:
+  daclaw-net:
     driver: bridge
 ```
 
@@ -188,7 +188,7 @@ docker run -d \
   --name daclaw \
   --restart unless-stopped \
   --memory=4g --cpus=2 \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   nousresearch/daclaw-agent gateway run
 ```
 
@@ -220,7 +220,7 @@ docker rm -f daclaw
 docker run -d \
   --name daclaw \
   --restart unless-stopped \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   nousresearch/daclaw-agent gateway run
 ```
 
@@ -233,7 +233,7 @@ docker compose up -d
 
 ## Skills and credential files
 
-When using Docker as the execution environment (not the methods above, but when the agent runs commands inside a Docker sandbox), DAClaw automatically bind-mounts the skills directory (`~/.hermes/skills/`) and any credential files declared by skills into the container as read-only volumes. This means skill scripts, templates, and references are available inside the sandbox without manual configuration.
+When using Docker as the execution environment (not the methods above, but when the agent runs commands inside a Docker sandbox), DAClaw automatically bind-mounts the skills directory (`~/.daclaw/skills/`) and any credential files declared by skills into the container as read-only volumes. This means skill scripts, templates, and references are available inside the sandbox without manual configuration.
 
 The same syncing happens for SSH and Modal backends — skills and credential files are uploaded via rsync or the Modal mount API before each command.
 
@@ -241,16 +241,16 @@ The same syncing happens for SSH and Modal backends — skills and credential fi
 
 ### Container exits immediately
 
-Check logs: `docker logs hermes`. Common causes:
+Check logs: `docker logs daclaw`. Common causes:
 - Missing or invalid `.env` file — run interactively first to complete setup
 - Port conflicts if running with exposed ports
 
 ### "Permission denied" errors
 
-The container runs as root by default. If your host `~/.hermes/` was created by a non-root user, permissions should work. If you get errors, ensure the data directory is writable:
+The container runs as root by default. If your host `~/.daclaw/` was created by a non-root user, permissions should work. If you get errors, ensure the data directory is writable:
 
 ```sh
-chmod -R 755 ~/.hermes
+chmod -R 755 ~/.daclaw
 ```
 
 ### Browser tools not working
@@ -261,7 +261,7 @@ Playwright needs shared memory. Add `--shm-size=1g` to your Docker run command:
 docker run -d \
   --name daclaw \
   --shm-size=1g \
-  -v ~/.hermes:/opt/data \
+  -v ~/.daclaw:/opt/data \
   nousresearch/daclaw-agent gateway run
 ```
 

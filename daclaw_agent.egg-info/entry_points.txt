@@ -1,7 +1,4 @@
 [console_scripts]
-daclaw = hermes_cli.main:main
+daclaw = daclaw_cli.main:main
 daclaw-acp = acp_adapter.entry:main
-daclaw-agent = run_agent:main
-daclaw = hermes_cli.main:main
-hermes-acp = acp_adapter.entry:main
 daclaw-agent = run_agent:main

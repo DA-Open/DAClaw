@@ -23,11 +23,11 @@ If you have ever wanted DAClaw to use a tool that already exists somewhere else,
 1. Install MCP support (already included if you used the standard install script):
 
 ```bash
-cd ~/.hermes/daclaw-agent
+cd ~/.daclaw/daclaw-agent
 uv pip install -e ".[mcp]"
 ```
 
-2. Add an MCP server to `~/.hermes/config.yaml`:
+2. Add an MCP server to `~/.daclaw/config.yaml`:
 
 ```yaml
 mcp_servers:
@@ -91,7 +91,7 @@ Use HTTP servers when:
 
 ## Basic configuration reference
 
-DAClaw reads MCP config from `~/.hermes/config.yaml` under `mcp_servers`.
+DAClaw reads MCP config from `~/.daclaw/config.yaml` under `mcp_servers`.
 
 ### Common keys
 
@@ -382,7 +382,7 @@ Check:
 
 ```bash
 # Verify MCP deps are installed (already included in standard install)
-cd ~/.hermes/daclaw-agent && uv pip install -e ".[mcp]"
+cd ~/.daclaw/daclaw-agent && uv pip install -e ".[mcp]"
 
 node --version
 npx --version
@@ -481,7 +481,7 @@ Or if you installed DAClaw in a specific location:
 {
   "mcpServers": {
     "daclaw": {
-      "command": "/home/user/.hermes/daclaw-agent/venv/bin/hermes",
+      "command": "/home/user/.daclaw/daclaw-agent/venv/bin/daclaw",
       "args": ["mcp", "serve"]
     }
   }
@@ -530,7 +530,7 @@ daclaw mcp serve --verbose    # Debug logging on stderr
 
 ### How it works
 
-The MCP server reads conversation data directly from DAClaw's session store (`~/.hermes/sessions/sessions.json` and the SQLite database). A background thread polls the database for new messages and maintains an in-memory event queue. For sending messages, it uses the same `send_message` infrastructure as the DAClaw agent itself.
+The MCP server reads conversation data directly from DAClaw's session store (`~/.daclaw/sessions/sessions.json` and the SQLite database). A background thread polls the database for new messages and maintains an in-memory event queue. For sending messages, it uses the same `send_message` infrastructure as the DAClaw agent itself.
 
 The gateway does NOT need to be running for read operations (listing conversations, reading history, polling events). It DOES need to be running for send operations, since the platform adapters need active connections.
 
@@ -543,7 +543,7 @@ The gateway does NOT need to be running for read operations (listing conversatio
 
 ## Related docs
 
-- [Use MCP with DAClaw](/docs/guides/use-mcp-with-hermes)
+- [Use MCP with DAClaw](/docs/guides/use-mcp-with-daclaw)
 - [CLI Commands](/docs/reference/cli-commands)
 - [Slash Commands](/docs/reference/slash-commands)
 - [FAQ](/docs/reference/faq)

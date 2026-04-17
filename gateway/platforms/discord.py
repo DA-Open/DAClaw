@@ -435,8 +435,8 @@ class DiscordAdapter(BasePlatformAdapter):
         # Voice channel state (per-guild)
         self._voice_clients: Dict[int, Any] = {}  # guild_id -> VoiceClient
         # Text batching: merge rapid successive messages (Telegram-style)
-        self._text_batch_delay_seconds = float(os.getenv("HERMES_DISCORD_TEXT_BATCH_DELAY_SECONDS", "0.6"))
-        self._text_batch_split_delay_seconds = float(os.getenv("HERMES_DISCORD_TEXT_BATCH_SPLIT_DELAY_SECONDS", "2.0"))
+        self._text_batch_delay_seconds = float(os.getenv("DACLAW_DISCORD_TEXT_BATCH_DELAY_SECONDS", "0.6"))
+        self._text_batch_split_delay_seconds = float(os.getenv("DACLAW_DISCORD_TEXT_BATCH_SPLIT_DELAY_SECONDS", "2.0"))
         self._pending_text_batches: Dict[str, MessageEvent] = {}
         self._pending_text_batch_tasks: Dict[str, asyncio.Task] = {}
         self._voice_text_channels: Dict[int, int] = {}  # guild_id -> text_channel_id
@@ -1804,10 +1804,10 @@ class DiscordAdapter(BasePlatformAdapter):
 
         # ── Auto-register any gateway-available commands not yet on the tree ──
         # This ensures new commands added to COMMAND_REGISTRY in
-        # hermes_cli/commands.py automatically appear as Discord slash
+        # daclaw_cli/commands.py automatically appear as Discord slash
         # commands without needing a manual entry here.
         try:
-            from hermes_cli.commands import COMMAND_REGISTRY, _is_gateway_available, _resolve_config_gates
+            from daclaw_cli.commands import COMMAND_REGISTRY, _is_gateway_available, _resolve_config_gates
 
             already_registered = set()
             try:
@@ -1886,7 +1886,7 @@ class DiscordAdapter(BasePlatformAdapter):
         subcommands each = 625 skills — well beyond the old 100-command cap.
         """
         try:
-            from hermes_cli.commands import discord_skill_commands_by_category
+            from daclaw_cli.commands import discord_skill_commands_by_category
 
             existing_names = set()
             try:
@@ -2334,7 +2334,7 @@ class DiscordAdapter(BasePlatformAdapter):
                 channel = await self._client.fetch_channel(int(target_id))
 
             try:
-                from hermes_cli.providers import get_label
+                from daclaw_cli.providers import get_label
                 provider_label = get_label(current_provider)
             except Exception:
                 provider_label = current_provider
@@ -2919,8 +2919,8 @@ if DISCORD_AVAILABLE:
 
             # Write response file
             try:
-                from hermes_constants import get_hermes_home
-                home = get_hermes_home()
+                from daclaw_constants import get_daclaw_home
+                home = get_daclaw_home()
                 response_path = home / ".update_response"
                 tmp = response_path.with_suffix(".tmp")
                 tmp.write_text(answer)
@@ -3130,7 +3130,7 @@ if DISCORD_AVAILABLE:
             self._build_provider_select()
 
             try:
-                from hermes_cli.providers import get_label
+                from daclaw_cli.providers import get_label
                 provider_label = get_label(self.current_provider)
             except Exception:
                 provider_label = self.current_provider

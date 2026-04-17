@@ -26,7 +26,7 @@ def _make_adapter(tmp_path=None):
         token="syt_test_token",
         extra={
             "homeserver": "https://matrix.example.org",
-            "user_id": "@hermes:example.org",
+            "user_id": "@daclaw:example.org",
         },
     )
     adapter = MatrixAdapter(config)
@@ -90,16 +90,16 @@ class TestIsBotMentioned:
         self.adapter = _make_adapter()
 
     def test_full_user_id_in_body(self):
-        assert self.adapter._is_bot_mentioned("hey @hermes:example.org help")
+        assert self.adapter._is_bot_mentioned("hey @daclaw:example.org help")
 
     def test_localpart_in_body(self):
         assert self.adapter._is_bot_mentioned("daclaw can you help?")
 
     def test_localpart_case_insensitive(self):
-        assert self.adapter._is_bot_mentioned("HERMES can you help?")
+        assert self.adapter._is_bot_mentioned("DACLAW can you help?")
 
     def test_matrix_pill_in_formatted_body(self):
-        html = '<a href="https://matrix.to/#/@hermes:example.org">DAClaw</a> help'
+        html = '<a href="https://matrix.to/#/@daclaw:example.org">DAClaw</a> help'
         assert self.adapter._is_bot_mentioned("DAClaw help", html)
 
     def test_no_mention(self):
@@ -109,8 +109,8 @@ class TestIsBotMentioned:
         assert not self.adapter._is_bot_mentioned("")
 
     def test_partial_localpart_no_match(self):
-        # "hermesbot" should not match word-boundary check for "daclaw"
-        assert not self.adapter._is_bot_mentioned("hermesbot is here")
+        # "daclawbot" should not match word-boundary check for "daclaw"
+        assert not self.adapter._is_bot_mentioned("daclawbot is here")
 
     # m.mentions.user_ids — MSC3952 / Matrix v1.7 authoritative mentions
     # Ported from openclaw/openclaw#64796
@@ -119,14 +119,14 @@ class TestIsBotMentioned:
         """m.mentions.user_ids alone is sufficient — no body text needed."""
         assert self.adapter._is_bot_mentioned(
             "please reply",  # no @daclaw anywhere in body
-            mention_user_ids=["@hermes:example.org"],
+            mention_user_ids=["@daclaw:example.org"],
         )
 
     def test_m_mentions_user_ids_with_body_mention(self):
         """Both m.mentions and body mention — should still be True."""
         assert self.adapter._is_bot_mentioned(
-            "hey @hermes:example.org help",
-            mention_user_ids=["@hermes:example.org"],
+            "hey @daclaw:example.org help",
+            mention_user_ids=["@daclaw:example.org"],
         )
 
     def test_m_mentions_user_ids_other_user_only(self):
@@ -156,7 +156,7 @@ class TestStripMention:
         self.adapter = _make_adapter()
 
     def test_strip_full_user_id(self):
-        result = self.adapter._strip_mention("@hermes:example.org help me")
+        result = self.adapter._strip_mention("@daclaw:example.org help me")
         assert result == "help me"
 
     def test_strip_localpart(self):
@@ -164,7 +164,7 @@ class TestStripMention:
         assert result == "help me"
 
     def test_strip_returns_empty_for_mention_only(self):
-        result = self.adapter._strip_mention("@hermes:example.org")
+        result = self.adapter._strip_mention("@daclaw:example.org")
         assert result == ""
 
 
@@ -195,7 +195,7 @@ async def test_require_mention_default_processes_mentioned(monkeypatch):
     monkeypatch.setenv("MATRIX_AUTO_THREAD", "false")
 
     adapter = _make_adapter()
-    event = _make_event("@hermes:example.org help me")
+    event = _make_event("@daclaw:example.org help me")
 
     await adapter._on_room_message(event)
     adapter.handle_message.assert_awaited_once()
@@ -211,7 +211,7 @@ async def test_require_mention_html_pill(monkeypatch):
     monkeypatch.setenv("MATRIX_AUTO_THREAD", "false")
 
     adapter = _make_adapter()
-    formatted = '<a href="https://matrix.to/#/@hermes:example.org">DAClaw</a> help'
+    formatted = '<a href="https://matrix.to/#/@daclaw:example.org">DAClaw</a> help'
     event = _make_event("DAClaw help", formatted_body=formatted)
 
     await adapter._on_room_message(event)
@@ -232,7 +232,7 @@ async def test_require_mention_m_mentions_user_ids(monkeypatch):
     # Body has NO mention, but m.mentions.user_ids includes the bot.
     event = _make_event(
         "please reply",
-        mention_user_ids=["@hermes:example.org"],
+        mention_user_ids=["@daclaw:example.org"],
     )
 
     await adapter._on_room_message(event)
@@ -281,7 +281,7 @@ async def test_dm_strips_mention(monkeypatch):
 
     adapter = _make_adapter()
     _set_dm(adapter)
-    event = _make_event("@hermes:example.org help me")
+    event = _make_event("@daclaw:example.org help me")
 
     await adapter._on_room_message(event)
     adapter.handle_message.assert_awaited_once()
@@ -297,7 +297,7 @@ async def test_bare_mention_passes_empty_string(monkeypatch):
     monkeypatch.setenv("MATRIX_AUTO_THREAD", "false")
 
     adapter = _make_adapter()
-    event = _make_event("@hermes:example.org")
+    event = _make_event("@daclaw:example.org")
 
     await adapter._on_room_message(event)
     adapter.handle_message.assert_awaited_once()
@@ -507,7 +507,7 @@ async def test_dm_mention_thread_disabled_by_default(monkeypatch):
 
     adapter = _make_adapter()
     _set_dm(adapter)
-    event = _make_event("@hermes:example.org help me", event_id="$dm1")
+    event = _make_event("@daclaw:example.org help me", event_id="$dm1")
 
     await adapter._on_room_message(event)
     adapter.handle_message.assert_awaited_once()
@@ -523,7 +523,7 @@ async def test_dm_mention_thread_creates_thread(monkeypatch):
 
     adapter = _make_adapter()
     _set_dm(adapter)
-    event = _make_event("@hermes:example.org help me", event_id="$dm1")
+    event = _make_event("@daclaw:example.org help me", event_id="$dm1")
 
     with patch.object(adapter._threads, "_save"):
         await adapter._on_room_message(event)
@@ -559,7 +559,7 @@ async def test_dm_mention_thread_preserves_existing_thread(monkeypatch):
     adapter = _make_adapter()
     _set_dm(adapter)
     adapter._threads.mark("$existing_thread")
-    event = _make_event("@hermes:example.org help me", thread_id="$existing_thread")
+    event = _make_event("@daclaw:example.org help me", thread_id="$existing_thread")
 
     await adapter._on_room_message(event)
     adapter.handle_message.assert_awaited_once()
@@ -575,7 +575,7 @@ async def test_dm_mention_thread_tracks_participation(monkeypatch):
 
     adapter = _make_adapter()
     _set_dm(adapter)
-    event = _make_event("@hermes:example.org help", event_id="$dm1")
+    event = _make_event("@daclaw:example.org help", event_id="$dm1")
 
     with patch.object(adapter._threads, "_save"):
         await adapter._on_room_message(event)

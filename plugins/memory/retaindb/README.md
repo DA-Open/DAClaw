@@ -16,7 +16,7 @@ daclaw memory setup    # select "retaindb"
 Or manually:
 ```bash
 daclaw config set memory.provider retaindb
-echo "RETAINDB_API_KEY=your-key" >> ~/.hermes/.env
+echo "RETAINDB_API_KEY=your-key" >> ~/.daclaw/.env
 ```
 
 ## Config

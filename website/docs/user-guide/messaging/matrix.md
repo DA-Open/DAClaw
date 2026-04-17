@@ -95,12 +95,12 @@ If you run your own homeserver (Synapse, Conduit, Dendrite):
 register_new_matrix_user -c /etc/synapse/homeserver.yaml http://localhost:8008
 ```
 
-2. Choose a username like `daclaw` — the full user ID will be `@hermes:your-server.org`.
+2. Choose a username like `daclaw` — the full user ID will be `@daclaw:your-server.org`.
 
 ### Option B: Use matrix.org or Another Public Homeserver
 
 1. Go to [Element Web](https://app.element.io) and create a new account.
-2. Pick a username for your bot (e.g., `hermes-bot`).
+2. Pick a username for your bot (e.g., `daclaw-bot`).
 
 ### Option C: Use Your Own Account
 
@@ -127,7 +127,7 @@ curl -X POST https://your-server/_matrix/client/v3/login \
   -H "Content-Type: application/json" \
   -d '{
     "type": "m.login.password",
-    "user": "@hermes:your-server.org",
+    "user": "@daclaw:your-server.org",
     "password": "your-password"
   }'
 ```
@@ -143,7 +143,7 @@ The access token gives full access to the bot's Matrix account. Never share it p
 Instead of providing an access token, you can give DAClaw the bot's user ID and password. DAClaw will log in automatically on startup. This is simpler but means the password is stored in your `.env` file.
 
 ```bash
-MATRIX_USER_ID=@hermes:your-server.org
+MATRIX_USER_ID=@daclaw:your-server.org
 MATRIX_PASSWORD=your-password
 ```
 
@@ -175,7 +175,7 @@ Select **Matrix** when prompted, then provide your homeserver URL, access token 
 
 ### Option B: Manual Configuration
 
-Add the following to your `~/.hermes/.env` file:
+Add the following to your `~/.daclaw/.env` file:
 
 **Using an access token:**
 
@@ -185,7 +185,7 @@ MATRIX_HOMESERVER=https://matrix.example.org
 MATRIX_ACCESS_TOKEN=***
 
 # Optional: user ID (auto-detected from token if omitted)
-# MATRIX_USER_ID=@hermes:matrix.example.org
+# MATRIX_USER_ID=@daclaw:matrix.example.org
 
 # Security: restrict who can interact with the bot
 MATRIX_ALLOWED_USERS=@alice:matrix.example.org
@@ -199,14 +199,14 @@ MATRIX_ALLOWED_USERS=@alice:matrix.example.org
 ```bash
 # Required
 MATRIX_HOMESERVER=https://matrix.example.org
-MATRIX_USER_ID=@hermes:matrix.example.org
+MATRIX_USER_ID=@daclaw:matrix.example.org
 MATRIX_PASSWORD=***
 
 # Security
 MATRIX_ALLOWED_USERS=@alice:matrix.example.org
 ```
 
-Optional behavior settings in `~/.hermes/config.yaml`:
+Optional behavior settings in `~/.daclaw/config.yaml`:
 
 ```yaml
 group_sessions_per_user: true
@@ -259,7 +259,7 @@ sudo dnf install libolm-devel
 
 ### Enable E2EE
 
-Add to your `~/.hermes/.env`:
+Add to your `~/.daclaw/.env`:
 
 ```bash
 MATRIX_ENCRYPTION=true
@@ -267,7 +267,7 @@ MATRIX_ENCRYPTION=true
 
 When E2EE is enabled, DAClaw:
 
-- Stores encryption keys in `~/.hermes/platforms/matrix/store/` (legacy installs: `~/.hermes/matrix/store/`)
+- Stores encryption keys in `~/.daclaw/platforms/matrix/store/` (legacy installs: `~/.daclaw/matrix/store/`)
 - Uploads device keys on first connection
 - Decrypts incoming messages and encrypts outgoing messages automatically
 - Auto-joins encrypted rooms when invited
@@ -285,7 +285,7 @@ MATRIX_RECOVERY_KEY=EsT... your recovery key here
 On each startup, if `MATRIX_RECOVERY_KEY` is set, DAClaw imports cross-signing keys from the homeserver's secure secret storage and signs the current device. This is idempotent and safe to leave enabled permanently.
 
 :::warning
-If you delete the `~/.hermes/platforms/matrix/store/` directory, the bot loses its encryption keys. You'll need to verify the device again in your Matrix client. Back up this directory if you want to preserve encrypted sessions.
+If you delete the `~/.daclaw/platforms/matrix/store/` directory, the bot loses its encryption keys. You'll need to verify the device again in your Matrix client. Back up this directory if you want to preserve encrypted sessions.
 :::
 
 :::info
@@ -302,7 +302,7 @@ Type `/sethome` in any Matrix room where the bot is present. That room becomes t
 
 ### Manual Configuration
 
-Add this to your `~/.hermes/.env`:
+Add this to your `~/.daclaw/.env`:
 
 ```bash
 MATRIX_HOME_ROOM=!abc123def456:matrix.example.org
@@ -385,22 +385,22 @@ changed identity keys for the same device as suspicious.
      -H "Content-Type: application/json" \
      -d '{
        "type": "m.login.password",
-       "identifier": {"type": "m.id.user", "user": "@hermes:your-server.org"},
+       "identifier": {"type": "m.id.user", "user": "@daclaw:your-server.org"},
        "password": "***",
        "initial_device_display_name": "DAClaw Agent"
      }'
    ```
 
-   Copy the new `access_token` and update `MATRIX_ACCESS_TOKEN` in `~/.hermes/.env`.
+   Copy the new `access_token` and update `MATRIX_ACCESS_TOKEN` in `~/.daclaw/.env`.
 
 2. **Delete old encryption state**:
 
    ```bash
-   rm -f ~/.hermes/platforms/matrix/store/crypto.db
-   rm -f ~/.hermes/platforms/matrix/store/crypto_store.*
+   rm -f ~/.daclaw/platforms/matrix/store/crypto.db
+   rm -f ~/.daclaw/platforms/matrix/store/crypto_store.*
    ```
 
-3. **Set your recovery key** (if you use cross-signing — most Element users do). Add to `~/.hermes/.env`:
+3. **Set your recovery key** (if you use cross-signing — most Element users do). Add to `~/.daclaw/.env`:
 
    ```bash
    MATRIX_RECOVERY_KEY=EsT... your recovery key here
@@ -466,7 +466,7 @@ The Docker container only handles Matrix protocol + E2EE. When a message arrives
 
 Enable the API server so the host accepts incoming requests from the Docker container.
 
-Add to `~/.hermes/.env`:
+Add to `~/.daclaw/.env`:
 
 ```bash
 API_SERVER_ENABLED=true
@@ -499,7 +499,7 @@ The container needs Matrix credentials and the proxy URL. It does NOT need LLM A
 
 ```yaml
 services:
-  hermes-matrix:
+  daclaw-matrix:
     build: .
     environment:
       # Matrix credentials
@@ -507,13 +507,13 @@ services:
       MATRIX_ACCESS_TOKEN: "syt_..."
       MATRIX_ALLOWED_USERS: "@you:matrix.example.org"
       MATRIX_ENCRYPTION: "true"
-      MATRIX_DEVICE_ID: "HERMES_BOT"
+      MATRIX_DEVICE_ID: "DACLAW_BOT"
 
       # Proxy mode — forward to host agent
       GATEWAY_PROXY_URL: "http://192.168.1.100:8642"
       GATEWAY_PROXY_KEY: "your-secret-key-here"
     volumes:
-      - ./matrix-store:/root/.hermes/platforms/matrix/store
+      - ./matrix-store:/root/.daclaw/platforms/matrix/store
 ```
 
 **`Dockerfile`:**
@@ -590,7 +590,7 @@ Session continuity is maintained via the `X-DAClaw-Session-Id` header. The host'
 
 **Cause**: Your User ID isn't in `MATRIX_ALLOWED_USERS`.
 
-**Fix**: Add your User ID to `MATRIX_ALLOWED_USERS` in `~/.hermes/.env` and restart the gateway. Use the full `@user:server` format.
+**Fix**: Add your User ID to `MATRIX_ALLOWED_USERS` in `~/.daclaw/.env` and restart the gateway. Use the full `@user:server` format.
 
 ## Security
 

@@ -115,19 +115,18 @@ all = [
 ]
 
 [project.scripts]
-daclaw = "hermes_cli.main:main"
+daclaw = "daclaw_cli.main:main"
 daclaw-agent = "run_agent:main"
 daclaw-acp = "acp_adapter.entry:main"
-hermes-acp = "acp_adapter.entry:main"
 
 [tool.setuptools]
-py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajectory_compressor", "toolset_distributions", "cli", "hermes_constants", "hermes_state", "hermes_time", "hermes_logging", "rl_cli", "utils"]
+py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajectory_compressor", "toolset_distributions", "cli", "daclaw_constants", "daclaw_state", "daclaw_time", "daclaw_logging", "rl_cli", "utils"]
 
 [tool.setuptools.package-data]
-hermes_cli = ["web_dist/**/*"]
+daclaw_cli = ["web_dist/**/*"]
 
 [tool.setuptools.packages.find]
-include = ["agent", "tools", "tools.*", "hermes_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*"]
+include = ["agent", "tools", "tools.*", "daclaw_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

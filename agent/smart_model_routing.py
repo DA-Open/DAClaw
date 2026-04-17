@@ -59,6 +59,18 @@ def _coerce_int(value: Any, default: int) -> int:
         return default
 
 
+def _freeze_signature_value(value: Any) -> Any:
+    """Convert nested runtime metadata into a stable, hashable value."""
+    if isinstance(value, dict):
+        return tuple(
+            (str(key), _freeze_signature_value(val))
+            for key, val in sorted(value.items(), key=lambda item: str(item[0]))
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_signature_value(item) for item in value)
+    return value
+
+
 def choose_cheap_model_route(user_message: str, routing_config: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Return the configured cheap-model route when a message looks simple.
 
@@ -121,6 +133,7 @@ def resolve_turn_route(user_message: str, routing_config: Optional[Dict[str, Any
                 "base_url": primary.get("base_url"),
                 "provider": primary.get("provider"),
                 "api_mode": primary.get("api_mode"),
+                "client_options": dict(primary.get("client_options") or {}),
                 "command": primary.get("command"),
                 "args": list(primary.get("args") or []),
                 "credential_pool": primary.get("credential_pool"),
@@ -131,12 +144,13 @@ def resolve_turn_route(user_message: str, routing_config: Optional[Dict[str, Any
                 primary.get("provider"),
                 primary.get("base_url"),
                 primary.get("api_mode"),
+                _freeze_signature_value(primary.get("client_options")),
                 primary.get("command"),
                 tuple(primary.get("args") or ()),
             ),
         }
 
-    from hermes_cli.runtime_provider import resolve_runtime_provider
+    from daclaw_cli.runtime_provider import resolve_runtime_provider
 
     explicit_api_key = None
     api_key_env = str(route.get("api_key_env") or "").strip()
@@ -157,6 +171,7 @@ def resolve_turn_route(user_message: str, routing_config: Optional[Dict[str, Any
                 "base_url": primary.get("base_url"),
                 "provider": primary.get("provider"),
                 "api_mode": primary.get("api_mode"),
+                "client_options": dict(primary.get("client_options") or {}),
                 "command": primary.get("command"),
                 "args": list(primary.get("args") or []),
                 "credential_pool": primary.get("credential_pool"),
@@ -167,6 +182,7 @@ def resolve_turn_route(user_message: str, routing_config: Optional[Dict[str, Any
                 primary.get("provider"),
                 primary.get("base_url"),
                 primary.get("api_mode"),
+                _freeze_signature_value(primary.get("client_options")),
                 primary.get("command"),
                 tuple(primary.get("args") or ()),
             ),
@@ -179,6 +195,7 @@ def resolve_turn_route(user_message: str, routing_config: Optional[Dict[str, Any
             "base_url": runtime.get("base_url"),
             "provider": runtime.get("provider"),
             "api_mode": runtime.get("api_mode"),
+            "client_options": dict(runtime.get("client_options") or {}),
             "command": runtime.get("command"),
             "args": list(runtime.get("args") or []),
             "credential_pool": runtime.get("credential_pool"),
@@ -189,6 +206,7 @@ def resolve_turn_route(user_message: str, routing_config: Optional[Dict[str, Any
             runtime.get("provider"),
             runtime.get("base_url"),
             runtime.get("api_mode"),
+            _freeze_signature_value(runtime.get("client_options")),
             runtime.get("command"),
             tuple(runtime.get("args") or ()),
         ),

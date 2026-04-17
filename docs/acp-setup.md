@@ -10,7 +10,7 @@ natively in the editor UI.
 ## Prerequisites
 
 - DAClaw Agent installed and configured (`daclaw setup` completed)
-- An API key / provider set up in `~/.hermes/.env` or via `daclaw login`
+- An API key / provider set up in `~/.daclaw/.env` or via `daclaw login`
 - Python 3.11+
 
 Install the ACP extra:
@@ -53,7 +53,7 @@ Open your VS Code settings (`Ctrl+,` → click the `{}` icon for JSON) and add:
 ```
 
 Replace `/path/to/daclaw-agent` with the actual path to your DAClaw Agent
-installation (e.g. `~/.hermes/daclaw-agent`).
+installation (e.g. `~/.daclaw/daclaw-agent`).
 
 Alternatively, if `daclaw` is on your PATH, the ACP Client can discover it
 automatically via the registry directory.
@@ -147,27 +147,27 @@ approval before DAClaw proceeds. This includes:
 
 DAClaw Agent under ACP uses the **same configuration** as the CLI:
 
-- **API keys / providers**: `~/.hermes/.env`
-- **Agent config**: `~/.hermes/config.yaml`
-- **Skills**: `~/.hermes/skills/`
-- **Sessions**: `~/.hermes/state.db`
+- **API keys / providers**: `~/.daclaw/.env`
+- **Agent config**: `~/.daclaw/config.yaml`
+- **Skills**: `~/.daclaw/skills/`
+- **Sessions**: `~/.daclaw/state.db`
 
-You can run `daclaw setup` to configure providers, or edit `~/.hermes/.env`
+You can run `daclaw setup` to configure providers, or edit `~/.daclaw/.env`
 directly.
 
 ### Changing the model
 
-Edit `~/.hermes/config.yaml`:
+Edit `~/.daclaw/config.yaml`:
 
 ```yaml
-model: openrouter/nous/hermes-3-llama-3.1-70b
+model: openrouter/nous/daclaw-3-llama-3.1-70b
 ```
 
-Or set the `HERMES_MODEL` environment variable.
+Or set the `DACLAW_MODEL` environment variable.
 
 ### Toolsets
 
-ACP sessions use the curated `hermes-acp` toolset by default. It is designed for editor workflows and intentionally excludes things like messaging delivery, cronjob management, and audio-first UX features.
+ACP sessions use the curated `daclaw-acp` toolset by default. It is designed for editor workflows and intentionally excludes things like messaging delivery, cronjob management, and audio-first UX features.
 
 ---
 
@@ -177,7 +177,7 @@ ACP sessions use the curated `hermes-acp` toolset by default. It is designed for
 
 1. **Check the registry path** — make sure the `acp_registry/` directory path
    in your editor settings is correct and contains `agent.json`.
-2. **Check `daclaw` is on PATH** — run `which hermes` in a terminal. If not
+2. **Check `daclaw` is on PATH** — run `which daclaw` in a terminal. If not
    found, you may need to activate your virtualenv or add it to PATH.
 3. **Restart the editor** after changing settings.
 
@@ -216,7 +216,7 @@ DAClaw logs are written to stderr when running in ACP mode. Check:
 You can also enable verbose logging:
 
 ```bash
-HERMES_LOG_LEVEL=DEBUG daclaw acp
+DACLAW_LOG_LEVEL=DEBUG daclaw acp
 ```
 
 ---

@@ -26,7 +26,7 @@ DAClaw Agent works with any OpenAI-compatible API. Supported providers include:
 - **MiniMax** — global and China endpoints
 - **Local models** — via [Ollama](https://ollama.com/), [vLLM](https://docs.vllm.ai/), [llama.cpp](https://github.com/ggerganov/llama.cpp), [SGLang](https://github.com/sgl-project/sglang), or any OpenAI-compatible server
 
-Set your provider with `daclaw model` or by editing `~/.hermes/.env`. See the [Environment Variables](./environment-variables.md) reference for all provider keys.
+Set your provider with `daclaw model` or by editing `~/.daclaw/.env`. See the [Environment Variables](./environment-variables.md) reference for all provider keys.
 
 ### Does it work on Windows?
 
@@ -52,7 +52,7 @@ Important caveat: the full `.[all]` extra is not currently available on Android 
 
 ### Is my data sent anywhere?
 
-API calls go **only to the LLM provider you configure** (e.g., OpenRouter, your local Ollama instance). DAClaw Agent does not collect telemetry, usage data, or analytics. Your conversations, memory, and skills are stored locally in `~/.hermes/`.
+API calls go **only to the LLM provider you configure** (e.g., OpenRouter, your local Ollama instance). DAClaw Agent does not collect telemetry, usage data, or analytics. Your conversations, memory, and skills are stored locally in `~/.daclaw/`.
 
 ### Can I use it offline / with local models?
 
@@ -85,7 +85,7 @@ If you set a custom `num_ctx` in Ollama (e.g., `ollama run --num_ctx 16384`), ma
 :::
 
 :::tip Timeouts with local models
-DAClaw auto-detects local endpoints and relaxes streaming timeouts (read timeout raised from 120s to 1800s, stale stream detection disabled). If you still hit timeouts on very large contexts, set `HERMES_STREAM_READ_TIMEOUT=1800` in your `.env`. See the [Local LLM guide](../guides/local-llm-on-mac.md#timeouts) for details.
+DAClaw auto-detects local endpoints and relaxes streaming timeouts (read timeout raised from 120s to 1800s, stale stream detection disabled). If you still hit timeouts on very large contexts, set `DACLAW_STREAM_READ_TIMEOUT=1800` in your `.env`. See the [Local LLM guide](../guides/local-llm-on-mac.md#timeouts) for details.
 :::
 
 ### How much does it cost?
@@ -110,7 +110,7 @@ Yes. Import the `AIAgent` class and use DAClaw programmatically:
 ```python
 from run_agent import AIAgent
 
-agent = AIAgent(model="openrouter/nous/hermes-3-llama-3.1-70b")
+agent = AIAgent(model="openrouter/nous/daclaw-3-llama-3.1-70b")
 response = agent.chat("Explain quantum computing briefly")
 ```
 
@@ -122,7 +122,7 @@ See the [Python Library guide](../user-guide/features/code-execution.md) for ful
 
 ### Installation Issues
 
-#### `hermes: command not found` after installation
+#### `daclaw: command not found` after installation
 
 **Cause:** Your shell hasn't reloaded the updated PATH.
 
@@ -138,7 +138,7 @@ source ~/.zshrc     # zsh
 If it still doesn't work, verify the install location:
 ```bash
 which daclaw
-ls ~/.local/bin/hermes
+ls ~/.local/bin/daclaw
 ```
 
 :::tip
@@ -178,7 +178,7 @@ source ~/.bashrc
 ```bash
 # Don't use sudo with the installer — it installs to ~/.local/bin
 # If you previously installed with sudo, clean up:
-sudo rm /usr/local/bin/hermes
+sudo rm /usr/local/bin/daclaw
 # Then re-run the standard installer
 curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
 ```
@@ -230,7 +230,7 @@ daclaw config set OPENROUTER_API_KEY sk-or-v1-xxxxxxxxxxxx
 ```
 
 :::warning
-Make sure the key matches the provider. An OpenAI key won't work with OpenRouter and vice versa. Check `~/.hermes/.env` for conflicting entries.
+Make sure the key matches the provider. An OpenAI key won't work with OpenRouter and vice versa. Check `~/.daclaw/.env` for conflicting entries.
 :::
 
 #### Model not available / model not found
@@ -243,7 +243,7 @@ Make sure the key matches the provider. An OpenAI key won't work with OpenRouter
 daclaw model
 
 # Set a valid model
-daclaw config set HERMES_MODEL openrouter/nous/hermes-3-llama-3.1-70b
+daclaw config set DACLAW_MODEL openrouter/nous/daclaw-3-llama-3.1-70b
 
 # Or specify per-session
 daclaw chat --model openrouter/meta-llama/llama-3.1-70b-instruct
@@ -281,7 +281,7 @@ Look at the CLI startup line — it shows the detected context length (e.g., `�
 To fix context detection, set it explicitly:
 
 ```yaml
-# In ~/.hermes/config.yaml
+# In ~/.daclaw/config.yaml
 model:
   default: your-model-name
   context_length: 131072  # your model's actual context window
@@ -359,7 +359,7 @@ daclaw gateway status
 daclaw gateway start
 
 # Check logs for errors
-cat ~/.hermes/logs/gateway.log | tail -50
+cat ~/.daclaw/logs/gateway.log | tail -50
 ```
 
 #### Messages not delivering
@@ -368,7 +368,7 @@ cat ~/.hermes/logs/gateway.log | tail -50
 
 **Solution:**
 - Verify your bot token is valid with `daclaw gateway setup`
-- Check gateway logs: `cat ~/.hermes/logs/gateway.log | tail -50`
+- Check gateway logs: `cat ~/.daclaw/logs/gateway.log | tail -50`
 - For webhook-based platforms (Slack, WhatsApp), ensure your server is publicly accessible
 
 #### Allowlist confusion — who can talk to the bot?
@@ -383,7 +383,7 @@ cat ~/.hermes/logs/gateway.log | tail -50
 | **DM pairing** | First user to message in DM claims exclusive access |
 | **Open** | Anyone can interact (not recommended for production) |
 
-Configure in `~/.hermes/config.yaml` under your gateway's settings. See the [Messaging docs](../user-guide/messaging/index.md).
+Configure in `~/.daclaw/config.yaml` under your gateway's settings. See the [Messaging docs](../user-guide/messaging/index.md).
 
 #### Gateway won't start
 
@@ -416,7 +416,7 @@ tmux new -s daclaw 'daclaw gateway run'
 # Reattach later: tmux attach -t daclaw
 
 # Option 3: Background via nohup
-nohup daclaw gateway run > ~/.hermes/logs/gateway.log 2>&1 &
+nohup daclaw gateway run > ~/.daclaw/logs/gateway.log 2>&1 &
 ```
 
 If you want to try systemd anyway, make sure it's enabled:
@@ -451,7 +451,7 @@ daclaw gateway start      # Detects the updated plist and reloads
 You can verify the plist has the correct PATH:
 ```bash
 /usr/libexec/PlistBuddy -c "Print :EnvironmentVariables:PATH" \
-  ~/Library/LaunchAgents/ai.hermes.gateway.plist
+  ~/Library/LaunchAgents/ai.daclaw.gateway.plist
 ```
 
 ---
@@ -512,7 +512,7 @@ daclaw chat --continue
 **Solution:**
 ```bash
 # Ensure MCP dependencies are installed (already included in standard install)
-cd ~/.hermes/daclaw-agent && uv pip install -e ".[mcp]"
+cd ~/.daclaw/daclaw-agent && uv pip install -e ".[mcp]"
 
 # For npm-based servers, ensure Node.js is available
 node --version
@@ -522,7 +522,7 @@ npx --version
 npx -y @modelcontextprotocol/server-filesystem /tmp
 ```
 
-Verify your `~/.hermes/config.yaml` MCP configuration:
+Verify your `~/.daclaw/config.yaml` MCP configuration:
 ```yaml
 mcp_servers:
   filesystem:
@@ -551,7 +551,7 @@ daclaw chat
 
 See also:
 - [MCP (Model Context Protocol)](/docs/user-guide/features/mcp)
-- [Use MCP with DAClaw](/docs/guides/use-mcp-with-hermes)
+- [Use MCP with DAClaw](/docs/guides/use-mcp-with-daclaw)
 - [MCP Config Reference](/docs/reference/mcp-config-reference)
 
 #### MCP timeout errors
@@ -571,9 +571,9 @@ If an MCP server crashes mid-request, DAClaw will report a timeout. Check the se
 
 ## Profiles
 
-### How do profiles differ from just setting HERMES_HOME?
+### How do profiles differ from just setting DACLAW_HOME?
 
-Profiles are a managed layer on top of `HERMES_HOME`. You *could* manually set `HERMES_HOME=/some/path` before every command, but profiles handle all the plumbing for you: creating the directory structure, generating shell aliases (`hermes-work`), tracking the active profile in `~/.hermes/active_profile`, and syncing skill updates across all profiles automatically. They also integrate with tab completion so you don't have to remember paths.
+Profiles are a managed layer on top of `DACLAW_HOME`. You *could* manually set `DACLAW_HOME=/some/path` before every command, but profiles handle all the plumbing for you: creating the directory structure, generating shell aliases (`daclaw-work`), tracking the active profile in `~/.daclaw/active_profile`, and syncing skill updates across all profiles automatically. They also integrate with tab completion so you don't have to remember paths.
 
 ### Can two profiles share the same bot token?
 
@@ -603,7 +603,7 @@ The imported profile will have all config, memories, sessions, and skills from t
 
 ### How many profiles can I run?
 
-There is no hard limit. Each profile is just a directory under `~/.hermes/profiles/`. The practical limit depends on your disk space and how many concurrent gateways your system can handle (each gateway is a lightweight Python process). Running dozens of profiles is fine; each idle profile uses no resources.
+There is no hard limit. Each profile is just a directory under `~/.daclaw/profiles/`. The practical limit depends on your disk space and how many concurrent gateways your system can handle (each gateway is a lightweight Python process). Running dozens of profiles is fine; each idle profile uses no resources.
 
 ---
 
@@ -613,7 +613,7 @@ There is no hard limit. Each profile is just a directory under `~/.hermes/profil
 
 **Scenario:** You use GPT-5.4 as your daily driver, but Gemini or Grok writes better social media content. Manually switching models every time is tedious.
 
-**Solution: Delegation config.** DAClaw can route subagents to a different model automatically. Set this in `~/.hermes/config.yaml`:
+**Solution: Delegation config.** DAClaw can route subagents to a different model automatically. Set this in `~/.daclaw/config.yaml`:
 
 ```yaml
 delegation:
@@ -722,24 +722,24 @@ Skills with very long descriptions are truncated to 40 characters in the Telegra
    curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
    ```
 
-2. Copy your entire `~/.hermes/` directory **except** the `daclaw-agent` subdirectory (that's the code repo — the new install has its own):
+2. Copy your entire `~/.daclaw/` directory **except** the `daclaw-agent` subdirectory (that's the code repo — the new install has its own):
    ```bash
    # On the source machine
-   rsync -av --exclude='daclaw-agent' ~/.hermes/ newmachine:~/.hermes/
+   rsync -av --exclude='daclaw-agent' ~/.daclaw/ newmachine:~/.daclaw/
    ```
 
    Or use profile export/import:
    ```bash
    # On source machine
-   daclaw profile export default ./hermes-backup.tar.gz
+   daclaw profile export default ./daclaw-backup.tar.gz
 
    # On target machine
-   daclaw profile import ./hermes-backup.tar.gz default
+   daclaw profile import ./daclaw-backup.tar.gz default
    ```
 
 3. On the new machine, run `daclaw setup` to verify API keys and provider config are working. Re-authenticate any messaging platforms (especially WhatsApp, which uses QR pairing).
 
-The `~/.hermes/` directory contains everything: `config.yaml`, `.env`, `SOUL.md`, `memories/`, `skills/`, `state.db` (sessions), `cron/`, and any custom plugins. The code itself lives in `~/.hermes/daclaw-agent/` and is installed fresh.
+The `~/.daclaw/` directory contains everything: `config.yaml`, `.env`, `SOUL.md`, `memories/`, `skills/`, `state.db` (sessions), `cron/`, and any custom plugins. The code itself lives in `~/.daclaw/daclaw-agent/` and is installed fresh.
 
 ### Permission denied when reloading shell after install
 

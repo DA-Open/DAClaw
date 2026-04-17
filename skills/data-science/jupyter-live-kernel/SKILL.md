@@ -10,7 +10,7 @@ version: 1.0.0
 author: DAClaw Agent
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [jupyter, notebook, repl, data-science, exploration, iterative]
     category: data-science
 ---

@@ -22,9 +22,9 @@ Key implementation files:
 ## Boot flow
 
 ```text
-daclaw acp / hermes-acp / python -m acp_adapter
+daclaw acp / daclaw-acp / python -m acp_adapter
   -> acp_adapter.entry.main()
-  -> load ~/.hermes/.env
+  -> load ~/.daclaw/.env
   -> configure stderr logging
   -> construct DAClawACPAgent
   -> acp.run_agent(agent)
@@ -114,7 +114,7 @@ Examples:
 ```text
 new_session(cwd)
   -> create SessionState
-  -> create AIAgent(platform="acp", enabled_toolsets=["hermes-acp"])
+  -> create AIAgent(platform="acp", enabled_toolsets=["daclaw-acp"])
   -> bind task_id/session_id to cwd override
 
 prompt(..., session_id)
@@ -145,7 +145,7 @@ ACP does not implement its own auth store.
 Instead it reuses DAClaw' runtime resolver:
 
 - `acp_adapter/auth.py`
-- `hermes_cli/runtime_provider.py`
+- `daclaw_cli/runtime_provider.py`
 
 So ACP advertises and uses the currently configured DAClaw provider/credentials.
 
@@ -177,6 +177,6 @@ ACP temporarily installs an approval callback on the terminal tool during prompt
 ## Related files
 
 - `tests/acp/` — ACP test suite
-- `toolsets.py` — `hermes-acp` toolset definition
-- `hermes_cli/main.py` — `daclaw acp` CLI subcommand
-- `pyproject.toml` — `[acp]` optional dependency + `hermes-acp` script
+- `toolsets.py` — `daclaw-acp` toolset definition
+- `daclaw_cli/main.py` — `daclaw acp` CLI subcommand
+- `pyproject.toml` — `[acp]` optional dependency + `daclaw-acp` script

@@ -14,7 +14,7 @@ Solution:
     This module is kept for backward compatibility. apply_patches() is a no-op.
 
 Usage:
-    Call apply_patches() once at import time (done automatically by hermes_base_env.py).
+    Call apply_patches() once at import time (done automatically by daclaw_base_env.py).
     This is idempotent and safe to call multiple times.
 """
 

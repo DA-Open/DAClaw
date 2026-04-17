@@ -8,7 +8,7 @@ import sys
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from hermes_state import SessionDB
+from daclaw_state import SessionDB
 from tools.todo_tool import TodoStore
 
 
@@ -87,7 +87,7 @@ def _make_cli(env_overrides=None, config_overrides=None, **kwargs):
     }
     if config_overrides:
         _clean_config.update(config_overrides)
-    clean_env = {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}
+    clean_env = {"LLM_MODEL": "", "DACLAW_MAX_ITERATIONS": ""}
     if env_overrides:
         clean_env.update(env_overrides)
     prompt_toolkit_stubs = {

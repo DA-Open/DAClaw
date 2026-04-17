@@ -2,7 +2,7 @@
 
 AI-native cross-session user modeling with dialectic Q&A, semantic search, peer cards, and persistent conclusions.
 
-> **Honcho docs:** <https://docs.honcho.dev/v3/guides/integrations/hermes>
+> **Honcho docs:** <https://docs.honcho.dev/v3/guides/integrations/daclaw>
 
 ## Requirements
 
@@ -19,7 +19,7 @@ daclaw memory setup    # generic picker, also works
 Or manually:
 ```bash
 daclaw config set memory.provider honcho
-echo "HONCHO_API_KEY=your-key" >> ~/.hermes/.env
+echo "HONCHO_API_KEY=your-key" >> ~/.daclaw/.env
 ```
 
 ## Config Resolution
@@ -28,11 +28,11 @@ Config is read from the first file that exists:
 
 | Priority | Path | Scope |
 |----------|------|-------|
-| 1 | `$HERMES_HOME/honcho.json` | Profile-local (isolated DAClaw instances) |
-| 2 | `~/.hermes/honcho.json` | Default profile (shared host blocks) |
+| 1 | `$DACLAW_HOME/honcho.json` | Profile-local (isolated DAClaw instances) |
+| 2 | `~/.daclaw/honcho.json` | Default profile (shared host blocks) |
 | 3 | `~/.honcho/config.json` | Global (cross-app interop) |
 
-Host key is derived from the active DAClaw profile: `daclaw` (default) or `hermes.<profile>`.
+Host key is derived from the active DAClaw profile: `daclaw` (default) or `daclaw.<profile>`.
 
 ## Tools
 
@@ -93,7 +93,7 @@ Per-profile example -- coder profile observes the user but user doesn't observe 
 
 ```json
 "hosts": {
-  "hermes.coder": {
+  "daclaw.coder": {
     "observation": {
       "user": { "observeMe": true, "observeOthers": false },
       "ai":   { "observeMe": true, "observeOthers": true }
@@ -152,7 +152,7 @@ These are read from the root config object, not the host block. Must be set manu
 
 For every key, resolution order is: **host block > root > env var > default**.
 
-Host key derivation: `HERMES_HONCHO_HOST` env > active profile (`hermes.<profile>`) > `"daclaw"`.
+Host key derivation: `DACLAW_HONCHO_HOST` env > active profile (`daclaw.<profile>`) > `"daclaw"`.
 
 ## Environment Variables
 
@@ -161,7 +161,7 @@ Host key derivation: `HERMES_HONCHO_HOST` env > active profile (`hermes.<profile
 | `HONCHO_API_KEY` | `apiKey` |
 | `HONCHO_BASE_URL` | `baseUrl` |
 | `HONCHO_ENVIRONMENT` | `environment` |
-| `HERMES_HONCHO_HOST` | Host key override |
+| `DACLAW_HONCHO_HOST` | Host key override |
 
 ## CLI Commands
 
@@ -202,7 +202,7 @@ Host key derivation: `HERMES_HONCHO_HOST` env > active profile (`hermes.<profile
       "dialecticMaxChars": 600,
       "saveMessages": true
     },
-    "hermes.coder": {
+    "daclaw.coder": {
       "enabled": true,
       "aiPeer": "coder",
       "workspace": "daclaw",

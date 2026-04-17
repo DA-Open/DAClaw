@@ -8,7 +8,7 @@ prerequisites:
   env_vars: [LINEAR_API_KEY]
   commands: [curl]
 metadata:
-  hermes:
+  daclaw:
     tags: [Linear, Project Management, Issues, GraphQL, API, Productivity]
 ---
 

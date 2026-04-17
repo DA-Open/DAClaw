@@ -16,8 +16,8 @@ param(
     [switch]$NoVenv,
     [switch]$SkipSetup,
     [string]$Branch = "main",
-    [string]$DAClawHome = "$env:LOCALAPPDATA\hermes",
-    [string]$InstallDir = "$env:LOCALAPPDATA\hermes\daclaw-agent"
+    [string]$DAClawHome = "$env:LOCALAPPDATA\daclaw",
+    [string]$InstallDir = "$env:LOCALAPPDATA\daclaw\daclaw-agent"
 )
 
 $ErrorActionPreference = "Stop"
@@ -244,7 +244,7 @@ function Test-Node {
         } catch { }
     }
 
-    # Fallback: download binary zip to ~/.hermes/node/
+    # Fallback: download binary zip to ~/.daclaw/node/
     Write-Info "Downloading Node.js $NodeVersion binary..."
     try {
         $arch = if ([Environment]::Is64BitOperatingSystem) { "x64" } else { "x86" }
@@ -255,7 +255,7 @@ function Test-Node {
         if ($zipName) {
             $downloadUrl = "${indexUrl}${zipName}"
             $tmpZip = "$env:TEMP\$zipName"
-            $tmpDir = "$env:TEMP\hermes-node-extract"
+            $tmpDir = "$env:TEMP\daclaw-node-extract"
 
             Invoke-WebRequest -Uri $downloadUrl -OutFile $tmpZip -UseBasicParsing
             if (Test-Path $tmpDir) { Remove-Item -Recurse -Force $tmpDir }
@@ -268,7 +268,7 @@ function Test-Node {
                 $env:Path = "$DAClawHome\node;$env:Path"
 
                 $version = & "$DAClawHome\node\node.exe" --version
-                Write-Success "Node.js $version installed to ~/.hermes/node/"
+                Write-Success "Node.js $version installed to ~/.daclaw/node/"
                 $script:HasNode = $true
 
                 Remove-Item -Force $tmpZip -ErrorAction SilentlyContinue
@@ -581,38 +581,38 @@ function Set-PathVariable {
     Write-Info "Setting up daclaw command..."
     
     if ($NoVenv) {
-        $hermesBin = "$InstallDir"
+        $daclawBin = "$InstallDir"
     } else {
-        $hermesBin = "$InstallDir\venv\Scripts"
+        $daclawBin = "$InstallDir\venv\Scripts"
     }
     
     # Add the venv Scripts dir to user PATH so daclaw is globally available
-    # On Windows, the hermes.exe in venv\Scripts\ has the venv Python baked in
+    # On Windows, the daclaw.exe in venv\Scripts\ has the venv Python baked in
     $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
     
-    if ($currentPath -notlike "*$hermesBin*") {
+    if ($currentPath -notlike "*$daclawBin*") {
         [Environment]::SetEnvironmentVariable(
             "Path",
-            "$hermesBin;$currentPath",
+            "$daclawBin;$currentPath",
             "User"
         )
-        Write-Success "Added to user PATH: $hermesBin"
+        Write-Success "Added to user PATH: $daclawBin"
     } else {
         Write-Info "PATH already configured"
     }
     
-    # Set HERMES_HOME so the Python code finds config/data in the right place.
+    # Set DACLAW_HOME so the Python code finds config/data in the right place.
     # Only needed on Windows where we install to %LOCALAPPDATA%\daclaw instead
-    # of the Unix default ~/.hermes
-    $currentDAClawHome = [Environment]::GetEnvironmentVariable("HERMES_HOME", "User")
+    # of the Unix default ~/.daclaw
+    $currentDAClawHome = [Environment]::GetEnvironmentVariable("DACLAW_HOME", "User")
     if (-not $currentDAClawHome -or $currentDAClawHome -ne $DAClawHome) {
-        [Environment]::SetEnvironmentVariable("HERMES_HOME", $DAClawHome, "User")
-        Write-Success "Set HERMES_HOME=$DAClawHome"
+        [Environment]::SetEnvironmentVariable("DACLAW_HOME", $DAClawHome, "User")
+        Write-Success "Set DACLAW_HOME=$DAClawHome"
     }
-    $env:HERMES_HOME = $DAClawHome
+    $env:DACLAW_HOME = $DAClawHome
     
     # Update current session
-    $env:Path = "$hermesBin;$env:Path"
+    $env:Path = "$daclawBin;$env:Path"
     
     Write-Success "daclaw command ready"
 }
@@ -620,7 +620,7 @@ function Set-PathVariable {
 function Copy-ConfigTemplates {
     Write-Info "Setting up configuration files..."
     
-    # Create ~/.hermes directory structure
+    # Create ~/.daclaw directory structure
     New-Item -ItemType Directory -Force -Path "$DAClawHome\cron" | Out-Null
     New-Item -ItemType Directory -Force -Path "$DAClawHome\sessions" | Out-Null
     New-Item -ItemType Directory -Force -Path "$DAClawHome\logs" | Out-Null
@@ -638,13 +638,13 @@ function Copy-ConfigTemplates {
         $examplePath = "$InstallDir\.env.example"
         if (Test-Path $examplePath) {
             Copy-Item $examplePath $envPath
-            Write-Success "Created ~/.hermes/.env from template"
+            Write-Success "Created ~/.daclaw/.env from template"
         } else {
             New-Item -ItemType File -Force -Path $envPath | Out-Null
-            Write-Success "Created ~/.hermes/.env"
+            Write-Success "Created ~/.daclaw/.env"
         }
     } else {
-        Write-Info "~/.hermes/.env already exists, keeping it"
+        Write-Info "~/.daclaw/.env already exists, keeping it"
     }
     
     # Create config.yaml
@@ -653,10 +653,10 @@ function Copy-ConfigTemplates {
         $examplePath = "$InstallDir\cli-config.yaml.example"
         if (Test-Path $examplePath) {
             Copy-Item $examplePath $configPath
-            Write-Success "Created ~/.hermes/config.yaml from template"
+            Write-Success "Created ~/.daclaw/config.yaml from template"
         }
     } else {
-        Write-Info "~/.hermes/config.yaml already exists, keeping it"
+        Write-Info "~/.daclaw/config.yaml already exists, keeping it"
     }
     
     # Create SOUL.md if it doesn't exist (global persona file)
@@ -679,25 +679,25 @@ This file is loaded fresh each message -- no restart needed.
 Delete the contents (or this file) to use the default personality.
 -->
 "@ | Set-Content -Path $soulPath -Encoding UTF8
-        Write-Success "Created ~/.hermes/SOUL.md (edit to customize personality)"
+        Write-Success "Created ~/.daclaw/SOUL.md (edit to customize personality)"
     }
     
-    Write-Success "Configuration directory ready: ~/.hermes/"
+    Write-Success "Configuration directory ready: ~/.daclaw/"
     
-    # Seed bundled skills into ~/.hermes/skills/ (manifest-based, one-time per skill)
-    Write-Info "Syncing bundled skills to ~/.hermes/skills/ ..."
+    # Seed bundled skills into ~/.daclaw/skills/ (manifest-based, one-time per skill)
+    Write-Info "Syncing bundled skills to ~/.daclaw/skills/ ..."
     $pythonExe = "$InstallDir\venv\Scripts\python.exe"
     if (Test-Path $pythonExe) {
         try {
             & $pythonExe "$InstallDir\tools\skills_sync.py" 2>$null
-            Write-Success "Skills synced to ~/.hermes/skills/"
+            Write-Success "Skills synced to ~/.daclaw/skills/"
         } catch {
             # Fallback: simple directory copy
             $bundledSkills = "$InstallDir\skills"
             $userSkills = "$DAClawHome\skills"
             if ((Test-Path $bundledSkills) -and -not (Get-ChildItem $userSkills -Exclude '.bundled_manifest' -ErrorAction SilentlyContinue)) {
                 Copy-Item -Path "$bundledSkills\*" -Destination $userSkills -Recurse -Force -ErrorAction SilentlyContinue
-                Write-Success "Skills copied to ~/.hermes/skills/"
+                Write-Success "Skills copied to ~/.daclaw/skills/"
             }
         }
     }
@@ -752,9 +752,9 @@ function Invoke-SetupWizard {
     
     # Run daclaw setup using the venv Python directly (no activation needed)
     if (-not $NoVenv) {
-        & ".\venv\Scripts\python.exe" -m hermes_cli.main setup
+        & ".\venv\Scripts\python.exe" -m daclaw_cli.main setup
     } else {
-        python -m hermes_cli.main setup
+        python -m daclaw_cli.main setup
     }
     
     Pop-Location
@@ -773,9 +773,9 @@ function Start-GatewayIfConfigured {
 
     if (-not $hasMessaging) { return }
 
-    $hermesCmd = "$InstallDir\venv\Scripts\hermes.exe"
-    if (-not (Test-Path $hermesCmd)) {
-        $hermesCmd = "daclaw"
+    $daclawCmd = "$InstallDir\venv\Scripts\daclaw.exe"
+    if (-not (Test-Path $daclawCmd)) {
+        $daclawCmd = "daclaw"
     }
 
     # If WhatsApp is enabled but not yet paired, run foreground for QR scan
@@ -789,7 +789,7 @@ function Start-GatewayIfConfigured {
         $response = Read-Host "Pair WhatsApp now? [Y/n]"
         if ($response -eq "" -or $response -match "^[Yy]") {
             try {
-                & $hermesCmd whatsapp
+                & $daclawCmd whatsapp
             } catch {
                 # Expected after pairing completes
             }
@@ -806,7 +806,7 @@ function Start-GatewayIfConfigured {
         Write-Info "Starting gateway in background..."
         try {
             $logFile = "$DAClawHome\logs\gateway.log"
-            Start-Process -FilePath $hermesCmd -ArgumentList "gateway" `
+            Start-Process -FilePath $daclawCmd -ArgumentList "gateway" `
                 -RedirectStandardOutput $logFile `
                 -RedirectStandardError "$DAClawHome\logs\gateway-error.log" `
                 -WindowStyle Hidden

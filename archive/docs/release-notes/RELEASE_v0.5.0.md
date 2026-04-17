@@ -95,7 +95,7 @@
 - **Replace swe-rex with native Modal SDK** for Modal backend ([#3538](https://github.com/NousResearch/daclaw-agent/pull/3538))
 - **Plugin lifecycle hooks** — `pre_llm_call`, `post_llm_call`, `on_session_start`, `on_session_end` now fire in the agent loop ([#3542](https://github.com/NousResearch/daclaw-agent/pull/3542))
 - Fix plugin toolsets invisible in `daclaw tools` and standalone processes ([#3457](https://github.com/NousResearch/daclaw-agent/pull/3457))
-- Consolidate `get_hermes_home()` and `parse_reasoning_effort()` ([#3062](https://github.com/NousResearch/daclaw-agent/pull/3062))
+- Consolidate `get_daclaw_home()` and `parse_reasoning_effort()` ([#3062](https://github.com/NousResearch/daclaw-agent/pull/3062))
 - Remove unused DAClaw-native PKCE OAuth flow ([#3107](https://github.com/NousResearch/daclaw-agent/pull/3107))
 - Remove ~100 unused imports across 55 files ([#3016](https://github.com/NousResearch/daclaw-agent/pull/3016))
 - Fix 154 f-strings, simplify getattr/URL patterns, remove dead code ([#3119](https://github.com/NousResearch/daclaw-agent/pull/3119))
@@ -191,7 +191,7 @@
 - YAML boolean handling for `tool_progress` config ([#3300](https://github.com/NousResearch/daclaw-agent/pull/3300))
 - Reset default SOUL.md to baseline identity text ([#3159](https://github.com/NousResearch/daclaw-agent/pull/3159))
 - Reject relative cwd paths for container terminal backends ([untagged commit](https://github.com/NousResearch/daclaw-agent))
-- Add explicit `hermes-api-server` toolset for API server platform ([#3304](https://github.com/NousResearch/daclaw-agent/pull/3304))
+- Add explicit `daclaw-api-server` toolset for API server platform ([#3304](https://github.com/NousResearch/daclaw-agent/pull/3304))
 - Reorder setup wizard providers — OpenRouter first ([untagged commit](https://github.com/NousResearch/daclaw-agent))
 
 ---

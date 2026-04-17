@@ -55,7 +55,7 @@ Deploy DAClaw Agent as a bot on your favorite messaging platform.
 4. [Telegram Setup](/docs/user-guide/messaging/telegram)
 5. [Discord Setup](/docs/user-guide/messaging/discord)
 6. [Voice Mode](/docs/user-guide/features/voice-mode)
-7. [Use Voice Mode with DAClaw](/docs/guides/use-voice-mode-with-hermes)
+7. [Use Voice Mode with DAClaw](/docs/guides/use-voice-mode-with-daclaw)
 8. [Security](/docs/user-guide/security)
 
 For full project examples, see:

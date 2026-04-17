@@ -11,7 +11,7 @@ version: 1.0.0
 author: bennytimz
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [science, chemistry, pharmacology, research, health]
 prerequisites:
   commands: [curl, python3]

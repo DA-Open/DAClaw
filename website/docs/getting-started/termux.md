@@ -116,7 +116,7 @@ python -m pip install -e '.' -c constraints-termux.txt
 ### 5. Put `daclaw` on your Termux PATH
 
 ```bash
-ln -sf "$PWD/venv/bin/hermes" "$PREFIX/bin/hermes"
+ln -sf "$PWD/venv/bin/daclaw" "$PREFIX/bin/daclaw"
 ```
 
 `$PREFIX/bin` is already on PATH in Termux, so this makes the `daclaw` command persist across new shells without re-activating the venv every time.
@@ -144,7 +144,7 @@ daclaw
 daclaw model
 ```
 
-Or set keys directly in `~/.hermes/.env`.
+Or set keys directly in `~/.daclaw/.env`.
 
 ### Re-run the full interactive setup wizard later
 

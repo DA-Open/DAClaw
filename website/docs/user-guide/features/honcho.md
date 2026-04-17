@@ -39,13 +39,13 @@ daclaw memory setup    # select "honcho" from the provider list
 Or configure manually:
 
 ```yaml
-# ~/.hermes/config.yaml
+# ~/.daclaw/config.yaml
 memory:
   provider: honcho
 ```
 
 ```bash
-echo "HONCHO_API_KEY=*** >> ~/.hermes/.env
+echo "HONCHO_API_KEY=*** >> ~/.daclaw/.env
 ```
 
 Get an API key at [honcho.dev](https://honcho.dev).
@@ -96,7 +96,7 @@ Passes bail out early if the prior pass returned strong signal (long, structured
 
 ## Configuration Options
 
-Honcho is configured in `~/.honcho/config.json` (global) or `$HERMES_HOME/honcho.json` (profile-local). The setup wizard handles this for you.
+Honcho is configured in `~/.honcho/config.json` (global) or `$DACLAW_HOME/honcho.json` (profile-local). The setup wizard handles this for you.
 
 ### Full Config Reference
 

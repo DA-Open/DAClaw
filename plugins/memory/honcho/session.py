@@ -69,7 +69,7 @@ class HonchoSessionManager:
     """
     Manages conversation sessions using Honcho.
 
-    Runs alongside hermes' existing SQLite state and file-based memory,
+    Runs alongside daclaw' existing SQLite state and file-based memory,
     adding persistent cross-session user modeling via Honcho's AI-native memory.
     """
 
@@ -283,7 +283,7 @@ class HonchoSessionManager:
             user_peer_id = self._sanitize_id(f"user-{channel}-{chat_id}")
 
         assistant_peer_id = self._sanitize_id(
-            self._config.ai_peer if self._config else "hermes-assistant"
+            self._config.ai_peer if self._config else "daclaw-assistant"
         )
 
         # Sanitize session ID for Honcho
@@ -757,7 +757,7 @@ class HonchoSessionManager:
 
         Args:
             session_key: The session key to associate files with.
-            memory_dir: Path to the memories directory (~/.hermes/memories/).
+            memory_dir: Path to the memories directory (~/.daclaw/memories/).
 
         Returns:
             True if at least one file was uploaded, False otherwise.

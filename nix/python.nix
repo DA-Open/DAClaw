@@ -78,6 +78,6 @@ let
         pythonPackageOverrides
       ]);
 in
-pythonSet.mkVirtualEnv "hermes-agent-env" {
-  hermes-agent = [ "all" ];
+pythonSet.mkVirtualEnv "daclaw-agent-env" {
+  daclaw-agent = [ "all" ];
 }

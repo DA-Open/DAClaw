@@ -24,7 +24,7 @@
 
 - **MCP OAuth 2.1 PKCE + OSV Malware Scanning** — Full standards-compliant OAuth for MCP server authentication, plus automatic malware scanning of MCP extension packages via the OSV vulnerability database. ([#5420](https://github.com/NousResearch/daclaw-agent/pull/5420), [#5305](https://github.com/NousResearch/daclaw-agent/pull/5305))
 
-- **Centralized Logging & Config Validation** — Structured logging to `~/.hermes/logs/` (agent.log + errors.log) with the `daclaw logs` command for tailing and filtering. Config structure validation catches malformed YAML at startup before it causes cryptic failures. ([#5430](https://github.com/NousResearch/daclaw-agent/pull/5430), [#5426](https://github.com/NousResearch/daclaw-agent/pull/5426))
+- **Centralized Logging & Config Validation** — Structured logging to `~/.daclaw/logs/` (agent.log + errors.log) with the `daclaw logs` command for tailing and filtering. Config structure validation catches malformed YAML at startup before it causes cryptic failures. ([#5430](https://github.com/NousResearch/daclaw-agent/pull/5430), [#5426](https://github.com/NousResearch/daclaw-agent/pull/5426))
 
 - **Plugin System Expansion** — Plugins can now register CLI subcommands, receive request-scoped API hooks with correlation IDs, prompt for required env vars during install, and hook into session lifecycle events (finalize/reset). ([#5295](https://github.com/NousResearch/daclaw-agent/pull/5295), [#5427](https://github.com/NousResearch/daclaw-agent/pull/5427), [#5470](https://github.com/NousResearch/daclaw-agent/pull/5470), [#6129](https://github.com/NousResearch/daclaw-agent/pull/6129))
 
@@ -60,7 +60,7 @@
 - **Vision auto-detection** tries main provider first ([#6041](https://github.com/NousResearch/daclaw-agent/pull/6041))
 - **Provider re-ordering and Quick Install** — @austinpickett ([#4664](https://github.com/NousResearch/daclaw-agent/pull/4664))
 - **Nous OAuth access_token** no longer used as inference API key — @SHL0MS ([#5564](https://github.com/NousResearch/daclaw-agent/pull/5564))
-- **HERMES_PORTAL_BASE_URL env var** respected during Nous login — @benbarclay ([#5745](https://github.com/NousResearch/daclaw-agent/pull/5745))
+- **DACLAW_PORTAL_BASE_URL env var** respected during Nous login — @benbarclay ([#5745](https://github.com/NousResearch/daclaw-agent/pull/5745))
 - **Env var overrides** for Nous portal/inference URLs ([#5419](https://github.com/NousResearch/daclaw-agent/pull/5419))
 - **Z.AI endpoint auto-detect** via probe and cache ([#5763](https://github.com/NousResearch/daclaw-agent/pull/5763))
 - **MiniMax context lengths, model catalog, thinking guard, aux model, and config base_url** corrections ([#6082](https://github.com/NousResearch/daclaw-agent/pull/6082))
@@ -183,7 +183,7 @@
 
 ### Setup & Configuration
 - **Config structure validation** — detect malformed YAML at startup with actionable error messages ([#5426](https://github.com/NousResearch/daclaw-agent/pull/5426))
-- **Centralized logging** to `~/.hermes/logs/` — agent.log (INFO+), errors.log (WARNING+) with `daclaw logs` command ([#5430](https://github.com/NousResearch/daclaw-agent/pull/5430))
+- **Centralized logging** to `~/.daclaw/logs/` — agent.log (INFO+), errors.log (WARNING+) with `daclaw logs` command ([#5430](https://github.com/NousResearch/daclaw-agent/pull/5430))
 - **Docs links added** to setup wizard sections ([#5283](https://github.com/NousResearch/daclaw-agent/pull/5283))
 - **Doctor diagnostics** — sync provider checks, config migration, WAL and mem0 diagnostics ([#5077](https://github.com/NousResearch/daclaw-agent/pull/5077))
 - **Timeout debug logging** and user-facing diagnostics improved ([#5370](https://github.com/NousResearch/daclaw-agent/pull/5370))
@@ -295,7 +295,7 @@
 - **Batch core bug fixes** — model config, session reset, alias fallback, launchctl, delegation, atomic writes ([#5630](https://github.com/NousResearch/daclaw-agent/pull/5630))
 - **Batch gateway/platform fixes** — matrix E2EE, CJK input, Windows browser, Feishu reconnect + ACL ([#5665](https://github.com/NousResearch/daclaw-agent/pull/5665))
 - **Stale test skips removed**, regex backtracking, file search bug, and test flakiness ([#4969](https://github.com/NousResearch/daclaw-agent/pull/4969))
-- **Nix flake** — read version, regen uv.lock, add hermes_logging — @alt-glitch ([#5651](https://github.com/NousResearch/daclaw-agent/pull/5651))
+- **Nix flake** — read version, regen uv.lock, add daclaw_logging — @alt-glitch ([#5651](https://github.com/NousResearch/daclaw-agent/pull/5651))
 - **Lowercase variable redaction** regression tests ([#5185](https://github.com/NousResearch/daclaw-agent/pull/5185))
 
 ---

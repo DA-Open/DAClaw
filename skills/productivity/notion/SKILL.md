@@ -5,7 +5,7 @@ version: 1.0.0
 author: community
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [Notion, Productivity, Notes, Database, API]
     homepage: https://developers.notion.com
 prerequisites:
@@ -20,7 +20,7 @@ Use the Notion API via curl to create, read, update pages, databases (data sourc
 
 1. Create an integration at https://notion.so/my-integrations
 2. Copy the API key (starts with `ntn_` or `secret_`)
-3. Store it in `~/.hermes/.env`:
+3. Store it in `~/.daclaw/.env`:
    ```
    NOTION_API_KEY=ntn_your_key_here
    ```

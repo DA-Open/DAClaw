@@ -1,7 +1,7 @@
-"""Built-in boot-md hook — run ~/.hermes/BOOT.md on gateway startup.
+"""Built-in boot-md hook — run ~/.daclaw/BOOT.md on gateway startup.
 
 This hook is always registered. It silently skips if no BOOT.md exists.
-To activate, create ``~/.hermes/BOOT.md`` with instructions for the
+To activate, create ``~/.daclaw/BOOT.md`` with instructions for the
 agent to execute on every gateway restart.
 
 Example BOOT.md::
@@ -22,9 +22,9 @@ import threading
 
 logger = logging.getLogger("hooks.boot-md")
 
-from hermes_constants import get_hermes_home
-HERMES_HOME = get_hermes_home()
-BOOT_FILE = HERMES_HOME / "BOOT.md"
+from daclaw_constants import get_daclaw_home
+DACLAW_HOME = get_daclaw_home()
+BOOT_FILE = DACLAW_HOME / "BOOT.md"
 
 
 def _build_boot_prompt(content: str) -> str:

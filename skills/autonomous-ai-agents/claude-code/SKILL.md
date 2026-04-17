@@ -5,7 +5,7 @@ version: 2.2.0
 author: DAClaw Agent + Teknium
 license: MIT
 metadata:
-  hermes:
+  daclaw:
     tags: [Coding-Agent, Claude, Anthropic, Code-Review, Refactoring, PTY, Automation]
     related_skills: [codex, daclaw-agent, opencode]
 ---

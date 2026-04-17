@@ -1,8 +1,8 @@
-# nix/packages.nix — Hermes Agent package built with uv2nix
+# nix/packages.nix — DAClaw Agent package built with uv2nix
 { inputs, ... }: {
   perSystem = { pkgs, system, ... }:
     let
-      hermesVenv = pkgs.callPackage ./python.nix {
+      daclawVenv = pkgs.callPackage ./python.nix {
         inherit (inputs) uv2nix pyproject-nix pyproject-build-systems;
       };
 
@@ -20,7 +20,7 @@
       runtimePath = pkgs.lib.makeBinPath runtimeDeps;
     in {
       packages.default = pkgs.stdenv.mkDerivation {
-        pname = "hermes-agent";
+        pname = "daclaw-agent";
         version = (builtins.fromTOML (builtins.readFile ../pyproject.toml)).project.version;
 
         dontUnpack = true;
@@ -30,22 +30,22 @@
         installPhase = ''
           runHook preInstall
 
-          mkdir -p $out/share/hermes-agent $out/bin
-          cp -r ${bundledSkills} $out/share/hermes-agent/skills
+          mkdir -p $out/share/daclaw-agent $out/bin
+          cp -r ${bundledSkills} $out/share/daclaw-agent/skills
 
           ${pkgs.lib.concatMapStringsSep "\n" (name: ''
-            makeWrapper ${hermesVenv}/bin/${name} $out/bin/${name} \
+            makeWrapper ${daclawVenv}/bin/${name} $out/bin/${name} \
               --suffix PATH : "${runtimePath}" \
-              --set HERMES_BUNDLED_SKILLS $out/share/hermes-agent/skills
-          '') [ "hermes" "hermes-agent" "hermes-acp" ]}
+              --set DACLAW_BUNDLED_SKILLS $out/share/daclaw-agent/skills
+          '') [ "daclaw" "daclaw-agent" "daclaw-acp" ]}
 
           runHook postInstall
         '';
 
         meta = with pkgs.lib; {
           description = "AI agent with advanced tool-calling capabilities";
-          homepage = "https://github.com/NousResearch/hermes-agent";
-          mainProgram = "hermes";
+          homepage = "https://github.com/NousResearch/daclaw-agent";
+          mainProgram = "daclaw";
           license = licenses.mit;
           platforms = platforms.unix;
         };

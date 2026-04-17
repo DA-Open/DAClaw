@@ -14,7 +14,7 @@ Every tool belongs to exactly one toolset. When you enable a toolset, all tools 
 
 - **Core** — A single logical group of related tools (e.g., `file` bundles `read_file`, `write_file`, `patch`, `search_files`)
 - **Composite** — Combines multiple core toolsets for a common scenario (e.g., `debugging` bundles file, terminal, and web tools)
-- **Platform** — A complete tool configuration for a specific deployment context (e.g., `hermes-cli` is the default for interactive CLI sessions)
+- **Platform** — A complete tool configuration for a specific deployment context (e.g., `daclaw-cli` is the default for interactive CLI sessions)
 
 ## Configuring Toolsets
 
@@ -30,8 +30,8 @@ daclaw chat --toolsets all              # everything
 
 ```yaml
 toolsets:
-  - hermes-cli          # default for CLI
-  # - hermes-telegram   # override for Telegram gateway
+  - daclaw-cli          # default for CLI
+  # - daclaw-telegram   # override for Telegram gateway
 ```
 
 ### Interactive management
@@ -84,32 +84,32 @@ These expand to multiple core toolsets, providing a convenient shorthand for com
 
 ## Platform Toolsets
 
-Platform toolsets define the complete tool configuration for a deployment target. Most messaging platforms use the same set as `hermes-cli`:
+Platform toolsets define the complete tool configuration for a deployment target. Most messaging platforms use the same set as `daclaw-cli`:
 
-| Toolset | Differences from `hermes-cli` |
+| Toolset | Differences from `daclaw-cli` |
 |---------|-------------------------------|
-| `hermes-cli` | Full toolset — all 36 tools including `clarify`. The default for interactive CLI sessions. |
-| `hermes-acp` | Drops `clarify`, `cronjob`, `image_generate`, `send_message`, `text_to_speech`, homeassistant tools. Focused on coding tasks in IDE context. |
-| `hermes-api-server` | Drops `clarify`, `send_message`, and `text_to_speech`. Adds everything else — suitable for programmatic access where user interaction isn't possible. |
-| `hermes-telegram` | Same as `hermes-cli`. |
-| `hermes-discord` | Same as `hermes-cli`. |
-| `hermes-slack` | Same as `hermes-cli`. |
-| `hermes-whatsapp` | Same as `hermes-cli`. |
-| `hermes-signal` | Same as `hermes-cli`. |
-| `hermes-matrix` | Same as `hermes-cli`. |
-| `hermes-mattermost` | Same as `hermes-cli`. |
-| `hermes-email` | Same as `hermes-cli`. |
-| `hermes-sms` | Same as `hermes-cli`. |
-| `hermes-dingtalk` | Same as `hermes-cli`. |
-| `hermes-feishu` | Same as `hermes-cli`. |
-| `hermes-wecom` | Same as `hermes-cli`. |
-| `hermes-wecom-callback` | WeCom callback toolset — enterprise self-built app messaging (full access). |
-| `hermes-weixin` | Same as `hermes-cli`. |
-| `hermes-bluebubbles` | Same as `hermes-cli`. |
-| `hermes-qqbot` | Same as `hermes-cli`. |
-| `hermes-homeassistant` | Same as `hermes-cli`. |
-| `hermes-webhook` | Same as `hermes-cli`. |
-| `hermes-gateway` | Union of all messaging platform toolsets. Used internally when the gateway needs the broadest possible tool set. |
+| `daclaw-cli` | Full toolset — all 36 tools including `clarify`. The default for interactive CLI sessions. |
+| `daclaw-acp` | Drops `clarify`, `cronjob`, `image_generate`, `send_message`, `text_to_speech`, homeassistant tools. Focused on coding tasks in IDE context. |
+| `daclaw-api-server` | Drops `clarify`, `send_message`, and `text_to_speech`. Adds everything else — suitable for programmatic access where user interaction isn't possible. |
+| `daclaw-telegram` | Same as `daclaw-cli`. |
+| `daclaw-discord` | Same as `daclaw-cli`. |
+| `daclaw-slack` | Same as `daclaw-cli`. |
+| `daclaw-whatsapp` | Same as `daclaw-cli`. |
+| `daclaw-signal` | Same as `daclaw-cli`. |
+| `daclaw-matrix` | Same as `daclaw-cli`. |
+| `daclaw-mattermost` | Same as `daclaw-cli`. |
+| `daclaw-email` | Same as `daclaw-cli`. |
+| `daclaw-sms` | Same as `daclaw-cli`. |
+| `daclaw-dingtalk` | Same as `daclaw-cli`. |
+| `daclaw-feishu` | Same as `daclaw-cli`. |
+| `daclaw-wecom` | Same as `daclaw-cli`. |
+| `daclaw-wecom-callback` | WeCom callback toolset — enterprise self-built app messaging (full access). |
+| `daclaw-weixin` | Same as `daclaw-cli`. |
+| `daclaw-bluebubbles` | Same as `daclaw-cli`. |
+| `daclaw-qqbot` | Same as `daclaw-cli`. |
+| `daclaw-homeassistant` | Same as `daclaw-cli`. |
+| `daclaw-webhook` | Same as `daclaw-cli`. |
+| `daclaw-gateway` | Union of all messaging platform toolsets. Used internally when the gateway needs the broadest possible tool set. |
 
 ## Dynamic Toolsets
 
@@ -138,7 +138,7 @@ Define custom toolsets in `config.yaml` to create project-specific bundles:
 
 ```yaml
 toolsets:
-  - hermes-cli
+  - daclaw-cli
 custom_toolsets:
   data-science:
     - file

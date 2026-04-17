@@ -21,7 +21,7 @@ When your main LLM provider encounters errors — rate limits, server overload, 
 
 ### Configuration
 
-Add a `fallback_model` section to `~/.hermes/config.yaml`:
+Add a `fallback_model` section to `~/.daclaw/config.yaml`:
 
 ```yaml
 fallback_model:
@@ -112,7 +112,7 @@ model:
 
 fallback_model:
   provider: nous
-  model: nous-hermes-3
+  model: nous-daclaw-3
 ```
 
 **Local model as fallback for cloud:**

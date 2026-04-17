@@ -5,7 +5,7 @@
 # DAClaw Agent ☤
 
 <p align="center">
-  <a href="https://daclaw-agent.nousresearch.com/docs/"><img src="https://img.shields.io/badge/Docs-hermes--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
+  <a href="https://daclaw-agent.nousresearch.com/docs/"><img src="https://img.shields.io/badge/Docs-daclaw--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
   <a href="https://discord.gg/NousResearch"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://github.com/NousResearch/daclaw-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Built%20by-Nous%20Research-blueviolet?style=for-the-badge" alt="Built by Nous Research"></a>
@@ -126,7 +126,7 @@ daclaw claw migrate --overwrite  # Overwrite existing conflicts
 What gets imported:
 - **SOUL.md** — persona file
 - **Memories** — MEMORY.md and USER.md entries
-- **Skills** — user-created skills → `~/.hermes/skills/openclaw-imports/`
+- **Skills** — user-created skills → `~/.daclaw/skills/openclaw-imports/`
 - **Command allowlist** — approval patterns
 - **Messaging settings** — platform configs, allowed users, working directory
 - **API keys** — allowlisted secrets (Telegram, OpenRouter, OpenAI, Anthropic, ElevenLabs)
@@ -167,7 +167,7 @@ python -m pytest tests/ -q
 - 📚 [Skills Hub](https://agentskills.io)
 - 🐛 [Issues](https://github.com/NousResearch/daclaw-agent/issues)
 - 💡 [Discussions](https://github.com/NousResearch/daclaw-agent/discussions)
-- 🔌 [DAClaw](https://github.com/AaronWong1999/hermesclaw) — Community WeChat bridge: Run DAClaw Agent and OpenClaw on the same WeChat account.
+- 🔌 [DAClaw](https://github.com/AaronWong1999/daclawclaw) — Community WeChat bridge: Run DAClaw Agent and OpenClaw on the same WeChat account.
 
 ---
 

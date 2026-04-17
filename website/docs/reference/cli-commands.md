@@ -177,7 +177,7 @@ Subcommands:
 | `setup` | Interactive messaging-platform setup. |
 
 :::tip WSL users
-Use `daclaw gateway run` instead of `daclaw gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s daclaw 'daclaw gateway run'`. See [WSL FAQ](/docs/reference/faq#wsl-gateway-keeps-disconnecting-or-hermes-gateway-start-fails) for details.
+Use `daclaw gateway run` instead of `daclaw gateway start` — WSL's systemd support is unreliable. Wrap it in tmux for persistence: `tmux new -s daclaw 'daclaw gateway run'`. See [WSL FAQ](/docs/reference/faq#wsl-gateway-keeps-disconnecting-or-daclaw-gateway-start-fails) for details.
 :::
 
 ## `daclaw setup`
@@ -293,7 +293,7 @@ daclaw webhook subscribe <name> [options]
 | `--deliver-chat-id` | Target chat/channel ID for cross-platform delivery. |
 | `--secret` | Custom HMAC secret. Auto-generated if omitted. |
 
-Subscriptions persist to `~/.hermes/webhook_subscriptions.json` and are hot-reloaded by the webhook adapter without a gateway restart.
+Subscriptions persist to `~/.daclaw/webhook_subscriptions.json` and are hot-reloaded by the webhook adapter without a gateway restart.
 
 ## `daclaw doctor`
 
@@ -323,7 +323,7 @@ Outputs a compact, plain-text summary of your entire DAClaw setup. Designed to b
 |---------|---------|
 | **Header** | DAClaw version, release date, git commit hash |
 | **Environment** | OS, Python version, OpenAI SDK version |
-| **Identity** | Active profile name, HERMES_HOME path |
+| **Identity** | Active profile name, DACLAW_HOME path |
 | **Model** | Configured default model and provider |
 | **Terminal** | Backend type (local, docker, ssh, etc.) |
 | **API keys** | Presence check for all 22 provider/tool API keys |
@@ -341,7 +341,7 @@ os:               Linux 6.14.0-37-generic x86_64
 python:           3.11.14
 openai_sdk:       2.24.0
 profile:          default
-hermes_home:      ~/.hermes
+daclaw_home:      ~/.daclaw
 model:            anthropic/claude-opus-4.6
 provider:         openrouter
 terminal:         local
@@ -418,7 +418,7 @@ Create a zip archive of your DAClaw configuration, skills, sessions, and data. T
 
 | Option | Description |
 |--------|-------------|
-| `-o`, `--output <path>` | Output path for the zip file (default: `~/hermes-backup-<timestamp>.zip`). |
+| `-o`, `--output <path>` | Output path for the zip file (default: `~/daclaw-backup-<timestamp>.zip`). |
 | `-q`, `--quick` | Quick snapshot: only critical state files (config.yaml, state.db, .env, auth, cron jobs). Much faster than a full backup. |
 | `-l`, `--label <name>` | Label for the snapshot (only used with `--quick`). |
 
@@ -427,8 +427,8 @@ The backup uses SQLite's `backup()` API for safe copying, so it works correctly 
 ### Examples
 
 ```bash
-daclaw backup                           # Full backup to ~/hermes-backup-*.zip
-daclaw backup -o /tmp/hermes.zip        # Full backup to specific path
+daclaw backup                           # Full backup to ~/daclaw-backup-*.zip
+daclaw backup -o /tmp/daclaw.zip        # Full backup to specific path
 daclaw backup --quick                   # Quick state-only snapshot
 daclaw backup --quick --label "pre-upgrade"  # Quick snapshot with label
 ```
@@ -451,7 +451,7 @@ Restore a previously created DAClaw backup into your DAClaw home directory.
 daclaw logs [log_name] [options]
 ```
 
-View, tail, and filter DAClaw log files. All logs are stored in `~/.hermes/logs/` (or `<profile>/logs/` for non-default profiles).
+View, tail, and filter DAClaw log files. All logs are stored in `~/.daclaw/logs/` (or `<profile>/logs/` for non-default profiles).
 
 ### Log files
 
@@ -645,7 +645,7 @@ Starts DAClaw as an ACP (Agent Client Protocol) stdio server for editor integrat
 Related entrypoints:
 
 ```bash
-hermes-acp
+daclaw-acp
 python -m acp_adapter
 ```
 
@@ -674,7 +674,7 @@ Manage MCP (Model Context Protocol) server configurations and run DAClaw as an M
 | `test <name>` | Test connection to an MCP server. |
 | `configure <name>` (alias: `config`) | Toggle tool selection for a server. |
 
-See [MCP Config Reference](./mcp-config-reference.md), [Use MCP with DAClaw](../guides/use-mcp-with-hermes.md), and [MCP Server Mode](../user-guide/features/mcp.md#running-hermes-as-an-mcp-server).
+See [MCP Config Reference](./mcp-config-reference.md), [Use MCP with DAClaw](../guides/use-mcp-with-daclaw.md), and [MCP Server Mode](../user-guide/features/mcp.md#running-daclaw-as-an-mcp-server).
 
 ## `daclaw plugins`
 
@@ -703,7 +703,7 @@ Provider plugin selections are saved to `config.yaml`:
 
 General plugin disabled list is stored in `config.yaml` under `plugins.disabled`.
 
-See [Plugins](../user-guide/features/plugins.md) and [Build a DAClaw Plugin](../guides/build-a-hermes-plugin.md).
+See [Plugins](../user-guide/features/plugins.md) and [Build a DAClaw Plugin](../guides/build-a-daclaw-plugin.md).
 
 ## `daclaw tools`
 
@@ -752,7 +752,7 @@ daclaw insights [--days N] [--source platform]
 daclaw claw migrate [options]
 ```
 
-Migrate your OpenClaw setup to DAClaw. Reads from `~/.openclaw` (or a custom path) and writes to `~/.hermes`. Automatically detects legacy directory names (`~/.clawdbot`, `~/.moltbot`) and config filenames (`clawdbot.json`, `moltbot.json`).
+Migrate your OpenClaw setup to DAClaw. Reads from `~/.openclaw` (or a custom path) and writes to `~/.daclaw`. Automatically detects legacy directory names (`~/.clawdbot`, `~/.moltbot`) and config filenames (`clawdbot.json`, `moltbot.json`).
 
 | Option | Description |
 |--------|-------------|

@@ -63,7 +63,7 @@ from atroposlib.envs.base import EvalHandlingEnum
 from atroposlib.envs.server_handling.server_manager import APIServerConfig
 
 from environments.agent_loop import DAClawAgentLoop
-from environments.hermes_base_env import DAClawAgentBaseEnv, DAClawAgentEnvConfig
+from environments.daclaw_base_env import DAClawAgentBaseEnv, DAClawAgentEnvConfig
 
 logger = logging.getLogger(__name__)
 

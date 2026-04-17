@@ -78,9 +78,9 @@ Create an `AGENTS.md` in your project root with architecture decisions, coding c
 
 ### SOUL.md: Customize Personality
 
-Want DAClaw to have a stable default voice? Edit `~/.hermes/SOUL.md` (or `$HERMES_HOME/SOUL.md` if you use a custom DAClaw home). DAClaw now seeds a starter SOUL automatically and uses that global file as the instance-wide personality source.
+Want DAClaw to have a stable default voice? Edit `~/.daclaw/SOUL.md` (or `$DACLAW_HOME/SOUL.md` if you use a custom DAClaw home). DAClaw now seeds a starter SOUL automatically and uses that global file as the instance-wide personality source.
 
-For a full walkthrough, see [Use SOUL.md with DAClaw](/docs/guides/use-soul-with-hermes).
+For a full walkthrough, see [Use SOUL.md with DAClaw](/docs/guides/use-soul-with-daclaw).
 
 ```markdown
 # Soul
@@ -170,7 +170,7 @@ Instead of manually collecting user IDs for allowlists, enable DM pairing. When 
 Use `/verbose` to control how much tool activity you see. In messaging platforms, less is usually more — keep it on "new" to see just new tool calls. In the CLI, "all" gives you a satisfying live view of everything the agent does.
 
 :::tip
-On messaging platforms, sessions auto-reset after idle time (default: 24 hours) or daily at 4 AM. Adjust per-platform in `~/.hermes/config.yaml` if you need longer sessions.
+On messaging platforms, sessions auto-reset after idle time (default: 24 hours) or daily at 4 AM. Adjust per-platform in `~/.daclaw/config.yaml` if you need longer sessions.
 :::
 
 ## Security
@@ -182,7 +182,7 @@ When working with untrusted repositories or running unfamiliar code, use Docker 
 ```bash
 # In your .env:
 TERMINAL_BACKEND=docker
-TERMINAL_DOCKER_IMAGE=hermes-sandbox:latest
+TERMINAL_DOCKER_IMAGE=daclaw-sandbox:latest
 ```
 
 ### Avoid Windows Encoding Pitfalls

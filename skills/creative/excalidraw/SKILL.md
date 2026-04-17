@@ -6,7 +6,7 @@ author: DAClaw Agent
 license: MIT
 dependencies: []
 metadata:
-  hermes:
+  daclaw:
     tags: [Excalidraw, Diagrams, Flowcharts, Architecture, Visualization, JSON]
     related_skills: []
 

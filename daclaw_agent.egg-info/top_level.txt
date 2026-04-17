@@ -3,12 +3,12 @@ agent
 batch_runner
 cli
 cron
+daclaw_cli
+daclaw_constants
+daclaw_logging
+daclaw_state
+daclaw_time
 gateway
-hermes_cli
-hermes_constants
-hermes_logging
-hermes_state
-hermes_time
 model_tools
 plugins
 rl_cli

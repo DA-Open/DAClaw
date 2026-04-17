@@ -93,14 +93,14 @@ _oauth_port: int | None = None
 def _get_token_dir() -> Path:
     """Return the directory for MCP OAuth token files.
 
-    Uses HERMES_HOME so each profile gets its own OAuth tokens.
-    Layout: ``HERMES_HOME/mcp-tokens/``
+    Uses DACLAW_HOME so each profile gets its own OAuth tokens.
+    Layout: ``DACLAW_HOME/mcp-tokens/``
     """
     try:
-        from hermes_constants import get_hermes_home
-        base = Path(get_hermes_home())
+        from daclaw_constants import get_daclaw_home
+        base = Path(get_daclaw_home())
     except ImportError:
-        base = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
+        base = Path(os.environ.get("DACLAW_HOME", str(Path.home() / ".daclaw")))
     return base / "mcp-tokens"
 
 
@@ -177,8 +177,8 @@ class DAClawTokenStorage:
 
     File layout::
 
-        HERMES_HOME/mcp-tokens/<server_name>.json         -- tokens
-        HERMES_HOME/mcp-tokens/<server_name>.client.json   -- client info
+        DACLAW_HOME/mcp-tokens/<server_name>.json         -- tokens
+        DACLAW_HOME/mcp-tokens/<server_name>.client.json   -- client info
     """
 
     def __init__(self, server_name: str):
