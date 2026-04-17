@@ -529,7 +529,7 @@ def _find_all_skills(*, skip_disabled: bool = False) -> List[Dict[str, Any]]:
 
     Args:
         skip_disabled: If True, return ALL skills regardless of disabled
-            state (used by ``hermes skills`` config UI). Default False
+            state (used by ``daclaw skills`` config UI). Default False
             filters out disabled skills.
 
     Returns:
@@ -729,7 +729,7 @@ def _serve_plugin_skill(
                 "success": False,
                 "error": (
                     f"Plugin '{namespace}' is disabled. "
-                    f"Re-enable with: hermes plugins enable {namespace}"
+                    f"Re-enable with: daclaw plugins enable {namespace}"
                 ),
             },
             ensure_ascii=False,
@@ -1003,7 +1003,7 @@ def skill_view(name: str, file_path: str = None, task_id: str = None) -> str:
                     "success": False,
                     "error": (
                         f"Skill '{resolved_name}' is disabled. "
-                        "Enable it with `hermes skills` or inspect the files directly on disk."
+                        "Enable it with `daclaw skills` or inspect the files directly on disk."
                     ),
                 },
                 ensure_ascii=False,
@@ -1163,7 +1163,7 @@ def skill_view(name: str, file_path: str = None, task_id: str = None) -> str:
         hermes_meta = {}
         metadata = frontmatter.get("metadata")
         if isinstance(metadata, dict):
-            hermes_meta = metadata.get("hermes", {}) or {}
+            hermes_meta = metadata.get("daclaw", {}) or {}
 
         tags = _parse_tags(hermes_meta.get("tags") or frontmatter.get("tags", ""))
         related_skills = _parse_tags(

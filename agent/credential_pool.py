@@ -461,7 +461,7 @@ class CredentialPool:
         """Sync an openai-codex pool entry from ~/.codex/auth.json if tokens differ.
 
         OpenAI OAuth refresh tokens are single-use and rotate on every refresh.
-        When the Codex CLI (or another Hermes profile) refreshes its token,
+        When the Codex CLI (or another DAClaw profile) refreshes its token,
         the pool entry's refresh_token becomes stale.  This method detects that
         by comparing against ~/.codex/auth.json and syncing the fresh pair.
         """
@@ -586,7 +586,7 @@ class CredentialPool:
                         logger.debug("Failed to write refreshed token to credentials file: %s", wexc)
             elif self.provider == "openai-codex":
                 # Proactively sync from ~/.codex/auth.json before refresh.
-                # The Codex CLI (or another Hermes profile) may have already
+                # The Codex CLI (or another DAClaw profile) may have already
                 # consumed our refresh_token.  Syncing first avoids a
                 # "refresh_token_reused" error when the CLI has a newer pair.
                 synced = self._sync_codex_entry_from_cli(entry)
@@ -783,7 +783,7 @@ class CredentialPool:
         for entry in self._entries:
             # For anthropic claude_code entries, sync from the credentials file
             # before any status/refresh checks. This picks up tokens refreshed
-            # by other processes (Claude Code CLI, other Hermes profiles).
+            # by other processes (Claude Code CLI, other DAClaw profiles).
             if (self.provider == "anthropic" and entry.source == "claude_code"
                     and entry.last_status == STATUS_EXHAUSTED):
                 synced = self._sync_anthropic_entry_from_credentials_file(entry)
@@ -792,7 +792,7 @@ class CredentialPool:
                     cleared_any = True
             # For openai-codex entries, sync from ~/.codex/auth.json before
             # any status/refresh checks.  This picks up tokens refreshed by
-            # the Codex CLI or another Hermes profile.
+            # the Codex CLI or another DAClaw profile.
             if (self.provider == "openai-codex"
                     and entry.last_status == STATUS_EXHAUSTED
                     and entry.refresh_token):
@@ -1086,7 +1086,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     auth_store = _load_auth_store()
 
     if provider == "anthropic":
-        # Only auto-discover external credentials (Claude Code, Hermes PKCE)
+        # Only auto-discover external credentials (Claude Code, DAClaw PKCE)
         # when the user has explicitly configured anthropic as their provider.
         # Without this gate, auxiliary client fallback chains silently read
         # ~/.claude/.credentials.json without user consent.  See PR #4210.
@@ -1181,7 +1181,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     elif provider == "qwen-oauth":
         # Qwen OAuth tokens live in ~/.qwen/oauth_creds.json, written by
         # the Qwen CLI (`qwen auth qwen-oauth`).  They aren't in the
-        # Hermes auth store or env vars, so resolve them here.
+        # DAClaw auth store or env vars, so resolve them here.
         # Use refresh_if_expiring=False to avoid network calls during
         # pool loading / provider discovery.
         try:
@@ -1210,7 +1210,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     elif provider == "openai-codex":
         state = _load_provider_state(auth_store, "openai-codex")
         tokens = state.get("tokens") if isinstance(state, dict) else None
-        # Fallback: import from Codex CLI (~/.codex/auth.json) if Hermes auth
+        # Fallback: import from Codex CLI (~/.codex/auth.json) if DAClaw auth
         # store has no tokens.  This mirrors resolve_codex_runtime_credentials()
         # so that load_pool() and list_authenticated_providers() detect tokens
         # that only exist in the Codex CLI shared file.
@@ -1219,7 +1219,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
                 from hermes_cli.auth import _import_codex_cli_tokens, _save_codex_tokens
                 cli_tokens = _import_codex_cli_tokens()
                 if cli_tokens:
-                    logger.info("Importing Codex CLI tokens into Hermes auth store.")
+                    logger.info("Importing Codex CLI tokens into DAClaw auth store.")
                     _save_codex_tokens(cli_tokens)
                     # Re-read state after import
                     auth_store = _load_auth_store()

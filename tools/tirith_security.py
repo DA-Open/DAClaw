@@ -106,7 +106,7 @@ _MARKER_TTL = 86400  # 24 hours
 
 
 def _get_hermes_home() -> str:
-    """Return the Hermes home directory, respecting HERMES_HOME env var."""
+    """Return the DAClaw home directory, respecting HERMES_HOME env var."""
     return str(get_hermes_home())
 
 

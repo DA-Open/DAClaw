@@ -1,7 +1,7 @@
-"""``hermes debug`` — debug tools for Hermes Agent.
+"""``daclaw debug`` — debug tools for DAClaw Agent.
 
 Currently supports:
-    hermes debug share    Upload debug report (system info + logs) to a
+    daclaw debug share    Upload debug report (system info + logs) to a
                           paste service and print a shareable URL.
 """
 
@@ -37,7 +37,7 @@ _AUTO_DELETE_SECONDS = 3600
 
 _PRIVACY_NOTICE = """\
 ⚠️  This will upload the following to a public paste service:
-  • System info (OS, Python version, Hermes version, provider, which API keys
+  • System info (OS, Python version, DAClaw version, provider, which API keys
     are configured — NOT the actual keys)
   • Recent log lines (agent.log, errors.log, gateway.log — may contain
     conversation fragments and file paths)
@@ -50,7 +50,7 @@ Pastes auto-delete after 1 hour.
 _GATEWAY_PRIVACY_NOTICE = (
     "⚠️ **Privacy notice:** This uploads system info + recent log tails "
     "(may contain conversation fragments) to a public paste service. "
-    "Full logs are NOT included from the gateway — use `hermes debug share` "
+    "Full logs are NOT included from the gateway — use `daclaw debug share` "
     "from the CLI for full log uploads.\n"
     "Pastes auto-delete after 1 hour."
 )
@@ -83,7 +83,7 @@ def delete_paste(url: str) -> bool:
     target = f"{_PASTE_RS_URL}{paste_id}"
     req = urllib.request.Request(
         target, method="DELETE",
-        headers={"User-Agent": "hermes-agent/debug-share"},
+        headers={"User-Agent": "daclaw-agent/debug-share"},
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
         return 200 <= resp.status < 300
@@ -108,7 +108,7 @@ def _schedule_auto_delete(urls: list[str], delay_seconds: int = _AUTO_DELETE_SEC
         "import time, urllib.request; "
         f"time.sleep({delay_seconds}); "
         f"[urllib.request.urlopen(urllib.request.Request(u, method='DELETE', "
-        f"headers={{'User-Agent': 'hermes-agent/auto-delete'}}), timeout=15) "
+        f"headers={{'User-Agent': 'daclaw-agent/auto-delete'}}), timeout=15) "
         f"for u in [{url_list}]]"
     )
 
@@ -127,7 +127,7 @@ def _delete_hint(url: str) -> str:
     """Return a one-liner delete command for the given paste URL."""
     paste_id = _extract_paste_id(url)
     if paste_id:
-        return f"hermes debug delete {url}"
+        return f"daclaw debug delete {url}"
     # dpaste.com — no API delete, expires on its own.
     return "(auto-expires per dpaste.com policy)"
 
@@ -142,7 +142,7 @@ def _upload_paste_rs(content: str) -> str:
         _PASTE_RS_URL, data=data, method="POST",
         headers={
             "Content-Type": "text/plain; charset=utf-8",
-            "User-Agent": "hermes-agent/debug-share",
+            "User-Agent": "daclaw-agent/debug-share",
         },
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -157,7 +157,7 @@ def _upload_dpaste_com(content: str, expiry_days: int = 7) -> str:
 
     dpaste.com uses multipart form data.
     """
-    boundary = "----HermesDebugBoundary9f3c"
+    boundary = "----DAClawDebugBoundary9f3c"
 
     def _field(name: str, value: str) -> str:
         return (
@@ -178,7 +178,7 @@ def _upload_dpaste_com(content: str, expiry_days: int = 7) -> str:
         _DPASTE_COM_URL, data=body, method="POST",
         headers={
             "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "User-Agent": "hermes-agent/debug-share",
+            "User-Agent": "daclaw-agent/debug-share",
         },
     )
     with urllib.request.urlopen(req, timeout=30) as resp:
@@ -289,7 +289,7 @@ def _read_full_log(log_name: str, max_bytes: int = _MAX_LOG_BYTES) -> Optional[s
 # ---------------------------------------------------------------------------
 
 def _capture_dump() -> str:
-    """Run ``hermes dump`` and return its stdout as a string."""
+    """Run ``daclaw dump`` and return its stdout as a string."""
     from hermes_cli.dump import run_dump
 
     class _FakeArgs:
@@ -315,7 +315,7 @@ def collect_debug_report(*, log_lines: int = 200, dump_text: str = "") -> str:
     log_lines
         Number of recent lines to include per log file.
     dump_text
-        Pre-captured dump output.  If empty, ``hermes dump`` is run
+        Pre-captured dump output.  If empty, ``daclaw dump`` is run
         internally.
 
     Returns the report as a plain-text string ready for upload.
@@ -427,17 +427,17 @@ def run_debug_share(args):
     print(f"\n⏱  Pastes will auto-delete in 1 hour.")
 
     # Manual delete fallback
-    print(f"To delete now:  hermes debug delete <url>")
+    print(f"To delete now:  daclaw debug delete <url>")
 
-    print(f"\nShare these links with the Hermes team for support.")
+    print(f"\nShare these links with the DAClaw team for support.")
 
 
 def run_debug_delete(args):
     """Delete one or more paste URLs uploaded by /debug."""
     urls = getattr(args, "urls", [])
     if not urls:
-        print("Usage: hermes debug delete <url> [<url> ...]")
-        print("  Deletes paste.rs pastes uploaded by 'hermes debug share'.")
+        print("Usage: daclaw debug delete <url> [<url> ...]")
+        print("  Deletes paste.rs pastes uploaded by 'daclaw debug share'.")
         return
 
     for url in urls:
@@ -462,7 +462,7 @@ def run_debug(args):
         run_debug_delete(args)
     else:
         # Default: show help
-        print("Usage: hermes debug <command>")
+        print("Usage: daclaw debug <command>")
         print()
         print("Commands:")
         print("  share    Upload debug report to a paste service and print URL")

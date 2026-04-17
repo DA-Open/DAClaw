@@ -168,7 +168,7 @@ class TestClient:
         c = self._make_client()
         with patch.object(c, "request") as mock_req:
             mock_req.return_value = {"memory_count": 3}
-            c.get_agent_model("hermes")
+            c.get_agent_model("daclaw")
             mock_req.assert_called_once_with(
                 "GET", "/v1/memory/agent/hermes/model",
                 params={"project": "test"}, timeout=4.0

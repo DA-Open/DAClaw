@@ -1,6 +1,6 @@
 """Tests for /update live streaming, prompt forwarding, and gateway IPC.
 
-Tests the new --gateway mode for hermes update, including:
+Tests the new --gateway mode for daclaw update, including:
 - _gateway_prompt() file-based IPC
 - _watch_update_progress() output streaming and prompt detection
 - Message interception for update prompt responses
@@ -200,7 +200,7 @@ class TestRestoreStashWithInputFn:
 
 
 class TestUpdateCommandGatewayFlag:
-    """Verify the gateway spawns hermes update --gateway."""
+    """Verify the gateway spawns daclaw update --gateway."""
 
     @pytest.mark.asyncio
     async def test_spawns_with_gateway_flag(self, tmp_path):
@@ -214,7 +214,7 @@ class TestUpdateCommandGatewayFlag:
         (fake_root / "gateway").mkdir()
         (fake_root / "gateway" / "run.py").touch()
         fake_file = str(fake_root / "gateway" / "run.py")
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         mock_popen = MagicMock()
@@ -244,7 +244,7 @@ class TestWatchUpdateProgress:
     async def test_streams_output_to_adapter(self, tmp_path):
         """New output is sent to the adapter periodically."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
@@ -282,7 +282,7 @@ class TestWatchUpdateProgress:
     async def test_detects_and_forwards_prompt(self, tmp_path):
         """Detects .update_prompt.json and sends it to the user."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
@@ -325,7 +325,7 @@ class TestWatchUpdateProgress:
     async def test_cleans_up_on_completion(self, tmp_path):
         """All marker files are cleaned up when update finishes."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
@@ -355,7 +355,7 @@ class TestWatchUpdateProgress:
     async def test_failure_exit_code(self, tmp_path):
         """Non-zero exit code sends failure message."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
@@ -381,7 +381,7 @@ class TestWatchUpdateProgress:
     async def test_falls_back_when_adapter_unavailable(self, tmp_path):
         """Falls back to legacy notification when adapter can't be resolved."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         # Platform doesn't match any adapter
@@ -411,7 +411,7 @@ class TestWatchUpdateProgress:
         forwarding, causing the same prompt to be sent every poll_interval.
         """
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         pending = {"platform": "telegram", "chat_id": "111", "user_id": "222",
@@ -466,7 +466,7 @@ class TestUpdatePromptInterception:
     async def test_intercepts_response_when_prompt_pending(self, tmp_path):
         """When _update_prompt_pending is set, the next message writes .update_response."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         event = _make_event(text="y", chat_id="67890")
@@ -493,7 +493,7 @@ class TestUpdatePromptInterception:
     async def test_normal_message_when_no_prompt_pending(self, tmp_path):
         """Messages pass through normally when no prompt is pending."""
         runner = _make_runner()
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
 
         event = _make_event(text="hello", chat_id="67890")

@@ -17,8 +17,8 @@ from hermes_cli.completion import _walk, generate_bash, generate_zsh, generate_f
 # ---------------------------------------------------------------------------
 
 def _make_parser() -> argparse.ArgumentParser:
-    """Build a minimal parser that mirrors the real hermes structure."""
-    p = argparse.ArgumentParser(prog="hermes")
+    """Build a minimal parser that mirrors the real daclaw structure."""
+    p = argparse.ArgumentParser(prog="daclaw")
     p.add_argument("--version", "-V", action="store_true")
     p.add_argument("-p", "--profile", help="Profile name")
     sub = p.add_subparsers(dest="command")
@@ -148,7 +148,7 @@ class TestGenerateZsh:
 class TestGenerateFish:
     def test_disables_file_completion(self):
         out = generate_fish(_make_parser())
-        assert "complete -c hermes -f" in out
+        assert "complete -c daclaw -f" in out
 
     def test_top_level_commands_present(self):
         out = generate_fish(_make_parser())
@@ -224,7 +224,7 @@ class TestProfileCompletion:
         assert "use|delete|show|alias|rename|export)" in out
 
     def test_bash_profile_actions_complete_profile_names(self):
-        """After 'hermes profile use', complete with profile names."""
+        """After 'daclaw profile use', complete with profile names."""
         out = generate_bash(_make_parser())
         # The profile case should have _hermes_profiles for name-taking actions
         lines = out.split("\n")

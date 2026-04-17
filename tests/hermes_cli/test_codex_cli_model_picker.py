@@ -1,12 +1,12 @@
 """Regression test: openai-codex must appear in /model picker when
 credentials are only in the Codex CLI shared file (~/.codex/auth.json)
-and haven't been migrated to the Hermes auth store yet.
+and haven't been migrated to the DAClaw auth store yet.
 
-Root cause: list_authenticated_providers() checked the raw Hermes auth
+Root cause: list_authenticated_providers() checked the raw DAClaw auth
 store but didn't know about the Codex CLI fallback import path.
 
 Fix: _seed_from_singletons() now imports from the Codex CLI when the
-Hermes auth store has no openai-codex tokens, and
+DAClaw auth store has no openai-codex tokens, and
 list_authenticated_providers() falls back to load_pool() for OAuth
 providers.
 """
@@ -34,7 +34,7 @@ def _make_fake_jwt(expiry_offset: int = 3600) -> str:
 @pytest.fixture()
 def codex_cli_only_env(tmp_path, monkeypatch):
     """Set up an environment where Codex tokens exist only in ~/.codex/auth.json,
-    NOT in the Hermes auth store."""
+    NOT in the DAClaw auth store."""
     hermes_home = tmp_path / ".hermes"
     hermes_home.mkdir()
     codex_home = tmp_path / ".codex"
@@ -43,7 +43,7 @@ def codex_cli_only_env(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
 
-    # Empty Hermes auth store
+    # Empty DAClaw auth store
     (hermes_home / "auth.json").write_text(
         json.dumps({"version": 2, "providers": {}})
     )
@@ -90,18 +90,18 @@ def test_codex_cli_tokens_detected_by_model_picker(codex_cli_only_env):
 
 def test_codex_cli_tokens_migrated_after_detection(codex_cli_only_env):
     """After the /model picker detects Codex CLI tokens, they should be
-    migrated into the Hermes auth store for subsequent fast lookups."""
+    migrated into the DAClaw auth store for subsequent fast lookups."""
     from hermes_cli.model_switch import list_authenticated_providers
 
     # First call triggers migration
     list_authenticated_providers(current_provider="openai-codex")
 
-    # Verify tokens are now in Hermes auth store
+    # Verify tokens are now in DAClaw auth store
     auth_path = codex_cli_only_env / "auth.json"
     store = json.loads(auth_path.read_text())
     providers = store.get("providers", {})
     assert "openai-codex" in providers, (
-        f"openai-codex not migrated to Hermes auth store: {list(providers.keys())}"
+        f"openai-codex not migrated to DAClaw auth store: {list(providers.keys())}"
     )
     tokens = providers["openai-codex"].get("tokens", {})
     assert tokens.get("access_token"), "access_token missing after migration"
@@ -110,7 +110,7 @@ def test_codex_cli_tokens_migrated_after_detection(codex_cli_only_env):
 
 @pytest.fixture()
 def hermes_auth_only_env(tmp_path, monkeypatch):
-    """Tokens already in Hermes auth store (no Codex CLI needed)."""
+    """Tokens already in DAClaw auth store (no Codex CLI needed)."""
     hermes_home = tmp_path / ".hermes"
     hermes_home.mkdir()
 
@@ -141,7 +141,7 @@ def hermes_auth_only_env(tmp_path, monkeypatch):
 
 
 def test_normal_path_still_works(hermes_auth_only_env):
-    """openai-codex appears when tokens are already in Hermes auth store."""
+    """openai-codex appears when tokens are already in DAClaw auth store."""
     from hermes_cli.model_switch import list_authenticated_providers
 
     providers = list_authenticated_providers(
@@ -155,7 +155,7 @@ def test_normal_path_still_works(hermes_auth_only_env):
 @pytest.fixture()
 def claude_code_only_env(tmp_path, monkeypatch):
     """Set up an environment where Anthropic credentials only exist in
-    ~/.claude/.credentials.json (Claude Code) — not in env vars or Hermes
+    ~/.claude/.credentials.json (Claude Code) — not in env vars or DAClaw
     auth store."""
     hermes_home = tmp_path / ".hermes"
     hermes_home.mkdir()

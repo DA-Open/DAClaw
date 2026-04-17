@@ -1,20 +1,20 @@
-# Migrating from OpenClaw to Hermes Agent
+# Migrating from OpenClaw to DAClaw Agent
 
-This guide covers how to import your OpenClaw settings, memories, skills, and API keys into Hermes Agent.
+This guide covers how to import your OpenClaw settings, memories, skills, and API keys into DAClaw Agent.
 
 ## Three Ways to Migrate
 
 ### 1. Automatic (during first-time setup)
 
-When you run `hermes setup` for the first time and Hermes detects `~/.openclaw`, it automatically offers to import your OpenClaw data before configuration begins. Just accept the prompt and everything is handled for you.
+When you run `daclaw setup` for the first time and DAClaw detects `~/.openclaw`, it automatically offers to import your OpenClaw data before configuration begins. Just accept the prompt and everything is handled for you.
 
 ### 2. CLI Command (quick, scriptable)
 
 ```bash
-hermes claw migrate                      # Preview then migrate (always shows preview first)
-hermes claw migrate --dry-run            # Preview only, no changes
-hermes claw migrate --preset user-data   # Migrate without API keys/secrets
-hermes claw migrate --yes                # Skip confirmation prompt
+daclaw claw migrate                      # Preview then migrate (always shows preview first)
+daclaw claw migrate --dry-run            # Preview only, no changes
+daclaw claw migrate --preset user-data   # Migrate without API keys/secrets
+daclaw claw migrate --yes                # Skip confirmation prompt
 ```
 
 The migration always shows a full preview of what will be imported before making any changes. You review the preview and confirm before anything is written.
@@ -37,7 +37,7 @@ The migration always shows a full preview of what will be imported before making
 Ask the agent to run the migration for you:
 
 ```
-> Migrate my OpenClaw setup to Hermes
+> Migrate my OpenClaw setup to DAClaw
 ```
 
 The agent will use the `openclaw-migration` skill to:
@@ -80,7 +80,7 @@ Only allowlisted secrets are ever imported. Other credentials are skipped and re
 The migration handles both old and current OpenClaw config layouts:
 
 - **Channel tokens**: Reads from flat paths (`channels.telegram.botToken`) and the newer `accounts.default` layout (`channels.telegram.accounts.default.botToken`)
-- **TTS provider**: OpenClaw renamed "edge" to "microsoft" — both are recognized and mapped to Hermes' "edge"
+- **TTS provider**: OpenClaw renamed "edge" to "microsoft" — both are recognized and mapped to DAClaw' "edge"
 - **Provider API types**: Both short (`openai`, `anthropic`) and hyphenated (`openai-completions`, `anthropic-messages`, `google-generative-ai`) values are mapped correctly
 - **thinkingDefault**: All enum values are handled including newer ones (`minimal`, `xhigh`, `adaptive`)
 - **Matrix**: Uses `accessToken` field (not `botToken`)
@@ -88,7 +88,7 @@ The migration handles both old and current OpenClaw config layouts:
 
 ## Conflict Handling
 
-By default, the migration **will not overwrite** existing Hermes data:
+By default, the migration **will not overwrite** existing DAClaw data:
 
 - **SOUL.md** — skipped if one already exists in `~/.hermes/`
 - **Memory entries** — skipped if memories already exist (to avoid duplicates)
@@ -112,25 +112,25 @@ For executed migrations, the full report is saved to `~/.hermes/migration/opencl
 ## Post-Migration Notes
 
 - **Skills require a new session** — imported skills take effect after restarting your agent or starting a new chat.
-- **WhatsApp requires re-pairing** — WhatsApp uses QR-code pairing, not token-based auth. Run `hermes whatsapp` to pair.
-- **Archive cleanup** — after migration, you'll be offered to rename `~/.openclaw/` to `.openclaw.pre-migration/` to prevent state confusion. You can also run `hermes claw cleanup` later.
+- **WhatsApp requires re-pairing** — WhatsApp uses QR-code pairing, not token-based auth. Run `daclaw whatsapp` to pair.
+- **Archive cleanup** — after migration, you'll be offered to rename `~/.openclaw/` to `.openclaw.pre-migration/` to prevent state confusion. You can also run `daclaw claw cleanup` later.
 
 ## Troubleshooting
 
 ### "OpenClaw directory not found"
 The migration looks for `~/.openclaw` by default, then tries `~/.clawdbot` and `~/.moltbot`. If your OpenClaw is installed elsewhere, use `--source`:
 ```bash
-hermes claw migrate --source /path/to/.openclaw
+daclaw claw migrate --source /path/to/.openclaw
 ```
 
 ### "Migration script not found"
-The migration script ships with Hermes Agent. If you installed via pip (not git clone), the `optional-skills/` directory may not be present. Install the skill from the Skills Hub:
+The migration script ships with DAClaw Agent. If you installed via pip (not git clone), the `optional-skills/` directory may not be present. Install the skill from the Skills Hub:
 ```bash
-hermes skills install openclaw-migration
+daclaw skills install openclaw-migration
 ```
 
 ### Memory overflow
-If your OpenClaw MEMORY.md or USER.md exceeds Hermes' character limits, excess entries are exported to an overflow file in the migration report directory. You can manually review and add the most important ones.
+If your OpenClaw MEMORY.md or USER.md exceeds DAClaw' character limits, excess entries are exported to an overflow file in the migration report directory. You can manually review and add the most important ones.
 
 ### API keys not found
 Keys might be stored in different places depending on your OpenClaw setup:
@@ -139,4 +139,4 @@ Keys might be stored in different places depending on your OpenClaw setup:
 - In `openclaw.json` under the `"env"` or `"env.vars"` sub-objects
 - In `~/.openclaw/agents/main/agent/auth-profiles.json`
 
-The migration checks all four. If keys use `source: "file"` or `source: "exec"` SecretRefs, they can't be resolved automatically — add them via `hermes config set`.
+The migration checks all four. If keys use `source: "file"` or `source: "exec"` SecretRefs, they can't be resolved automatically — add them via `daclaw config set`.

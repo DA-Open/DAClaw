@@ -133,7 +133,7 @@ curl -s -X PATCH "https://api.notion.com/v1/blocks/{page_id}/children" \
   -H "Content-Type: application/json" \
   -d '{
     "children": [
-      {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"text": {"content": "Hello from Hermes!"}}]}}
+      {"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"text": {"content": "Hello from DAClaw!"}}]}}
     ]
   }'
 ```
@@ -167,5 +167,5 @@ Common property formats for database items:
 - Rate limit: ~3 requests/second average
 - The API cannot set database view filters — that's UI-only
 - Use `is_inline: true` when creating data sources to embed them in pages
-- Add `-s` flag to curl to suppress progress bars (cleaner output for Hermes)
+- Add `-s` flag to curl to suppress progress bars (cleaner output for DAClaw)
 - Pipe output through `jq` for readable JSON: `... | jq '.results[0].properties'`

@@ -1,4 +1,4 @@
-"""Tests for the Hermes plugin system (hermes_cli.plugins)."""
+"""Tests for the DAClaw plugin system (hermes_cli.plugins)."""
 
 import logging
 import os

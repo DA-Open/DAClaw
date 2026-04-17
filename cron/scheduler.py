@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 # Add parent directory to path for imports BEFORE repo-level imports.
-# Without this, standalone invocations (e.g. after `hermes update` reloads
+# Without this, standalone invocations (e.g. after `daclaw update` reloads
 # the module) fail with ModuleNotFoundError for hermes_time et al.
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -56,7 +56,7 @@ from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_
 # locally for audit.
 SILENT_MARKER = "[SILENT]"
 
-# Resolve Hermes home directory (respects HERMES_HOME override)
+# Resolve DAClaw home directory (respects HERMES_HOME override)
 _hermes_home = get_hermes_home()
 
 # File-based lock prevents concurrent ticks from gateway + daemon + systemd timer

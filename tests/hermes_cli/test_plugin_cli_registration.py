@@ -202,7 +202,7 @@ class TestHonchoRegisterCli:
         assert args.honcho_command == "status"
 
     def test_setup_redirects_to_memory_setup(self):
-        """hermes honcho setup redirects to memory setup."""
+        """daclaw honcho setup redirects to memory setup."""
         from plugins.memory.honcho.cli import register_cli
 
         parser = argparse.ArgumentParser()

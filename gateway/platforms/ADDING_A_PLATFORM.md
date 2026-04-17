@@ -1,6 +1,6 @@
 # Adding a New Messaging Platform
 
-Checklist for integrating a new messaging platform into the Hermes gateway.
+Checklist for integrating a new messaging platform into the DAClaw gateway.
 Use this as a reference when building a new adapter — every item here is a
 real integration point that exists in the codebase. Missing any of them will
 cause broken functionality, missing features, or inconsistent behavior.

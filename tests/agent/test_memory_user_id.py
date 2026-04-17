@@ -145,7 +145,7 @@ class TestMem0UserIdScoping:
         with patch("plugins.memory.mem0._load_config", return_value={
             "api_key": "test-key",
             "user_id": "hermes-user",
-            "agent_id": "hermes",
+            "agent_id": "daclaw",
             "rerank": True,
         }):
             provider.initialize(session_id="test-sess", user_id="tg_user_99")
@@ -160,7 +160,7 @@ class TestMem0UserIdScoping:
         with patch("plugins.memory.mem0._load_config", return_value={
             "api_key": "test-key",
             "user_id": "custom-default",
-            "agent_id": "hermes",
+            "agent_id": "daclaw",
             "rerank": True,
         }):
             provider.initialize(session_id="test-sess")
@@ -174,7 +174,7 @@ class TestMem0UserIdScoping:
         provider = Mem0MemoryProvider()
         with patch("plugins.memory.mem0._load_config", return_value={
             "api_key": "test-key",
-            "agent_id": "hermes",
+            "agent_id": "daclaw",
             "rerank": True,
         }):
             provider.initialize(session_id="test-sess")
@@ -191,7 +191,7 @@ class TestMem0UserIdScoping:
         with patch("plugins.memory.mem0._load_config", return_value={
             "api_key": "test-key",
             "user_id": "hermes-user",
-            "agent_id": "hermes",
+            "agent_id": "daclaw",
             "rerank": True,
         }):
             p1.initialize(session_id="sess-1", user_id="alice_123")

@@ -7,19 +7,19 @@ INSTALL_DIR="/opt/hermes"
 
 # --- Privilege dropping via gosu ---
 # When started as root (the default for Docker, or fakeroot in rootless Podman),
-# optionally remap the hermes user/group to match host-side ownership, fix volume
+# optionally remap the daclaw user/group to match host-side ownership, fix volume
 # permissions, then re-exec as hermes.
 if [ "$(id -u)" = "0" ]; then
     if [ -n "$HERMES_UID" ] && [ "$HERMES_UID" != "$(id -u hermes)" ]; then
-        echo "Changing hermes UID to $HERMES_UID"
-        usermod -u "$HERMES_UID" hermes
+        echo "Changing daclaw UID to $HERMES_UID"
+        usermod -u "$HERMES_UID" daclaw
     fi
 
     if [ -n "$HERMES_GID" ] && [ "$HERMES_GID" != "$(id -g hermes)" ]; then
-        echo "Changing hermes GID to $HERMES_GID"
+        echo "Changing daclaw GID to $HERMES_GID"
         # -o allows non-unique GID (e.g. macOS GID 20 "staff" may already exist
         # as "dialout" in the Debian-based container image)
-        groupmod -o -g "$HERMES_GID" hermes 2>/dev/null || true
+        groupmod -o -g "$HERMES_GID" daclaw 2>/dev/null || true
     fi
 
     actual_hermes_uid=$(id -u hermes)
@@ -28,15 +28,15 @@ if [ "$(id -u)" = "0" ]; then
         # In rootless Podman the container's "root" is mapped to an unprivileged
         # host UID — chown will fail.  That's fine: the volume is already owned
         # by the mapped user on the host side.
-        chown -R hermes:hermes "$HERMES_HOME" 2>/dev/null || \
+        chown -R hermes:daclaw "$HERMES_HOME" 2>/dev/null || \
             echo "Warning: chown failed (rootless container?) — continuing anyway"
     fi
 
     echo "Dropping root privileges"
-    exec gosu hermes "$0" "$@"
+    exec gosu daclaw "$0" "$@"
 fi
 
-# --- Running as hermes from here ---
+# --- Running as daclaw from here ---
 source "${INSTALL_DIR}/.venv/bin/activate"
 
 # Create essential directory structure.  Cache and platform directories
@@ -68,4 +68,4 @@ if [ -d "$INSTALL_DIR/skills" ]; then
     python3 "$INSTALL_DIR/tools/skills_sync.py"
 fi
 
-exec hermes "$@"
+exec daclaw "$@"

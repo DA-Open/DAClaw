@@ -4,15 +4,15 @@ sidebar_position: 7
 
 # Profile Commands Reference
 
-This page covers all commands related to [Hermes profiles](../user-guide/profiles.md). For general CLI commands, see [CLI Commands Reference](./cli-commands.md).
+This page covers all commands related to [DAClaw profiles](../user-guide/profiles.md). For general CLI commands, see [CLI Commands Reference](./cli-commands.md).
 
-## `hermes profile`
+## `daclaw profile`
 
 ```bash
-hermes profile <subcommand>
+daclaw profile <subcommand>
 ```
 
-Top-level command for managing profiles. Running `hermes profile` without a subcommand shows help.
+Top-level command for managing profiles. Running `daclaw profile` without a subcommand shows help.
 
 | Subcommand | Description |
 |------------|-------------|
@@ -26,10 +26,10 @@ Top-level command for managing profiles. Running `hermes profile` without a subc
 | `export` | Export a profile to a tar.gz archive. |
 | `import` | Import a profile from a tar.gz archive. |
 
-## `hermes profile list`
+## `daclaw profile list`
 
 ```bash
-hermes profile list
+daclaw profile list
 ```
 
 Lists all profiles. The currently active profile is marked with `*`.
@@ -37,7 +37,7 @@ Lists all profiles. The currently active profile is marked with `*`.
 **Example:**
 
 ```bash
-$ hermes profile list
+$ daclaw profile list
   default
 * work
   dev
@@ -46,13 +46,13 @@ $ hermes profile list
 
 No options.
 
-## `hermes profile use`
+## `daclaw profile use`
 
 ```bash
-hermes profile use <name>
+daclaw profile use <name>
 ```
 
-Sets `<name>` as the active profile. All subsequent `hermes` commands (without `-p`) will use this profile.
+Sets `<name>` as the active profile. All subsequent `daclaw` commands (without `-p`) will use this profile.
 
 | Argument | Description |
 |----------|-------------|
@@ -61,14 +61,14 @@ Sets `<name>` as the active profile. All subsequent `hermes` commands (without `
 **Example:**
 
 ```bash
-hermes profile use work
-hermes profile use default
+daclaw profile use work
+daclaw profile use default
 ```
 
-## `hermes profile create`
+## `daclaw profile create`
 
 ```bash
-hermes profile create <name> [options]
+daclaw profile create <name> [options]
 ```
 
 Creates a new profile.
@@ -85,22 +85,22 @@ Creates a new profile.
 
 ```bash
 # Blank profile — needs full setup
-hermes profile create mybot
+daclaw profile create mybot
 
 # Clone config only from current profile
-hermes profile create work --clone
+daclaw profile create work --clone
 
 # Clone everything from current profile
-hermes profile create backup --clone-all
+daclaw profile create backup --clone-all
 
 # Clone config from a specific profile
-hermes profile create work2 --clone --clone-from work
+daclaw profile create work2 --clone --clone-from work
 ```
 
-## `hermes profile delete`
+## `daclaw profile delete`
 
 ```bash
-hermes profile delete <name> [options]
+daclaw profile delete <name> [options]
 ```
 
 Deletes a profile and removes its shell alias.
@@ -113,18 +113,18 @@ Deletes a profile and removes its shell alias.
 **Example:**
 
 ```bash
-hermes profile delete mybot
-hermes profile delete mybot --yes
+daclaw profile delete mybot
+daclaw profile delete mybot --yes
 ```
 
 :::warning
 This permanently deletes the profile's entire directory including all config, memories, sessions, and skills. Cannot delete the currently active profile.
 :::
 
-## `hermes profile show`
+## `daclaw profile show`
 
 ```bash
-hermes profile show <name>
+daclaw profile show <name>
 ```
 
 Displays details about a profile including its home directory, configured model, gateway status, skills count, and configuration file status.
@@ -136,7 +136,7 @@ Displays details about a profile including its home directory, configured model,
 **Example:**
 
 ```bash
-$ hermes profile show work
+$ daclaw profile show work
 Profile: work
 Path:    ~/.hermes/profiles/work
 Model:   anthropic/claude-sonnet-4 (anthropic)
@@ -147,13 +147,13 @@ SOUL.md: exists
 Alias:   ~/.local/bin/work
 ```
 
-## `hermes profile alias`
+## `daclaw profile alias`
 
 ```bash
-hermes profile alias <name> [options]
+daclaw profile alias <name> [options]
 ```
 
-Regenerates the shell alias script at `~/.local/bin/<name>`. Useful if the alias was accidentally deleted or if you need to update it after moving your Hermes installation.
+Regenerates the shell alias script at `~/.local/bin/<name>`. Useful if the alias was accidentally deleted or if you need to update it after moving your DAClaw installation.
 
 | Argument / Option | Description |
 |-------------------|-------------|
@@ -164,20 +164,20 @@ Regenerates the shell alias script at `~/.local/bin/<name>`. Useful if the alias
 **Example:**
 
 ```bash
-hermes profile alias work
+daclaw profile alias work
 # Creates/updates ~/.local/bin/work
 
-hermes profile alias work --name mywork
+daclaw profile alias work --name mywork
 # Creates ~/.local/bin/mywork
 
-hermes profile alias work --remove
+daclaw profile alias work --remove
 # Removes the wrapper script
 ```
 
-## `hermes profile rename`
+## `daclaw profile rename`
 
 ```bash
-hermes profile rename <old-name> <new-name>
+daclaw profile rename <old-name> <new-name>
 ```
 
 Renames a profile. Updates the directory and shell alias.
@@ -190,15 +190,15 @@ Renames a profile. Updates the directory and shell alias.
 **Example:**
 
 ```bash
-hermes profile rename mybot assistant
+daclaw profile rename mybot assistant
 # ~/.hermes/profiles/mybot → ~/.hermes/profiles/assistant
 # ~/.local/bin/mybot → ~/.local/bin/assistant
 ```
 
-## `hermes profile export`
+## `daclaw profile export`
 
 ```bash
-hermes profile export <name> [options]
+daclaw profile export <name> [options]
 ```
 
 Exports a profile as a compressed tar.gz archive.
@@ -211,16 +211,16 @@ Exports a profile as a compressed tar.gz archive.
 **Example:**
 
 ```bash
-hermes profile export work
+daclaw profile export work
 # Creates work.tar.gz in the current directory
 
-hermes profile export work -o ./work-2026-03-29.tar.gz
+daclaw profile export work -o ./work-2026-03-29.tar.gz
 ```
 
-## `hermes profile import`
+## `daclaw profile import`
 
 ```bash
-hermes profile import <archive> [options]
+daclaw profile import <archive> [options]
 ```
 
 Imports a profile from a tar.gz archive.
@@ -233,20 +233,20 @@ Imports a profile from a tar.gz archive.
 **Example:**
 
 ```bash
-hermes profile import ./work-2026-03-29.tar.gz
+daclaw profile import ./work-2026-03-29.tar.gz
 # Infers profile name from the archive
 
-hermes profile import ./work-2026-03-29.tar.gz --name work-restored
+daclaw profile import ./work-2026-03-29.tar.gz --name work-restored
 ```
 
-## `hermes -p` / `hermes --profile`
+## `daclaw -p` / `daclaw --profile`
 
 ```bash
-hermes -p <name> <command> [options]
-hermes --profile <name> <command> [options]
+daclaw -p <name> <command> [options]
+daclaw --profile <name> <command> [options]
 ```
 
-Global flag to run any Hermes command under a specific profile without changing the sticky default. This overrides the active profile for the duration of the command.
+Global flag to run any DAClaw command under a specific profile without changing the sticky default. This overrides the active profile for the duration of the command.
 
 | Option | Description |
 |--------|-------------|
@@ -255,16 +255,16 @@ Global flag to run any Hermes command under a specific profile without changing 
 **Examples:**
 
 ```bash
-hermes -p work chat -q "Check the server status"
-hermes --profile dev gateway start
-hermes -p personal skills list
-hermes -p work config edit
+daclaw -p work chat -q "Check the server status"
+daclaw --profile dev gateway start
+daclaw -p personal skills list
+daclaw -p work config edit
 ```
 
-## `hermes completion`
+## `daclaw completion`
 
 ```bash
-hermes completion <shell>
+daclaw completion <shell>
 ```
 
 Generates shell completion scripts. Includes completions for profile names and profile subcommands.
@@ -277,17 +277,17 @@ Generates shell completion scripts. Includes completions for profile names and p
 
 ```bash
 # Install completions
-hermes completion bash >> ~/.bashrc
-hermes completion zsh >> ~/.zshrc
+daclaw completion bash >> ~/.bashrc
+daclaw completion zsh >> ~/.zshrc
 
 # Reload shell
 source ~/.bashrc
 ```
 
 After installation, tab completion works for:
-- `hermes profile <TAB>` — subcommands (list, use, create, etc.)
-- `hermes profile use <TAB>` — profile names
-- `hermes -p <TAB>` — profile names
+- `daclaw profile <TAB>` — subcommands (list, use, create, etc.)
+- `daclaw profile use <TAB>` — profile names
+- `daclaw -p <TAB>` — profile names
 
 ## See also
 

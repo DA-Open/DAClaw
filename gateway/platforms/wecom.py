@@ -1012,7 +1012,7 @@ class WeComAdapter(BasePlatformAdapter):
                 "GET",
                 url,
                 headers={
-                    "User-Agent": "HermesAgent/1.0",
+                    "User-Agent": "DAClawAgent/1.0",
                     "Accept": "*/*",
                 },
             ) as response:

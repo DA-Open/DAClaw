@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hermes-agent"
+name = "daclaw-agent"
 version = "0.9.0"
 description = "The self-improving AI agent — creates skills from experience, improves them during use, and runs anywhere"
 readme = "README.md"
@@ -69,12 +69,12 @@ termux = [
   # avoiding extras that currently depend on non-Android wheels (notably
   # faster-whisper -> ctranslate2 via the voice extra).
   "python-telegram-bot[webhooks]>=22.6,<23",
-  "hermes-agent[cron]",
-  "hermes-agent[cli]",
-  "hermes-agent[pty]",
-  "hermes-agent[mcp]",
-  "hermes-agent[honcho]",
-  "hermes-agent[acp]",
+  "daclaw-agent[cron]",
+  "daclaw-agent[cli]",
+  "daclaw-agent[pty]",
+  "daclaw-agent[mcp]",
+  "daclaw-agent[honcho]",
+  "daclaw-agent[acp]",
 ]
 dingtalk = ["dingtalk-stream>=0.1.0,<1"]
 feishu = ["lark-oapi>=1.5.3,<2"]
@@ -88,35 +88,36 @@ rl = [
 ]
 yc-bench = ["yc-bench @ git+https://github.com/collinear-ai/yc-bench.git@bfb0c88062450f46341bd9a5298903fc2e952a5c ; python_version >= '3.12'"]
 all = [
-  "hermes-agent[modal]",
-  "hermes-agent[daytona]",
-  "hermes-agent[messaging]",
+  "daclaw-agent[modal]",
+  "daclaw-agent[daytona]",
+  "daclaw-agent[messaging]",
   # matrix: python-olm (required by matrix-nio[e2e]) is upstream-broken on
   # modern macOS (archived libolm, C++ errors with Clang 21+).  On Linux the
   # [matrix] extra's own marker pulls in the [e2e] variant automatically.
-  "hermes-agent[matrix]; sys_platform == 'linux'",
-  "hermes-agent[cron]",
-  "hermes-agent[cli]",
-  "hermes-agent[dev]",
-  "hermes-agent[tts-premium]",
-  "hermes-agent[slack]",
-  "hermes-agent[pty]",
-  "hermes-agent[honcho]",
-  "hermes-agent[mcp]",
-  "hermes-agent[homeassistant]",
-  "hermes-agent[sms]",
-  "hermes-agent[acp]",
-  "hermes-agent[voice]",
-  "hermes-agent[dingtalk]",
-  "hermes-agent[feishu]",
-  "hermes-agent[mistral]",
-  "hermes-agent[bedrock]",
-  "hermes-agent[web]",
+  "daclaw-agent[matrix]; sys_platform == 'linux'",
+  "daclaw-agent[cron]",
+  "daclaw-agent[cli]",
+  "daclaw-agent[dev]",
+  "daclaw-agent[tts-premium]",
+  "daclaw-agent[slack]",
+  "daclaw-agent[pty]",
+  "daclaw-agent[honcho]",
+  "daclaw-agent[mcp]",
+  "daclaw-agent[homeassistant]",
+  "daclaw-agent[sms]",
+  "daclaw-agent[acp]",
+  "daclaw-agent[voice]",
+  "daclaw-agent[dingtalk]",
+  "daclaw-agent[feishu]",
+  "daclaw-agent[mistral]",
+  "daclaw-agent[bedrock]",
+  "daclaw-agent[web]",
 ]
 
 [project.scripts]
-hermes = "hermes_cli.main:main"
-hermes-agent = "run_agent:main"
+daclaw = "hermes_cli.main:main"
+daclaw-agent = "run_agent:main"
+daclaw-acp = "acp_adapter.entry:main"
 hermes-acp = "acp_adapter.entry:main"
 
 [tool.setuptools]

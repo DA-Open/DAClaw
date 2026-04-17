@@ -1,46 +1,46 @@
 #!/usr/bin/env python3
 """
-Hermes CLI - Main entry point.
+DAClaw CLI - Main entry point.
 
 Usage:
-    hermes                     # Interactive chat (default)
-    hermes chat                # Interactive chat
-    hermes gateway             # Run gateway in foreground
-    hermes gateway start       # Start gateway as service
-    hermes gateway stop        # Stop gateway service
-    hermes gateway status      # Show gateway status
-    hermes gateway install     # Install gateway service
-    hermes gateway uninstall   # Uninstall gateway service
-    hermes setup               # Interactive setup wizard
-    hermes logout              # Clear stored authentication
-    hermes status              # Show status of all components
-    hermes cron                # Manage cron jobs
-    hermes cron list           # List cron jobs
-    hermes cron status         # Check if cron scheduler is running
-    hermes doctor              # Check configuration and dependencies
-    hermes honcho setup                    # Configure Honcho AI memory integration
-    hermes honcho status                   # Show Honcho config and connection status
-    hermes honcho sessions                 # List directory → session name mappings
-    hermes honcho map <name>               # Map current directory to a session name
-    hermes honcho peer                     # Show peer names and dialectic settings
-    hermes honcho peer --user NAME         # Set user peer name
-    hermes honcho peer --ai NAME           # Set AI peer name
-    hermes honcho peer --reasoning LEVEL   # Set dialectic reasoning level
-    hermes honcho mode                     # Show current memory mode
-    hermes honcho mode [hybrid|honcho|local]  # Set memory mode
-    hermes honcho tokens                   # Show token budget settings
-    hermes honcho tokens --context N       # Set session.context() token cap
-    hermes honcho tokens --dialectic N     # Set dialectic result char cap
-    hermes honcho identity                 # Show AI peer identity representation
-    hermes honcho identity <file>          # Seed AI peer identity from a file (SOUL.md etc.)
-    hermes honcho migrate                  # Step-by-step migration guide: OpenClaw native → Hermes + Honcho
-    hermes version             Show version
-    hermes update              Update to latest version
-    hermes uninstall           Uninstall Hermes Agent
-    hermes acp                 Run as an ACP server for editor integration
-    hermes sessions browse     Interactive session picker with search
+    daclaw                     # Interactive chat (default)
+    daclaw chat                # Interactive chat
+    daclaw gateway             # Run gateway in foreground
+    daclaw gateway start       # Start gateway as service
+    daclaw gateway stop        # Stop gateway service
+    daclaw gateway status      # Show gateway status
+    daclaw gateway install     # Install gateway service
+    daclaw gateway uninstall   # Uninstall gateway service
+    daclaw setup               # Interactive setup wizard
+    daclaw logout              # Clear stored authentication
+    daclaw status              # Show status of all components
+    daclaw cron                # Manage cron jobs
+    daclaw cron list           # List cron jobs
+    daclaw cron status         # Check if cron scheduler is running
+    daclaw doctor              # Check configuration and dependencies
+    daclaw honcho setup                    # Configure Honcho AI memory integration
+    daclaw honcho status                   # Show Honcho config and connection status
+    daclaw honcho sessions                 # List directory → session name mappings
+    daclaw honcho map <name>               # Map current directory to a session name
+    daclaw honcho peer                     # Show peer names and dialectic settings
+    daclaw honcho peer --user NAME         # Set user peer name
+    daclaw honcho peer --ai NAME           # Set AI peer name
+    daclaw honcho peer --reasoning LEVEL   # Set dialectic reasoning level
+    daclaw honcho mode                     # Show current memory mode
+    daclaw honcho mode [hybrid|honcho|local]  # Set memory mode
+    daclaw honcho tokens                   # Show token budget settings
+    daclaw honcho tokens --context N       # Set session.context() token cap
+    daclaw honcho tokens --dialectic N     # Set dialectic result char cap
+    daclaw honcho identity                 # Show AI peer identity representation
+    daclaw honcho identity <file>          # Seed AI peer identity from a file (SOUL.md etc.)
+    daclaw honcho migrate                  # Step-by-step migration guide: OpenClaw native → DAClaw + Honcho
+    daclaw version             Show version
+    daclaw update              Update to latest version
+    daclaw uninstall           Uninstall DAClaw Agent
+    daclaw acp                 Run as an ACP server for editor integration
+    daclaw sessions browse     Interactive session picker with search
 
-    hermes claw migrate --dry-run  # Preview migration without changes
+    daclaw claw migrate --dry-run  # Preview migration without changes
 """
 
 import argparse
@@ -53,13 +53,13 @@ from typing import Optional
 def _require_tty(command_name: str) -> None:
     """Exit with a clear error if stdin is not a terminal.
 
-    Interactive TUI commands (hermes tools, hermes setup, hermes model) use
+    Interactive TUI commands (daclaw tools, daclaw setup, daclaw model) use
     curses or input() prompts that spin at 100% CPU when stdin is a pipe.
     This guard prevents accidental non-interactive invocation.
     """
     if not sys.stdin.isatty():
         print(
-            f"Error: 'hermes {command_name}' requires an interactive terminal.\n"
+            f"Error: 'daclaw {command_name}' requires an interactive terminal.\n"
             f"It cannot be run through a pipe or non-interactive subprocess.\n"
             f"Run it directly in your terminal instead.",
             file=sys.stderr,
@@ -72,7 +72,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # ---------------------------------------------------------------------------
-# Profile override — MUST happen before any hermes module import.
+# Profile override — MUST happen before any daclaw module import.
 #
 # Many modules cache HERMES_HOME at import time (module-level constants).
 # We intercept --profile/-p from sys.argv here and set the env var so that
@@ -97,7 +97,7 @@ def _apply_profile_override() -> None:
             consume = 1
             break
 
-    # 2. If no flag, check active_profile in the hermes root
+    # 2. If no flag, check active_profile in the daclaw root
     if profile_name is None:
         try:
             from hermes_constants import get_default_hermes_root
@@ -119,7 +119,7 @@ def _apply_profile_override() -> None:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
         except Exception as exc:
-            # A bug in profiles.py must NEVER prevent hermes from starting
+            # A bug in profiles.py must NEVER prevent daclaw from starting
             print(f"Warning: profile override failed ({exc}), using default", file=sys.stderr)
             return
         os.environ["HERMES_HOME"] = hermes_home
@@ -143,7 +143,7 @@ from hermes_cli.config import get_hermes_home
 from hermes_cli.env_loader import load_hermes_dotenv
 load_hermes_dotenv(project_env=PROJECT_ROOT / '.env')
 
-# Initialize centralized file logging early — all `hermes` subcommands
+# Initialize centralized file logging early — all `daclaw` subcommands
 # (chat, setup, gateway, config, etc.) write to agent.log + errors.log.
 try:
     from hermes_logging import setup_logging as _setup_logging
@@ -196,7 +196,7 @@ def _has_any_provider_configured() -> bool:
     from hermes_cli.config import get_env_path, get_hermes_home, load_config
     from hermes_cli.auth import get_auth_status
 
-    # Determine whether Hermes itself has been explicitly configured (model
+    # Determine whether DAClaw itself has been explicitly configured (model
     # in config that isn't the hardcoded default). Used below to gate external
     # tool credentials (Claude Code, Codex CLI) that shouldn't silently skip
     # the setup wizard on a fresh install.
@@ -278,8 +278,8 @@ def _has_any_provider_configured() -> bool:
             return True
 
     # Check for Claude Code OAuth credentials (~/.claude/.credentials.json)
-    # Only count these if Hermes has been explicitly configured — Claude Code
-    # being installed doesn't mean the user wants Hermes to use their tokens.
+    # Only count these if DAClaw has been explicitly configured — Claude Code
+    # being installed doesn't mean the user wants DAClaw to use their tokens.
     if _has_hermes_config:
         try:
             from agent.anthropic_adapter import read_claude_code_credentials, is_claude_code_token_valid
@@ -568,7 +568,7 @@ def _exec_in_container(container_info: dict, cli_args: list):
 
     Args:
         container_info: dict with backend, container_name, exec_user, hermes_bin
-        cli_args: the original CLI arguments (everything after 'hermes')
+        cli_args: the original CLI arguments (everything after 'daclaw')
     """
     import shutil
 
@@ -613,14 +613,14 @@ def _exec_in_container(container_info: dict, cli_args: list):
                     f'    commands = [{{ command = "{runtime}"; options = [ "NOPASSWD" ]; }}];\n'
                     f'  }}];\n'
                     f"\n"
-                    f"Or run: sudo hermes {' '.join(cli_args)}",
+                    f"Or run: sudo daclaw {' '.join(cli_args)}",
                     file=sys.stderr,
                 )
                 sys.exit(1)
         else:
             print(
                 f"Error: container '{container_name}' not found via {backend}.\n"
-                f"The container may be running under root. Try: sudo hermes {' '.join(cli_args)}",
+                f"The container may be running under root. Try: sudo daclaw {' '.join(cli_args)}",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -685,7 +685,7 @@ def cmd_chat(args):
                 args.resume = resolved
             else:
                 print(f"No session found matching '{continue_val}'.")
-                print("Use 'hermes sessions list' to see available sessions.")
+                print("Use 'daclaw sessions list' to see available sessions.")
                 sys.exit(1)
         else:
             # -c with no argument — continue the most recent session
@@ -708,9 +708,9 @@ def cmd_chat(args):
     # First-run guard: check if any provider is configured before launching
     if not _has_any_provider_configured():
         print()
-        print("It looks like Hermes isn't configured yet -- no API keys or providers found.")
+        print("It looks like DAClaw isn't configured yet -- no API keys or providers found.")
         print()
-        print("  Run:  hermes setup")
+        print("  Run:  daclaw setup")
         print()
 
         from hermes_cli.setup import is_interactive_stdin, print_noninteractive_setup_guidance
@@ -729,7 +729,7 @@ def cmd_chat(args):
             cmd_setup(args)
             return
         print()
-        print("You can run 'hermes setup' at any time to configure.")
+        print("You can run 'daclaw setup' at any time to configure.")
         sys.exit(1)
 
     # Start update check in background (runs while other init happens)
@@ -804,7 +804,7 @@ def cmd_whatsapp(args):
     current_mode = get_env_value("WHATSAPP_MODE") or ""
     if not current_mode:
         print()
-        print("How will you use WhatsApp with Hermes?")
+        print("How will you use WhatsApp with DAClaw?")
         print()
         print("  1. Separate bot number (recommended)")
         print("     People message the bot's number directly — cleanest experience.")
@@ -926,7 +926,7 @@ def cmd_whatsapp(args):
             print("  ✓ Session cleared")
         else:
             print("\n✓ WhatsApp is configured and paired!")
-            print("  Start the gateway with: hermes gateway")
+            print("  Start the gateway with: daclaw gateway")
             return
 
     # ── Step 6: QR code pairing ──────────────────────────────────────────
@@ -957,23 +957,23 @@ def cmd_whatsapp(args):
         print()
         if wa_mode == "bot":
             print("  Next steps:")
-            print("    1. Start the gateway:  hermes gateway")
+            print("    1. Start the gateway:  daclaw gateway")
             print("    2. Send a message to the bot's WhatsApp number")
             print("    3. The agent will reply automatically")
             print()
-            print("  Tip: Agent responses are prefixed with '⚕ Hermes Agent'")
+            print("  Tip: Agent responses are prefixed with '⚕ DAClaw Agent'")
         else:
             print("  Next steps:")
-            print("    1. Start the gateway:  hermes gateway")
+            print("    1. Start the gateway:  daclaw gateway")
             print("    2. Open WhatsApp → Message Yourself")
             print("    3. Type a message — the agent will reply")
             print()
-            print("  Tip: Agent responses are prefixed with '⚕ Hermes Agent'")
+            print("  Tip: Agent responses are prefixed with '⚕ DAClaw Agent'")
             print("  so you can tell them apart from your own messages.")
         print()
-        print("  Or install as a service: hermes gateway install")
+        print("  Or install as a service: daclaw gateway install")
     else:
-        print("⚠ Pairing may not have completed. Run 'hermes whatsapp' to try again.")
+        print("⚠ Pairing may not have completed. Run 'daclaw whatsapp' to try again.")
 
 
 def cmd_setup(args):
@@ -991,7 +991,7 @@ def cmd_model(args):
 def select_provider_and_model(args=None):
     """Core provider selection + model picking logic.
 
-    Shared by ``cmd_model`` (``hermes model``) and the setup wizard
+    Shared by ``cmd_model`` (``daclaw model``) and the setup wizard
     (``setup_model_provider`` in setup.py).  Handles the full flow:
     provider picker, credential prompting, model selection, and config
     persistence.
@@ -1451,7 +1451,7 @@ def _model_flow_openai_codex(config, current_model=""):
             return
 
     _codex_token = None
-    # Prefer credential pool (where `hermes auth` stores device_code tokens),
+    # Prefer credential pool (where `daclaw auth` stores device_code tokens),
     # fall back to legacy provider state.
     try:
         _codex_status = get_codex_auth_status()
@@ -1587,7 +1587,7 @@ def _model_flow_custom(config):
     else:
         print(
             f"Warning: could not verify this endpoint via {probe.get('probed_url')}. "
-            f"Hermes will still save it."
+            f"DAClaw will still save it."
         )
         if probe.get("suggested_base_url"):
             suggested = probe["suggested_base_url"]
@@ -1676,7 +1676,7 @@ def _model_flow_custom(config):
             _caller_model["api_key"] = effective_key
         _caller_model.pop("api_mode", None)
         config["model"] = _caller_model
-        print("Endpoint saved. Use `/model` in chat or `hermes model` to set a model.")
+        print("Endpoint saved. Use `/model` in chat or `daclaw model` to set a model.")
 
     # Auto-save to custom_providers so it appears in the menu next time
     _save_custom_provider(effective_url, effective_key, model_name or "",
@@ -2251,9 +2251,9 @@ def _model_flow_copilot_acp(config, current_model=""):
     resolved_command = status.get("resolved_command") or status.get("command") or "copilot"
     effective_base = status.get("base_url") or pconfig.inference_base_url
 
-    print("  GitHub Copilot ACP delegates Hermes turns to `copilot --acp`.")
-    print("  Hermes currently starts its own ACP subprocess for each request.")
-    print("  Hermes uses your selected model as a hint for the Copilot ACP session.")
+    print("  GitHub Copilot ACP delegates DAClaw turns to `copilot --acp`.")
+    print("  DAClaw currently starts its own ACP subprocess for each request.")
+    print("  DAClaw uses your selected model as a hint for the Copilot ACP session.")
     print(f"  Command: {resolved_command}")
     print(f"  Backend marker: {effective_base}")
     print()
@@ -2492,7 +2492,7 @@ def _model_flow_bedrock_api_key(config, region, current_model=""):
         bedrock_cfg["region"] = region
         cfg["bedrock"] = bedrock_cfg
 
-        # Save the API key env var name so hermes knows where to find it
+        # Save the API key env var name so daclaw knows where to find it
         save_env_value("OPENAI_API_KEY", existing_key)
         save_env_value("OPENAI_BASE_URL", mantle_base_url)
 
@@ -2826,7 +2826,7 @@ def _run_anthropic_oauth_flow(save_env_value):
             use_anthropic_claude_code_credentials(save_fn=save_env_value)
             print("  ✓ Claude Code credentials linked.")
             from hermes_constants import display_hermes_home as _dhh_fn
-            print(f"    Hermes will use Claude's credential store directly instead of copying a setup-token into {_dhh_fn()}/.env.")
+            print(f"    DAClaw will use Claude's credential store directly instead of copying a setup-token into {_dhh_fn()}/.env.")
             return True
         return False
 
@@ -2871,7 +2871,7 @@ def _run_anthropic_oauth_flow(save_env_value):
         print("    1. Install Claude Code:  npm install -g @anthropic-ai/claude-code")
         print("    2. Run:                  claude setup-token")
         print("    3. Follow the browser prompts to authorize")
-        print("    4. Re-run:               hermes model")
+        print("    4. Re-run:               daclaw model")
         print()
         print("  Or paste an existing setup-token now (sk-ant-oat-...):")
         print()
@@ -2994,7 +2994,7 @@ def _model_flow_anthropic(config, current_model=""):
         # Update config with provider — clear base_url since
         # resolve_runtime_provider() always hardcodes Anthropic's URL.
         # Leaving a stale base_url in config can contaminate other
-        # providers if the user switches without running 'hermes model'.
+        # providers if the user switches without running 'daclaw model'.
         cfg = load_config()
         model = cfg.get("model")
         if not isinstance(model, dict):
@@ -3011,7 +3011,7 @@ def _model_flow_anthropic(config, current_model=""):
 
 
 def cmd_login(args):
-    """Authenticate Hermes CLI with a provider."""
+    """Authenticate DAClaw CLI with a provider."""
     from hermes_cli.auth import login_command
     login_command(args)
 
@@ -3071,7 +3071,7 @@ def cmd_config(args):
 
 
 def cmd_backup(args):
-    """Back up Hermes home directory to a zip file."""
+    """Back up DAClaw home directory to a zip file."""
     if getattr(args, "quick", False):
         from hermes_cli.backup import run_quick_backup
         run_quick_backup(args)
@@ -3081,14 +3081,14 @@ def cmd_backup(args):
 
 
 def cmd_import(args):
-    """Restore a Hermes backup from a zip file."""
+    """Restore a DAClaw backup from a zip file."""
     from hermes_cli.backup import run_import
     run_import(args)
 
 
 def cmd_version(args):
     """Show version."""
-    print(f"Hermes Agent v{__version__} ({__release_date__})")
+    print(f"DAClaw Agent v{__version__} ({__release_date__})")
     print(f"Project: {PROJECT_ROOT}")
     
     # Show Python version
@@ -3119,7 +3119,7 @@ def cmd_version(args):
 
 
 def cmd_uninstall(args):
-    """Uninstall Hermes Agent."""
+    """Uninstall DAClaw Agent."""
     _require_tty("uninstall")
     from hermes_cli.uninstall import run_uninstall
     run_uninstall(args)
@@ -3159,7 +3159,7 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     Writes a prompt marker file so the gateway can forward the question to the
     user, then polls for a response file.  Falls back to *default* on timeout.
 
-    Used by ``hermes update --gateway`` so interactive prompts (stash restore,
+    Used by ``daclaw update --gateway`` so interactive prompts (stash restore,
     config migration) are forwarded to the messenger instead of being silently
     skipped.
     """
@@ -3210,7 +3210,7 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
     Args:
         web_dir: Path to the ``web/`` source directory.
         fatal: If True, print error guidance and return False on failure
-               instead of a soft warning (used by ``hermes web``).
+               instead of a soft warning (used by ``daclaw web``).
 
     Returns True if the build succeeded or was skipped (no package.json).
     """
@@ -3227,14 +3227,14 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
     r1 = subprocess.run([npm, "install", "--silent"], cwd=web_dir, capture_output=True)
     if r1.returncode != 0:
         print(f"  {'✗' if fatal else '⚠'} Web UI npm install failed"
-              + ("" if fatal else " (hermes web will not be available)"))
+              + ("" if fatal else " (daclaw web will not be available)"))
         if fatal:
             print("  Run manually:  cd web && npm install && npm run build")
         return False
     r2 = subprocess.run([npm, "run", "build"], cwd=web_dir, capture_output=True)
     if r2.returncode != 0:
         print(f"  {'✗' if fatal else '⚠'} Web UI build failed"
-              + ("" if fatal else " (hermes web will not be available)"))
+              + ("" if fatal else " (daclaw web will not be available)"))
         if fatal:
             print("  Run manually:  cd web && npm install && npm run build")
         return False
@@ -3243,7 +3243,7 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
 
 
 def _update_via_zip(args):
-    """Update Hermes Agent by downloading a ZIP archive.
+    """Update DAClaw Agent by downloading a ZIP archive.
     
     Used on Windows when git file I/O is broken (antivirus, NTFS filter 
     drivers causing 'Invalid argument' errors on file creation).
@@ -3254,12 +3254,12 @@ def _update_via_zip(args):
     from urllib.request import urlretrieve
     
     branch = "main"
-    zip_url = f"https://github.com/NousResearch/hermes-agent/archive/refs/heads/{branch}.zip"
+    zip_url = f"https://github.com/NousResearch/daclaw-agent/archive/refs/heads/{branch}.zip"
     
     print("→ Downloading latest version...")
     try:
         tmp_dir = tempfile.mkdtemp(prefix="hermes-update-")
-        zip_path = os.path.join(tmp_dir, f"hermes-agent-{branch}.zip")
+        zip_path = os.path.join(tmp_dir, f"daclaw-agent-{branch}.zip")
         urlretrieve(zip_url, zip_path)
         
         print("→ Extracting...")
@@ -3272,8 +3272,8 @@ def _update_via_zip(args):
                     raise ValueError(f"Zip-slip detected: {member.filename} escapes extraction directory")
             zf.extractall(tmp_dir)
         
-        # GitHub ZIPs extract to hermes-agent-<branch>/
-        extracted = os.path.join(tmp_dir, f"hermes-agent-{branch}")
+        # GitHub ZIPs extract to daclaw-agent-<branch>/
+        extracted = os.path.join(tmp_dir, f"daclaw-agent-{branch}")
         if not os.path.isdir(extracted):
             # Try to find it
             for d in os.listdir(tmp_dir):
@@ -3444,7 +3444,7 @@ def _restore_stashed_changes(
         print()
         print("⚠ Local changes were stashed before updating.")
         print("  Restoring them may reapply local customizations onto the updated codebase.")
-        print("  Review the result afterward if Hermes behaves unexpectedly.")
+        print("  Review the result afterward if DAClaw behaves unexpectedly.")
         print("Restore local changes now? [Y/n]")
         if input_fn is not None:
             response = input_fn("Restore local changes now? [Y/n]", "y")
@@ -3491,7 +3491,7 @@ def _restore_stashed_changes(
         print(f"  Stash ref: {stash_ref}")
 
         # Always reset to clean state — leaving conflict markers in source
-        # files makes hermes completely unrunnable (SyntaxError on import).
+        # files makes daclaw completely unrunnable (SyntaxError on import).
         # The user's changes are safe in the stash for manual recovery.
         subprocess.run(
             git_cmd + ["reset", "--hard", "HEAD"],
@@ -3507,7 +3507,7 @@ def _restore_stashed_changes(
 
     stash_selector = _resolve_stash_selector(git_cmd, cwd, stash_ref)
     if stash_selector is None:
-        print("⚠ Local changes were restored, but Hermes couldn't find the stash entry to drop.")
+        print("⚠ Local changes were restored, but DAClaw couldn't find the stash entry to drop.")
         print("  The stash was left in place. You can remove it manually after checking the result.")
         _print_stash_cleanup_guidance(stash_ref)
     else:
@@ -3518,7 +3518,7 @@ def _restore_stashed_changes(
             text=True,
         )
         if drop.returncode != 0:
-            print("⚠ Local changes were restored, but Hermes couldn't drop the saved stash entry.")
+            print("⚠ Local changes were restored, but DAClaw couldn't drop the saved stash entry.")
             if drop.stdout.strip():
                 print(drop.stdout.strip())
             if drop.stderr.strip():
@@ -3527,20 +3527,20 @@ def _restore_stashed_changes(
             _print_stash_cleanup_guidance(stash_ref, stash_selector)
 
     print("⚠ Local changes were restored on top of the updated codebase.")
-    print("  Review `git diff` / `git status` if Hermes behaves unexpectedly.")
+    print("  Review `git diff` / `git status` if DAClaw behaves unexpectedly.")
     return True
 
 # =========================================================================
-# Fork detection and upstream management for `hermes update`
+# Fork detection and upstream management for `daclaw update`
 # =========================================================================
 
 OFFICIAL_REPO_URLS = {
-    "https://github.com/NousResearch/hermes-agent.git",
-    "git@github.com:NousResearch/hermes-agent.git",
-    "https://github.com/NousResearch/hermes-agent",
-    "git@github.com:NousResearch/hermes-agent",
+    "https://github.com/NousResearch/daclaw-agent.git",
+    "git@github.com:NousResearch/daclaw-agent.git",
+    "https://github.com/NousResearch/daclaw-agent",
+    "git@github.com:NousResearch/daclaw-agent",
 }
-OFFICIAL_REPO_URL = "https://github.com/NousResearch/hermes-agent.git"
+OFFICIAL_REPO_URL = "https://github.com/NousResearch/daclaw-agent.git"
 SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
 
 
@@ -3671,8 +3671,8 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
 
         # Ask user if they want to add upstream
         print()
-        print("ℹ Your fork is not tracking the official Hermes repository.")
-        print("  This means you may miss updates from NousResearch/hermes-agent.")
+        print("ℹ Your fork is not tracking the official DAClaw repository.")
+        print("  This means you may miss updates from NousResearch/daclaw-agent.")
         print()
         try:
             response = input("Add official repo as 'upstream' remote? [Y/n]: ").strip().lower()
@@ -3683,13 +3683,13 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
         if response in ("", "y", "yes"):
             print("→ Adding upstream remote...")
             if _add_upstream_remote(git_cmd, cwd):
-                print("  ✓ Added upstream: https://github.com/NousResearch/hermes-agent.git")
+                print("  ✓ Added upstream: https://github.com/NousResearch/daclaw-agent.git")
                 has_upstream = True
             else:
                 print("  ✗ Failed to add upstream remote. Skipping upstream sync.")
                 return
         else:
-            print("  Skipped. Run 'git remote add upstream https://github.com/NousResearch/hermes-agent.git' to add later.")
+            print("  Skipped. Run 'git remote add upstream https://github.com/NousResearch/daclaw-agent.git' to add later.")
             _mark_skip_upstream_prompt()
             return
 
@@ -3760,7 +3760,7 @@ def _invalidate_update_cache():
     reports a stale "commits behind" count after a successful update.
 
     The git repo is shared across profiles — when one profile runs
-    ``hermes update``, every profile is now current.
+    ``daclaw update``, every profile is now current.
     """
     homes = []
     # Default profile home (Docker-aware — uses /opt/data in Docker)
@@ -3802,7 +3802,7 @@ def _load_installable_optional_extras() -> list[str]:
         return []
 
     # Parse the [all] group to find which extras it references.
-    # Entries look like "hermes-agent[matrix]" or "package-name[extra]".
+    # Entries look like "daclaw-agent[matrix]" or "package-name[extra]".
     all_refs = optional_deps.get("all", [])
     referenced: list[str] = []
     for ref in all_refs:
@@ -3860,19 +3860,19 @@ def _install_python_dependencies_with_optional_fallback(
 
 
 def cmd_update(args):
-    """Update Hermes Agent to the latest version."""
+    """Update DAClaw Agent to the latest version."""
     import shutil
     from hermes_cli.config import is_managed, managed_error
 
     if is_managed():
-        managed_error("update Hermes Agent")
+        managed_error("update DAClaw Agent")
         return
 
     gateway_mode = getattr(args, "gateway", False)
     # In gateway mode, use file-based IPC for prompts instead of stdin
     gw_input_fn = (lambda prompt, default="": _gateway_prompt(prompt, default)) if gateway_mode else None
     
-    print("⚕ Updating Hermes Agent...")
+    print("⚕ Updating DAClaw Agent...")
     print()
     
     # Try git-based update first, fall back to ZIP download on Windows
@@ -3885,7 +3885,7 @@ def cmd_update(args):
             use_zip_update = True
         else:
             print("✗ Not a git repository. Please reinstall:")
-            print("  curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash")
+            print("  curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash")
             sys.exit(1)
     
     # On Windows, git can fail with "unable to write loose object file: Invalid argument"
@@ -4189,7 +4189,7 @@ def cmd_update(args):
                 ).strip().lower()
             elif not (sys.stdin.isatty() and sys.stdout.isatty()):
                 print("  ℹ Non-interactive session — skipping config migration prompt.")
-                print("    Run 'hermes config migrate' later to apply any new config/env options.")
+                print("    Run 'daclaw config migrate' later to apply any new config/env options.")
                 response = "n"
             else:
                 try:
@@ -4207,10 +4207,10 @@ def cmd_update(args):
                     print()
                     print("✓ Configuration updated!")
                 if gateway_mode and missing_env:
-                    print("  ℹ API keys require manual entry: hermes config migrate")
+                    print("  ℹ API keys require manual entry: daclaw config migrate")
             else:
                 print()
-                print("Skipped. Run 'hermes config migrate' later to configure.")
+                print("Skipped. Run 'daclaw config migrate' later to configure.")
         else:
             print("  ✓ Configuration is up to date")
         
@@ -4218,7 +4218,7 @@ def cmd_update(args):
         print("✓ Update complete!")
         
         # Write exit code *before* the gateway restart attempt.
-        # When running as ``hermes update --gateway`` (spawned by the gateway's
+        # When running as ``daclaw update --gateway`` (spawned by the gateway's
         # /update command), this process lives inside the gateway's systemd
         # cgroup.  ``systemctl restart hermes-gateway`` kills everything in the
         # cgroup (KillMode=mixed → SIGKILL to remaining processes), including
@@ -4362,10 +4362,10 @@ def cmd_update(args):
                     print(f"  ✓ Restarted {svc}")
                 if killed_pids:
                     print(f"  → Stopped {len(killed_pids)} manual gateway process(es)")
-                    print("    Restart manually: hermes gateway run")
+                    print("    Restart manually: daclaw gateway run")
                     # Also restart for each profile if needed
                     if len(killed_pids) > 1:
-                        print("    (or: hermes -p <profile> gateway run  for each profile)")
+                        print("    (or: daclaw -p <profile> gateway run  for each profile)")
 
             if not restarted_services and not killed_pids:
                 # No gateways were running — nothing to do
@@ -4376,7 +4376,7 @@ def cmd_update(args):
         
         print()
         print("Tip: You can now select a provider and model:")
-        print("  hermes model              # Select provider and model")
+        print("  daclaw model              # Select provider and model")
         
     except subprocess.CalledProcessError as e:
         if sys.platform == "win32":
@@ -4392,7 +4392,7 @@ def cmd_update(args):
 def _coalesce_session_name_args(argv: list) -> list:
     """Join unquoted multi-word session names after -c/--continue and -r/--resume.
 
-    When a user types ``hermes -c Pokemon Agent Dev`` without quoting the
+    When a user types ``daclaw -c Pokemon Agent Dev`` without quoting the
     session name, argparse sees three separate tokens.  This function merges
     them into a single argument so argparse receives
     ``['-c', 'Pokemon Agent Dev']`` instead.
@@ -4443,7 +4443,7 @@ def cmd_profile(args):
     action = getattr(args, "profile_action", None)
 
     if action is None:
-        # Bare `hermes profile` — show current profile status
+        # Bare `daclaw profile` — show current profile status
         profile_name = get_active_profile_name()
         dhh = display_hermes_home()
         print(f"\nActive profile: {profile_name}")
@@ -4457,7 +4457,7 @@ def cmd_profile(args):
                 print(f"Gateway:        {'running' if p.gateway_running else 'stopped'}")
                 print(f"Skills:         {p.skill_count} installed")
                 if p.alias_path:
-                    print(f"Alias:          {p.name} → hermes -p {p.name}")
+                    print(f"Alias:          {p.name} → daclaw -p {p.name}")
                 break
         print()
         return
@@ -4545,8 +4545,8 @@ def cmd_profile(args):
                 collision = check_alias_collision(name)
                 if collision:
                     print(f"\n⚠ Cannot create alias '{name}' — {collision}")
-                    print(f"  Choose a custom alias:  hermes profile alias {name} --name <custom>")
-                    print(f"  Or access via flag:     hermes -p {name} chat")
+                    print(f"  Choose a custom alias:  daclaw profile alias {name} --name <custom>")
+                    print(f"  Or access via flag:     daclaw -p {name} chat")
                 else:
                     wrapper_path = create_wrapper_script(name)
                     if wrapper_path:
@@ -4639,7 +4639,7 @@ def cmd_profile(args):
             if wrapper_path:
                 # If custom name, write the profile name into the wrapper
                 if custom_name:
-                    wrapper_path.write_text(f'#!/bin/sh\nexec hermes -p {name} "$@"\n')
+                    wrapper_path.write_text(f'#!/bin/sh\nexec daclaw -p {name} "$@"\n')
                 print(f"✓ Alias created: {wrapper_path}")
                 if not _is_wrapper_dir_in_path():
                     print(f"⚠ {_get_wrapper_dir()} is not in your PATH.")
@@ -4691,7 +4691,7 @@ def cmd_dashboard(args):
         import uvicorn  # noqa: F401
     except ImportError:
         print("Web UI dependencies not installed.")
-        print("Install them with:  pip install hermes-agent[web]")
+        print("Install them with:  pip install daclaw-agent[web]")
         sys.exit(1)
 
     if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
@@ -4719,7 +4719,7 @@ def cmd_completion(args, parser=None):
 
 
 def cmd_logs(args):
-    """View and filter Hermes log files."""
+    """View and filter DAClaw log files."""
     from hermes_cli.logs import tail_log, list_logs
 
     log_name = getattr(args, "log_name", "agent") or "agent"
@@ -4740,44 +4740,44 @@ def cmd_logs(args):
 
 
 def main():
-    """Main entry point for hermes CLI."""
+    """Main entry point for DAClaw CLI."""
     parser = argparse.ArgumentParser(
-        prog="hermes",
-        description="Hermes Agent - AI assistant with tool-calling capabilities",
+        prog="daclaw",
+        description="DAClaw Agent - AI assistant with tool-calling capabilities",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    hermes                        Start interactive chat
-    hermes chat -q "Hello"        Single query mode
-    hermes -c                     Resume the most recent session
-    hermes -c "my project"        Resume a session by name (latest in lineage)
-    hermes --resume <session_id>  Resume a specific session by ID
-    hermes setup                  Run setup wizard
-    hermes logout                 Clear stored authentication
-    hermes auth add <provider>    Add a pooled credential
-    hermes auth list              List pooled credentials
-    hermes auth remove <p> <t>    Remove pooled credential by index, id, or label
-    hermes auth reset <provider>  Clear exhaustion status for a provider
-    hermes model                  Select default model
-    hermes config                 View configuration
-    hermes config edit            Edit config in $EDITOR
-    hermes config set model gpt-4 Set a config value
-    hermes gateway                Run messaging gateway
-    hermes -s hermes-agent-dev,github-auth
-    hermes -w                     Start in isolated git worktree
-    hermes gateway install        Install gateway background service
-    hermes sessions list          List past sessions
-    hermes sessions browse        Interactive session picker
-    hermes sessions rename ID T   Rename/title a session
-    hermes logs                   View agent.log (last 50 lines)
-    hermes logs -f                Follow agent.log in real time
-    hermes logs errors            View errors.log
-    hermes logs --since 1h        Lines from the last hour
-    hermes debug share             Upload debug report for support
-    hermes update                 Update to latest version
+    daclaw                        Start interactive chat
+    daclaw chat -q "Hello"        Single query mode
+    daclaw -c                     Resume the most recent session
+    daclaw -c "my project"        Resume a session by name (latest in lineage)
+    daclaw --resume <session_id>  Resume a specific session by ID
+    daclaw setup                  Run setup wizard
+    daclaw logout                 Clear stored authentication
+    daclaw auth add <provider>    Add a pooled credential
+    daclaw auth list              List pooled credentials
+    daclaw auth remove <p> <t>    Remove pooled credential by index, id, or label
+    daclaw auth reset <provider>  Clear exhaustion status for a provider
+    daclaw model                  Select default model
+    daclaw config                 View configuration
+    daclaw config edit            Edit config in $EDITOR
+    daclaw config set model gpt-4 Set a config value
+    daclaw gateway                Run messaging gateway
+    daclaw -s daclaw-agent-dev,github-auth
+    daclaw -w                     Start in isolated git worktree
+    daclaw gateway install        Install gateway background service
+    daclaw sessions list          List past sessions
+    daclaw sessions browse        Interactive session picker
+    daclaw sessions rename ID T   Rename/title a session
+    daclaw logs                   View agent.log (last 50 lines)
+    daclaw logs -f                Follow agent.log in real time
+    daclaw logs errors            View errors.log
+    daclaw logs --since 1h        Lines from the last hour
+    daclaw debug share             Upload debug report for support
+    daclaw update                 Update to latest version
 
 For more help on a command:
-    hermes <command> --help
+    daclaw <command> --help
 """
     )
     
@@ -4834,7 +4834,7 @@ For more help on a command:
     chat_parser = subparsers.add_parser(
         "chat",
         help="Interactive chat with the agent",
-        description="Start an interactive chat session with Hermes Agent"
+        description="Start an interactive chat session with DAClaw Agent"
     )
     chat_parser.add_argument(
         "-q", "--query",
@@ -5035,8 +5035,8 @@ For more help on a command:
     setup_parser = subparsers.add_parser(
         "setup",
         help="Interactive setup wizard",
-        description="Configure Hermes Agent with an interactive wizard. "
-                    "Run a specific section: hermes setup model|tts|terminal|gateway|tools|agent"
+        description="Configure DAClaw Agent with an interactive wizard. "
+                    "Run a specific section: daclaw setup model|tts|terminal|gateway|tools|agent"
     )
     setup_parser.add_argument(
         "section",
@@ -5073,7 +5073,7 @@ For more help on a command:
     login_parser = subparsers.add_parser(
         "login",
         help="Authenticate with an inference provider",
-        description="Run OAuth device authorization flow for Hermes CLI"
+        description="Run OAuth device authorization flow for DAClaw CLI"
     )
     login_parser.add_argument(
         "--provider",
@@ -5170,7 +5170,7 @@ For more help on a command:
     status_parser = subparsers.add_parser(
         "status",
         help="Show status of all components",
-        description="Display status of Hermes Agent components"
+        description="Display status of DAClaw Agent components"
     )
     status_parser.add_argument(
         "--all",
@@ -5280,7 +5280,7 @@ For more help on a command:
     doctor_parser = subparsers.add_parser(
         "doctor",
         help="Check configuration and dependencies",
-        description="Diagnose issues with Hermes Agent setup"
+        description="Diagnose issues with DAClaw Agent setup"
     )
     doctor_parser.add_argument(
         "--fix",
@@ -5295,7 +5295,7 @@ For more help on a command:
     dump_parser = subparsers.add_parser(
         "dump",
         help="Dump setup summary for support/debugging",
-        description="Output a compact, plain-text summary of your Hermes setup "
+        description="Output a compact, plain-text summary of your DAClaw setup "
                     "that can be copy-pasted into Discord/GitHub for support context"
     )
     dump_parser.add_argument(
@@ -5311,17 +5311,17 @@ For more help on a command:
     debug_parser = subparsers.add_parser(
         "debug",
         help="Debug tools — upload logs and system info for support",
-        description="Debug utilities for Hermes Agent. Use 'hermes debug share' to "
+        description="Debug utilities for DAClaw Agent. Use 'daclaw debug share' to "
                     "upload a debug report (system info + recent logs) to a paste "
                     "service and get a shareable URL.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-    hermes debug share              Upload debug report and print URL
-    hermes debug share --lines 500  Include more log lines
-    hermes debug share --expire 30  Keep paste for 30 days
-    hermes debug share --local      Print report locally (no upload)
-    hermes debug delete <url>       Delete a previously uploaded paste
+    daclaw debug share              Upload debug report and print URL
+    daclaw debug share --lines 500  Include more log lines
+    daclaw debug share --expire 30  Keep paste for 30 days
+    daclaw debug share --local      Print report locally (no upload)
+    daclaw debug delete <url>       Delete a previously uploaded paste
 """,
     )
     debug_sub = debug_parser.add_subparsers(dest="debug_command")
@@ -5343,7 +5343,7 @@ Examples:
     )
     delete_parser = debug_sub.add_parser(
         "delete",
-        help="Delete a paste uploaded by 'hermes debug share'",
+        help="Delete a paste uploaded by 'daclaw debug share'",
     )
     delete_parser.add_argument(
         "urls", nargs="*", default=[],
@@ -5356,9 +5356,9 @@ Examples:
     # =========================================================================
     backup_parser = subparsers.add_parser(
         "backup",
-        help="Back up Hermes home directory to a zip file",
-        description="Create a zip archive of your entire Hermes configuration, "
-                    "skills, sessions, and data (excludes the hermes-agent codebase). "
+        help="Back up DAClaw home directory to a zip file",
+        description="Create a zip archive of your entire DAClaw configuration, "
+                    "skills, sessions, and data (excludes the daclaw-agent codebase). "
                     "Use --quick for a fast snapshot of just critical state files."
     )
     backup_parser.add_argument(
@@ -5381,9 +5381,9 @@ Examples:
     # =========================================================================
     import_parser = subparsers.add_parser(
         "import",
-        help="Restore a Hermes backup from a zip file",
-        description="Extract a previously created Hermes backup into your "
-                    "Hermes home directory, restoring configuration, skills, "
+        help="Restore a DAClaw backup from a zip file",
+        description="Extract a previously created DAClaw backup into your "
+                    "DAClaw home directory, restoring configuration, skills, "
                     "sessions, and data"
     )
     import_parser.add_argument(
@@ -5403,7 +5403,7 @@ Examples:
     config_parser = subparsers.add_parser(
         "config",
         help="View and edit configuration",
-        description="Manage Hermes Agent configuration"
+        description="Manage DAClaw Agent configuration"
     )
     config_subparsers = config_parser.add_subparsers(dest="config_command")
     
@@ -5657,7 +5657,7 @@ Examples:
             "Enable, disable, or list tools for CLI, Telegram, Discord, etc.\n\n"
             "Built-in toolsets use plain names (e.g. web, memory).\n"
             "MCP tools use server:tool notation (e.g. github:create_issue).\n\n"
-            "Run 'hermes tools' with no subcommand for the interactive configuration UI."
+            "Run 'daclaw tools' with no subcommand for the interactive configuration UI."
         ),
     )
     tools_parser.add_argument(
@@ -5667,7 +5667,7 @@ Examples:
     )
     tools_sub = tools_parser.add_subparsers(dest="tools_action")
 
-    # hermes tools list [--platform cli]
+    # daclaw tools list [--platform cli]
     tools_list_p = tools_sub.add_parser(
         "list",
         help="Show all tools and their enabled/disabled status",
@@ -5677,7 +5677,7 @@ Examples:
         help="Platform to show (default: cli)",
     )
 
-    # hermes tools disable <name...> [--platform cli]
+    # daclaw tools disable <name...> [--platform cli]
     tools_disable_p = tools_sub.add_parser(
         "disable",
         help="Disable toolsets or MCP tools",
@@ -5691,7 +5691,7 @@ Examples:
         help="Platform to apply to (default: cli)",
     )
 
-    # hermes tools enable <name...> [--platform cli]
+    # daclaw tools enable <name...> [--platform cli]
     tools_enable_p = tools_sub.add_parser(
         "enable",
         help="Enable toolsets or MCP tools",
@@ -5721,19 +5721,19 @@ Examples:
     # =========================================================================
     mcp_parser = subparsers.add_parser(
         "mcp",
-        help="Manage MCP servers and run Hermes as an MCP server",
+        help="Manage MCP servers and run DAClaw as an MCP server",
         description=(
-            "Manage MCP server connections and run Hermes as an MCP server.\n\n"
+            "Manage MCP server connections and run DAClaw as an MCP server.\n\n"
             "MCP servers provide additional tools via the Model Context Protocol.\n"
-            "Use 'hermes mcp add' to connect to a new server, or\n"
-            "'hermes mcp serve' to expose Hermes conversations over MCP."
+            "Use 'daclaw mcp add' to connect to a new server, or\n"
+            "'daclaw mcp serve' to expose DAClaw conversations over MCP."
         ),
     )
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_action")
 
     mcp_serve_p = mcp_sub.add_parser(
         "serve",
-        help="Run Hermes as an MCP server (expose conversations to other agents)",
+        help="Run DAClaw as an MCP server (expose conversations to other agents)",
     )
     mcp_serve_p.add_argument(
         "-v", "--verbose", action="store_true",
@@ -5935,12 +5935,12 @@ Examples:
                 print("Cancelled.")
                 return
 
-            # Launch hermes --resume <id> by replacing the current process
+            # Launch daclaw --resume <id> by replacing the current process
             print(f"Resuming session: {selected_id}")
             import shutil
-            hermes_bin = shutil.which("hermes")
-            if hermes_bin:
-                os.execvp(hermes_bin, ["hermes", "--resume", selected_id])
+            command_bin = shutil.which("daclaw") or shutil.which("daclaw")
+            if command_bin:
+                os.execvp(command_bin, ["daclaw", "--resume", selected_id])
             else:
                 # Fallback: re-invoke via python -m
                 os.execvp(
@@ -6002,14 +6002,14 @@ Examples:
     claw_parser = subparsers.add_parser(
         "claw",
         help="OpenClaw migration tools",
-        description="Migrate settings, memories, skills, and API keys from OpenClaw to Hermes"
+        description="Migrate settings, memories, skills, and API keys from OpenClaw to DAClaw"
     )
     claw_subparsers = claw_parser.add_subparsers(dest="claw_action")
 
     # claw migrate
     claw_migrate = claw_subparsers.add_parser(
         "migrate",
-        help="Migrate from OpenClaw to Hermes",
+        help="Migrate from OpenClaw to DAClaw",
         description="Import settings, memories, skills, and API keys from an OpenClaw installation. "
                     "Always shows a preview before making changes."
     )
@@ -6096,7 +6096,7 @@ Examples:
     # =========================================================================
     update_parser = subparsers.add_parser(
         "update",
-        help="Update Hermes Agent to the latest version",
+        help="Update DAClaw Agent to the latest version",
         description="Pull the latest changes from git and reinstall dependencies"
     )
     update_parser.add_argument(
@@ -6110,8 +6110,8 @@ Examples:
     # =========================================================================
     uninstall_parser = subparsers.add_parser(
         "uninstall",
-        help="Uninstall Hermes Agent",
-        description="Remove Hermes Agent from your system. Can keep configs/data for reinstall."
+        help="Uninstall DAClaw Agent",
+        description="Remove DAClaw Agent from your system. Can keep configs/data for reinstall."
     )
     uninstall_parser.add_argument(
         "--full",
@@ -6130,12 +6130,12 @@ Examples:
     # =========================================================================
     acp_parser = subparsers.add_parser(
         "acp",
-        help="Run Hermes Agent as an ACP (Agent Client Protocol) server",
-        description="Start Hermes Agent in ACP mode for editor integration (VS Code, Zed, JetBrains)",
+        help="Run DAClaw Agent as an ACP (Agent Client Protocol) server",
+        description="Start DAClaw Agent in ACP mode for editor integration (VS Code, Zed, JetBrains)",
     )
 
     def cmd_acp(args):
-        """Launch Hermes Agent as an ACP server."""
+        """Launch DAClaw Agent as an ACP server."""
         try:
             from acp_adapter.entry import main as acp_main
             acp_main()
@@ -6151,7 +6151,7 @@ Examples:
     # =========================================================================
     profile_parser = subparsers.add_parser(
         "profile",
-        help="Manage profiles — multiple isolated Hermes instances",
+        help="Manage profiles — multiple isolated DAClaw instances",
     )
     profile_subparsers = profile_parser.add_subparsers(dest="profile_action")
 
@@ -6220,7 +6220,7 @@ Examples:
     dashboard_parser = subparsers.add_parser(
         "dashboard",
         help="Start the web UI dashboard",
-        description="Launch the Hermes Agent web dashboard for managing config, API keys, and sessions",
+        description="Launch the DAClaw Agent web dashboard for managing config, API keys, and sessions",
     )
     dashboard_parser.add_argument("--port", type=int, default=9119, help="Port (default 9119)")
     dashboard_parser.add_argument("--host", default="127.0.0.1", help="Host (default 127.0.0.1)")
@@ -6236,21 +6236,21 @@ Examples:
     # =========================================================================
     logs_parser = subparsers.add_parser(
         "logs",
-        help="View and filter Hermes log files",
+        help="View and filter DAClaw log files",
         description="View, tail, and filter agent.log / errors.log / gateway.log",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-    hermes logs                    Show last 50 lines of agent.log
-    hermes logs -f                 Follow agent.log in real time
-    hermes logs errors             Show last 50 lines of errors.log
-    hermes logs gateway -n 100     Show last 100 lines of gateway.log
-    hermes logs --level WARNING    Only show WARNING and above
-    hermes logs --session abc123   Filter by session ID
-    hermes logs --component tools  Only show tool-related lines
-    hermes logs --since 1h         Lines from the last hour
-    hermes logs --since 30m -f     Follow, starting from 30 min ago
-    hermes logs list               List available log files with sizes
+    daclaw logs                    Show last 50 lines of agent.log
+    daclaw logs -f                 Follow agent.log in real time
+    daclaw logs errors             Show last 50 lines of errors.log
+    daclaw logs gateway -n 100     Show last 100 lines of gateway.log
+    daclaw logs --level WARNING    Only show WARNING and above
+    daclaw logs --session abc123   Filter by session ID
+    daclaw logs --component tools  Only show tool-related lines
+    daclaw logs --since 1h         Lines from the last hour
+    daclaw logs --since 30m -f     Follow, starting from 30 min ago
+    daclaw logs list               List available log files with sizes
 """,
     )
     logs_parser.add_argument(
@@ -6288,7 +6288,7 @@ Examples:
     # =========================================================================
     # Pre-process argv so unquoted multi-word session names after -c / -r
     # are merged into a single token before argparse sees them.
-    # e.g. ``hermes -c Pokemon Agent Dev`` → ``hermes -c 'Pokemon Agent Dev'``
+    # e.g. ``daclaw -c Pokemon Agent Dev`` → ``daclaw -c 'Pokemon Agent Dev'``
     # ── Container-aware routing ────────────────────────────────────────
     # When NixOS container mode is active, route ALL subcommands into
     # the managed container.  This MUST run before parse_args() so that
@@ -6312,7 +6312,7 @@ Examples:
     #
     # Fix: when argv contains a token matching a known subcommand, set
     # subparsers.required=True to force deterministic routing.  If that
-    # fails (e.g. 'hermes -c model' where 'model' is consumed as the
+    # fails (e.g. 'daclaw -c model' where 'model' is consumed as the
     # session name for --continue), fall back to the default behaviour.
     import io as _io
     _known_cmds = set(subparsers.choices.keys()) if hasattr(subparsers, "choices") else set()

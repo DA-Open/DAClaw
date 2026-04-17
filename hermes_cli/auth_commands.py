@@ -274,7 +274,7 @@ def auth_add_command(args) -> None:
         print(f'Added {provider} OAuth credential #{len(pool.entries())}: "{entry.label}"')
         return
 
-    raise SystemExit(f"`hermes auth add {provider}` is not implemented for auth type {requested_type} yet.")
+    raise SystemExit(f"`daclaw auth add {provider}` is not implemented for auth type {requested_type} yet.")
 
 
 def auth_list_command(args) -> None:
@@ -348,14 +348,14 @@ def auth_remove_command(args) -> None:
         oauth_file = get_hermes_home() / ".anthropic_oauth.json"
         if oauth_file.exists():
             oauth_file.unlink()
-            print("Cleared Hermes Anthropic OAuth credentials")
+            print("Cleared DAClaw Anthropic OAuth credentials")
 
     elif removed.source == "claude_code" and provider == "anthropic":
         from hermes_cli.auth import suppress_credential_source
         suppress_credential_source(provider, "claude_code")
         print("Suppressed claude_code credential — it will not be re-seeded.")
         print("Note: Claude Code credentials still live in ~/.claude/.credentials.json")
-        print("Run `hermes auth add anthropic` to re-enable if needed.")
+        print("Run `daclaw auth add anthropic` to re-enable if needed.")
 
 
 def auth_reset_command(args) -> None:
@@ -366,7 +366,7 @@ def auth_reset_command(args) -> None:
 
 
 def _interactive_auth() -> None:
-    """Interactive credential pool management when `hermes auth` is called bare."""
+    """Interactive credential pool management when `daclaw auth` is called bare."""
     # Show current pool status first
     print("Credential Pool Status")
     print("=" * 50)

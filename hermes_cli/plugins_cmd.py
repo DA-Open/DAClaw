@@ -1,4 +1,4 @@
-"""``hermes plugins`` CLI subcommand — install, update, remove, and list plugins.
+"""``daclaw plugins`` CLI subcommand — install, update, remove, and list plugins.
 
 Plugins are installed from Git repositories into ``~/.hermes/plugins/``.
 Supports full URLs and ``owner/repo`` shorthand (resolves to GitHub).
@@ -364,7 +364,7 @@ def cmd_install(identifier: str, force: bool = False) -> None:
                 console.print(
                     f"[red]Error:[/red] Plugin '{plugin_name}' already exists at {target}.\n"
                     f"Use [bold]--force[/bold] to remove and reinstall, or "
-                    f"[bold]hermes plugins update {plugin_name}[/bold] to pull latest."
+                    f"[bold]daclaw plugins update {plugin_name}[/bold] to pull latest."
                 )
                 sys.exit(1)
             console.print(f"[dim]  Removing existing {plugin_name}...[/dim]")
@@ -377,7 +377,7 @@ def cmd_install(identifier: str, force: bool = False) -> None:
     if not (target / "plugin.yaml").exists() and not (target / "__init__.py").exists():
         console.print(
             f"[yellow]Warning:[/yellow] {plugin_name} doesn't contain plugin.yaml "
-            f"or __init__.py. It may not be a valid Hermes plugin."
+            f"or __init__.py. It may not be a valid DAClaw plugin."
         )
 
     # Copy .example files to their real names (e.g. config.yaml.example → config.yaml)
@@ -392,7 +392,7 @@ def cmd_install(identifier: str, force: bool = False) -> None:
     _display_after_install(target, identifier)
 
     console.print("[dim]Restart the gateway for the plugin to take effect:[/dim]")
-    console.print("[dim]  hermes gateway restart[/dim]")
+    console.print("[dim]  daclaw gateway restart[/dim]")
     console.print()
 
 
@@ -550,7 +550,7 @@ def cmd_list() -> None:
     dirs = sorted(d for d in plugins_dir.iterdir() if d.is_dir())
     if not dirs:
         console.print("[dim]No plugins installed.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] daclaw plugins install owner/repo")
         return
 
     disabled = _get_disabled_set()
@@ -579,7 +579,7 @@ def cmd_list() -> None:
             except Exception:
                 pass
 
-        # Check if it's a git repo (installed via hermes plugins install)
+        # Check if it's a git repo (installed via daclaw plugins install)
         if (d / ".git").exists():
             source = "git"
 
@@ -590,8 +590,8 @@ def cmd_list() -> None:
     console.print()
     console.print(table)
     console.print()
-    console.print("[dim]Interactive toggle:[/dim] hermes plugins")
-    console.print("[dim]Enable/disable:[/dim] hermes plugins enable/disable <name>")
+    console.print("[dim]Interactive toggle:[/dim] daclaw plugins")
+    console.print("[dim]Enable/disable:[/dim] daclaw plugins enable/disable <name>")
 
 
 # ---------------------------------------------------------------------------
@@ -792,7 +792,7 @@ def cmd_toggle() -> None:
 
     if not has_plugins and not has_categories:
         console.print("[dim]No plugins installed and no provider categories available.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] daclaw plugins install owner/repo")
         return
 
     # Non-TTY fallback
@@ -1104,7 +1104,7 @@ def _run_composite_fallback(plugin_names, plugin_labels, plugin_selected,
 
 
 def plugins_command(args) -> None:
-    """Dispatch hermes plugins subcommands."""
+    """Dispatch daclaw plugins subcommands."""
     action = getattr(args, "plugins_action", None)
 
     if action == "install":

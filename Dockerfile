@@ -16,7 +16,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Non-root user for runtime; UID can be overridden via HERMES_UID at runtime
-RUN useradd -u 10000 -m -d /opt/data hermes
+RUN useradd -u 10000 -m -d /opt/data daclaw
 
 COPY --chmod=0755 --from=gosu_source /gosu /usr/local/bin/
 COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
@@ -31,9 +31,9 @@ RUN npm install --prefer-offline --no-audit && \
     npm install --prefer-offline --no-audit && \
     npm cache clean --force
 
-# Hand ownership to hermes user, then install Python deps in a virtualenv
-RUN chown -R hermes:hermes /opt/hermes
-USER hermes
+# Hand ownership to daclaw user, then install Python deps in a virtualenv
+RUN chown -R hermes:daclaw /opt/hermes
+USER daclaw
 
 RUN uv venv && \
     uv pip install --no-cache-dir -e ".[all]"

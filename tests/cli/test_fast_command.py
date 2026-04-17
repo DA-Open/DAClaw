@@ -53,7 +53,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.DAClawCLI._handle_fast_command(stub, "/fast")
 
         # Bare /fast shows status, does not change config
         mock_save.assert_not_called()
@@ -68,7 +68,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.DAClawCLI._handle_fast_command(stub, "/fast")
 
         mock_save.assert_not_called()
         printed = " ".join(str(c) for c in mock_cprint.call_args_list)
@@ -81,7 +81,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint"),
             patch.object(cli_mod, "save_config_value", return_value=True) as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast normal")
+            cli_mod.DAClawCLI._handle_fast_command(stub, "/fast normal")
 
         mock_save.assert_called_once_with("agent.service_tier", "normal")
         self.assertIsNone(stub.service_tier)
@@ -102,7 +102,7 @@ class TestHandleFastCommand(unittest.TestCase):
             patch.object(cli_mod, "_cprint") as mock_cprint,
             patch.object(cli_mod, "save_config_value") as mock_save,
         ):
-            cli_mod.HermesCLI._handle_fast_command(stub, "/fast")
+            cli_mod.DAClawCLI._handle_fast_command(stub, "/fast")
 
         mock_save.assert_not_called()
         self.assertTrue(mock_cprint.called)
@@ -161,15 +161,15 @@ class TestFastModeRouting(unittest.TestCase):
         cli_mod = _import_cli()
         stub = SimpleNamespace(provider="auto", requested_provider="auto", model="gpt-5.4", agent=None)
 
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.DAClawCLI._fast_command_available(stub) is True
 
     def test_fast_command_exposed_for_non_codex_models(self):
         cli_mod = _import_cli()
         stub = SimpleNamespace(provider="openai", requested_provider="openai", model="gpt-4.1", agent=None)
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.DAClawCLI._fast_command_available(stub) is True
 
         stub = SimpleNamespace(provider="openrouter", requested_provider="openrouter", model="o3", agent=None)
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.DAClawCLI._fast_command_available(stub) is True
 
     def test_turn_route_injects_overrides_without_provider_switch(self):
         """Fast mode should add request_overrides but NOT change the provider/runtime."""
@@ -203,7 +203,7 @@ class TestFastModeRouting(unittest.TestCase):
             "label": None,
             "signature": ("gpt-5.4", "openrouter", "https://openrouter.ai/api/v1", "chat_completions", None, ()),
         }):
-            route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+            route = cli_mod.DAClawCLI._resolve_turn_agent_config(stub, "hi")
 
         # Provider should NOT have changed
         assert route["runtime"]["provider"] == "openrouter"
@@ -241,7 +241,7 @@ class TestFastModeRouting(unittest.TestCase):
             "signature": ("gpt-5.3-codex", "openrouter", "https://openrouter.ai/api/v1", "chat_completions", None, ()),
         }
         with patch("agent.smart_model_routing.resolve_turn_route", return_value=primary_route):
-            route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+            route = cli_mod.DAClawCLI._resolve_turn_agent_config(stub, "hi")
 
         assert route["runtime"]["provider"] == "openrouter"
         assert route.get("request_overrides") is None
@@ -307,7 +307,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             provider="anthropic", requested_provider="anthropic",
             model="claude-opus-4-6", agent=None,
         )
-        assert cli_mod.HermesCLI._fast_command_available(stub) is True
+        assert cli_mod.DAClawCLI._fast_command_available(stub) is True
 
     def test_fast_command_hidden_for_anthropic_sonnet(self):
         cli_mod = _import_cli()
@@ -315,7 +315,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             provider="anthropic", requested_provider="anthropic",
             model="claude-sonnet-4-6", agent=None,
         )
-        assert cli_mod.HermesCLI._fast_command_available(stub) is False
+        assert cli_mod.DAClawCLI._fast_command_available(stub) is False
 
     def test_turn_route_injects_speed_for_anthropic(self):
         """Anthropic models should get speed:'fast' override, not service_tier."""
@@ -349,7 +349,7 @@ class TestAnthropicFastMode(unittest.TestCase):
             "label": None,
             "signature": ("claude-opus-4-6", "anthropic", "https://api.anthropic.com", "anthropic_messages", None, ()),
         }):
-            route = cli_mod.HermesCLI._resolve_turn_agent_config(stub, "hi")
+            route = cli_mod.DAClawCLI._resolve_turn_agent_config(stub, "hi")
 
         assert route["runtime"]["provider"] == "anthropic"
         assert route["request_overrides"] == {"speed": "fast"}

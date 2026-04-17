@@ -1,5 +1,5 @@
 """
-Profile management for multiple isolated Hermes instances.
+Profile management for multiple isolated DAClaw instances.
 
 Each profile is a fully independent HERMES_HOME directory with its own
 config.yaml, .env, memory, sessions, skills, gateway, cron, and logs.
@@ -10,13 +10,13 @@ zero migration needed.
 
 Usage::
 
-    hermes profile create coder          # fresh profile + bundled skills
-    hermes profile create coder --clone  # also copy config, .env, SOUL.md
-    hermes profile create coder --clone-all  # full copy of source profile
+    daclaw profile create coder          # fresh profile + bundled skills
+    daclaw profile create coder --clone  # also copy config, .env, SOUL.md
+    daclaw profile create coder --clone-all  # full copy of source profile
     coder chat                           # use via wrapper alias
-    hermes -p coder chat                 # or via flag
-    hermes profile use coder             # set as sticky default
-    hermes profile delete coder          # remove profile + alias + service
+    daclaw -p coder chat                 # or via flag
+    daclaw profile use coder             # set as sticky default
+    daclaw profile delete coder          # remove profile + alias + service
 """
 
 import json
@@ -77,7 +77,7 @@ _CLONE_ALL_STRIP = [
 # export is a portable, reasonable-size archive of actual profile data.
 _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
     # Infrastructure
-    "hermes-agent",         # repo checkout (multi-GB)
+    "daclaw-agent",         # repo checkout (multi-GB)
     ".worktrees",           # git worktrees
     "profiles",             # other profiles — never recursive-export
     "bin",                  # installed binaries (tirith, etc.)
@@ -101,10 +101,10 @@ _DEFAULT_EXPORT_EXCLUDE_ROOT = frozenset({
 
 # Names that cannot be used as profile aliases
 _RESERVED_NAMES = frozenset({
-    "hermes", "default", "test", "tmp", "root", "sudo",
+    "daclaw", "default", "test", "tmp", "root", "sudo",
 })
 
-# Hermes subcommands that cannot be used as profile names/aliases
+# DAClaw subcommands that cannot be used as profile names/aliases
 _HERMES_SUBCOMMANDS = frozenset({
     "chat", "model", "gateway", "setup", "whatsapp", "login", "logout",
     "status", "cron", "doctor", "dump", "config", "pairing", "skills", "tools",
@@ -120,7 +120,7 @@ _HERMES_SUBCOMMANDS = frozenset({
 def _get_profiles_root() -> Path:
     """Return the directory where named profiles are stored.
 
-    Anchored to the hermes root, NOT to the current HERMES_HOME
+    Anchored to the daclaw root, NOT to the current HERMES_HOME
     (which may itself be a profile).  This ensures ``coder profile list``
     can see all profiles.
 
@@ -188,12 +188,12 @@ def profile_exists(name: str) -> bool:
 def check_alias_collision(name: str) -> Optional[str]:
     """Return a human-readable collision message, or None if the name is safe.
 
-    Checks: reserved names, hermes subcommands, existing binaries in PATH.
+    Checks: reserved names, daclaw subcommands, existing binaries in PATH.
     """
     if name in _RESERVED_NAMES:
         return f"'{name}' is a reserved name"
     if name in _HERMES_SUBCOMMANDS:
-        return f"'{name}' conflicts with a hermes subcommand"
+        return f"'{name}' conflicts with a daclaw subcommand"
 
     # Check existing commands in PATH
     wrapper_dir = _get_wrapper_dir()
@@ -207,7 +207,7 @@ def check_alias_collision(name: str) -> Optional[str]:
             if existing_path == str(wrapper_dir / name):
                 try:
                     content = (wrapper_dir / name).read_text()
-                    if "hermes -p" in content:
+                    if "daclaw -p" in content:
                         return None  # it's our wrapper, safe to overwrite
                 except Exception:
                     pass
@@ -238,7 +238,7 @@ def create_wrapper_script(name: str) -> Optional[Path]:
 
     wrapper_path = wrapper_dir / name
     try:
-        wrapper_path.write_text(f'#!/bin/sh\nexec hermes -p {name} "$@"\n')
+        wrapper_path.write_text(f'#!/bin/sh\nexec daclaw -p {name} "$@"\n')
         wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
         return wrapper_path
     except OSError as e:
@@ -253,7 +253,7 @@ def remove_wrapper_script(name: str) -> bool:
         try:
             # Verify it's our wrapper before removing
             content = wrapper_path.read_text()
-            if "hermes -p" in content:
+            if "daclaw -p" in content:
                 wrapper_path.unlink()
                 return True
         except Exception:
@@ -518,7 +518,7 @@ def delete_profile(name: str, yes: bool = False) -> Path:
     if name == "default":
         raise ValueError(
             "Cannot delete the default profile (~/.hermes).\n"
-            "To remove everything, use: hermes uninstall"
+            "To remove everything, use: daclaw uninstall"
         )
 
     profile_dir = get_profile_dir(name)
@@ -707,7 +707,7 @@ def set_active_profile(name: str) -> None:
     if name != "default" and not profile_exists(name):
         raise FileNotFoundError(
             f"Profile '{name}' does not exist. "
-            f"Create it with: hermes profile create {name}"
+            f"Create it with: daclaw profile create {name}"
         )
 
     path = _get_active_profile_path()
@@ -903,7 +903,7 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
     if not inferred_name:
         raise ValueError(
             "Cannot determine profile name from archive. "
-            "Specify it explicitly: hermes profile import <archive> --name <name>"
+            "Specify it explicitly: daclaw profile import <archive> --name <name>"
         )
 
     # Archives exported from the default profile have "default/" as top-level
@@ -912,7 +912,7 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
     if inferred_name == "default":
         raise ValueError(
             "Cannot import as 'default' — that is the built-in root profile (~/.hermes). "
-            "Specify a different name: hermes profile import <archive> --name <name>"
+            "Specify a different name: daclaw profile import <archive> --name <name>"
         )
 
     validate_profile_name(inferred_name)
@@ -992,9 +992,9 @@ def rename_profile(old_name: str, new_name: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def generate_bash_completion() -> str:
-    """Generate a bash completion script for hermes profile names."""
-    return '''# Hermes Agent profile completion
-# Add to ~/.bashrc: eval "$(hermes completion bash)"
+    """Generate a bash completion script for daclaw profile names."""
+    return '''# DAClaw Agent profile completion
+# Add to ~/.bashrc: eval "$(daclaw completion bash)"
 
 _hermes_profiles() {
     local profiles_dir="$HOME/.hermes/profiles"
@@ -1037,15 +1037,15 @@ _hermes_completion() {
     fi
 }
 
-complete -F _hermes_completion hermes
+complete -F _hermes_completion daclaw
 '''
 
 
 def generate_zsh_completion() -> str:
-    """Generate a zsh completion script for hermes profile names."""
-    return '''#compdef hermes
-# Hermes Agent profile completion
-# Add to ~/.zshrc: eval "$(hermes completion zsh)"
+    """Generate a zsh completion script for daclaw profile names."""
+    return '''#compdef daclaw
+# DAClaw Agent profile completion
+# Add to ~/.zshrc: eval "$(daclaw completion zsh)"
 
 _hermes() {
     local -a profiles
@@ -1079,7 +1079,7 @@ _hermes "$@"
 def resolve_profile_env(profile_name: str) -> str:
     """Resolve a profile name to a HERMES_HOME path string.
 
-    Called early in the CLI entry point, before any hermes modules
+    Called early in the CLI entry point, before any daclaw modules
     are imported, to set the HERMES_HOME environment variable.
     """
     validate_profile_name(profile_name)
@@ -1088,7 +1088,7 @@ def resolve_profile_env(profile_name: str) -> str:
     if profile_name != "default" and not profile_dir.is_dir():
         raise FileNotFoundError(
             f"Profile '{profile_name}' does not exist. "
-            f"Create it with: hermes profile create {profile_name}"
+            f"Create it with: daclaw profile create {profile_name}"
         )
 
     return str(profile_dir)

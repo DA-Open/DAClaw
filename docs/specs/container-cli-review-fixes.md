@@ -1,6 +1,6 @@
 # Container-Aware CLI Review Fixes Spec
 
-**PR:** NousResearch/hermes-agent#7543
+**PR:** NousResearch/daclaw-agent#7543
 **Review:** cursor[bot] bugbot review (4094049442) + two prior rounds
 **Date:** 2026-04-12
 **Branch:** `feat/container-aware-cli-clean`
@@ -153,14 +153,14 @@ def _exec_in_container(container_info: dict, cli_args: list):
                     f'    commands = [{{ command = "{runtime}"; options = [ "NOPASSWD" ]; }}];\n'
                     f'  }}];\n'
                     f"\n"
-                    f"Or run: sudo hermes {' '.join(cli_args)}",
+                    f"Or run: sudo daclaw {' '.join(cli_args)}",
                     file=sys.stderr,
                 )
                 sys.exit(1)
         else:
             print(
                 f"Error: container '{container_name}' not found via {backend}.\n"
-                f"The container may be running under root. Try: sudo hermes {' '.join(cli_args)}",
+                f"The container may be running under root. Try: sudo daclaw {' '.join(cli_args)}",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -262,7 +262,7 @@ Revised: 2 branches.
 if [ -d "${symlinkPath}" ] && [ ! -L "${symlinkPath}" ]; then
   # Real directory — back it up, then create symlink
   _backup="${symlinkPath}.bak.$(date +%s)"
-  echo "hermes-agent: backing up existing ${symlinkPath} to $_backup"
+  echo "daclaw-agent: backing up existing ${symlinkPath} to $_backup"
   mv "${symlinkPath}" "$_backup"
 fi
 # For everything else (symlink, doesn't exist, etc.) — just force-create

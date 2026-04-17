@@ -6,7 +6,7 @@ description: "AI-native persistent memory via Honcho — dialectic reasoning, mu
 
 # Honcho Memory
 
-[Honcho](https://github.com/plastic-labs/honcho) is an AI-native memory backend that adds dialectic reasoning and deep user modeling on top of Hermes's built-in memory system. Instead of simple key-value storage, Honcho maintains a running model of who the user is — their preferences, communication style, goals, and patterns — by reasoning about conversations after they happen.
+[Honcho](https://github.com/plastic-labs/honcho) is an AI-native memory backend that adds dialectic reasoning and deep user modeling on top of DAClaw's built-in memory system. Instead of simple key-value storage, Honcho maintains a running model of who the user is — their preferences, communication style, goals, and patterns — by reasoning about conversations after they happen.
 
 :::info Honcho is a Memory Provider Plugin
 Honcho is integrated into the [Memory Providers](./memory-providers.md) system. All features below are available through the unified memory provider interface.
@@ -28,12 +28,12 @@ Honcho is integrated into the [Memory Providers](./memory-providers.md) system. 
 
 **Session-scoped context**: Base context now includes the session summary alongside the user representation and peer card. This gives the agent awareness of what has already been discussed in the current session, reducing repetition and enabling continuity.
 
-**Multi-agent profiles**: When multiple Hermes instances talk to the same user (e.g., a coding assistant and a personal assistant), Honcho maintains separate "peer" profiles. Each peer sees only its own observations and conclusions, preventing cross-contamination of context.
+**Multi-agent profiles**: When multiple DAClaw instances talk to the same user (e.g., a coding assistant and a personal assistant), Honcho maintains separate "peer" profiles. Each peer sees only its own observations and conclusions, preventing cross-contamination of context.
 
 ## Setup
 
 ```bash
-hermes memory setup    # select "honcho" from the provider list
+daclaw memory setup    # select "honcho" from the provider list
 ```
 
 Or configure manually:
@@ -119,7 +119,7 @@ Honcho is configured in `~/.honcho/config.json` (global) or `$HERMES_HOME/honcho
 | `sessionStrategy` | `'per-directory'` | `per-directory`, `per-repo`, `per-session`, or `global` |
 
 **Session strategy** controls how Honcho sessions map to your work:
-- `per-session` — each `hermes` run gets a fresh session. Clean starts, memory via tools. Recommended for new users.
+- `per-session` — each `daclaw` run gets a fresh session. Clean starts, memory via tools. Recommended for new users.
 - `per-directory` — one Honcho session per working directory. Context accumulates across runs.
 - `per-repo` — one session per git repository.
 - `global` — single session across all directories.
@@ -157,27 +157,27 @@ When Honcho is active as the memory provider, five tools become available:
 ## CLI Commands
 
 ```bash
-hermes honcho status          # Connection status, config, and key settings
-hermes honcho setup           # Interactive setup wizard
-hermes honcho strategy        # Show or set session strategy
-hermes honcho peer            # Update peer names for multi-agent setups
-hermes honcho mode            # Show or set recall mode
-hermes honcho tokens          # Show or set context token budget
-hermes honcho identity        # Show Honcho peer identity
-hermes honcho sync            # Sync host blocks for all profiles
-hermes honcho enable          # Enable Honcho
-hermes honcho disable         # Disable Honcho
+daclaw honcho status          # Connection status, config, and key settings
+daclaw honcho setup           # Interactive setup wizard
+daclaw honcho strategy        # Show or set session strategy
+daclaw honcho peer            # Update peer names for multi-agent setups
+daclaw honcho mode            # Show or set recall mode
+daclaw honcho tokens          # Show or set context token budget
+daclaw honcho identity        # Show Honcho peer identity
+daclaw honcho sync            # Sync host blocks for all profiles
+daclaw honcho enable          # Enable Honcho
+daclaw honcho disable         # Disable Honcho
 ```
 
-## Migrating from `hermes honcho`
+## Migrating from `daclaw honcho`
 
-If you previously used the standalone `hermes honcho setup`:
+If you previously used the standalone `daclaw honcho setup`:
 
 1. Your existing configuration (`honcho.json` or `~/.honcho/config.json`) is preserved
 2. Your server-side data (memories, conclusions, user profiles) is intact
 3. Set `memory.provider: honcho` in config.yaml to reactivate
 
-No re-login or re-setup needed. Run `hermes memory setup` and select "honcho" — the wizard detects your existing config.
+No re-login or re-setup needed. Run `daclaw memory setup` and select "honcho" — the wizard detects your existing config.
 
 ## Full Documentation
 

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 11
 title: "Cron Internals"
-description: "How Hermes stores, schedules, edits, pauses, skill-loads, and delivers cron jobs"
+description: "How DAClaw stores, schedules, edits, pauses, skill-loads, and delivers cron jobs"
 ---
 
 # Cron Internals
@@ -16,7 +16,7 @@ The cron subsystem provides scheduled task execution — from simple one-shot de
 | `cron/scheduler.py` | Scheduler loop — due-job detection, execution, repeat tracking |
 | `tools/cronjob_tools.py` | Model-facing `cronjob` tool registration and handler |
 | `gateway/run.py` | Gateway integration — cron ticking in the long-running loop |
-| `hermes_cli/cron.py` | CLI `hermes cron` subcommands |
+| `hermes_cli/cron.py` | CLI `daclaw cron` subcommands |
 
 ## Scheduling Model
 
@@ -104,7 +104,7 @@ tick()
 
 In gateway mode, the scheduler tick is integrated into the gateway's main event loop. The gateway calls `scheduler.tick()` on its periodic maintenance cycle, which runs alongside message handling.
 
-In CLI mode, cron jobs only fire when `hermes cron` commands are run or during active CLI sessions.
+In CLI mode, cron jobs only fire when `daclaw cron` commands are run or during active CLI sessions.
 
 ### Fresh Session Isolation
 
@@ -209,16 +209,16 @@ The scheduler uses file-based locking to prevent overlapping ticks from executin
 
 ## CLI Interface
 
-The `hermes cron` CLI provides direct job management:
+The `daclaw cron` CLI provides direct job management:
 
 ```bash
-hermes cron list                    # Show all jobs
-hermes cron create                  # Interactive job creation (alias: add)
-hermes cron edit <job_id>           # Edit job configuration
-hermes cron pause <job_id>          # Pause a running job
-hermes cron resume <job_id>         # Resume a paused job
-hermes cron run <job_id>            # Trigger immediate execution
-hermes cron remove <job_id>         # Delete a job
+daclaw cron list                    # Show all jobs
+daclaw cron create                  # Interactive job creation (alias: add)
+daclaw cron edit <job_id>           # Edit job configuration
+daclaw cron pause <job_id>          # Pause a running job
+daclaw cron resume <job_id>         # Resume a paused job
+daclaw cron run <job_id>            # Trigger immediate execution
+daclaw cron remove <job_id>         # Delete a job
 ```
 
 ## Related Docs

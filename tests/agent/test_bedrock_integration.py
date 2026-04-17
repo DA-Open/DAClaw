@@ -266,4 +266,4 @@ class TestPackaging:
     def test_bedrock_in_all_extra(self):
         from pathlib import Path
         content = (Path(__file__).parent.parent.parent / "pyproject.toml").read_text()
-        assert '"hermes-agent[bedrock]"' in content
+        assert '"daclaw-agent[bedrock]"' in content

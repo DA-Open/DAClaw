@@ -1,4 +1,4 @@
-"""Tests for acp_adapter.server — HermesACPAgent ACP server."""
+"""Tests for acp_adapter.server — DAClawACPAgent ACP server."""
 
 import asyncio
 import os
@@ -26,7 +26,7 @@ from acp.schema import (
     TextContentBlock,
     Usage,
 )
-from acp_adapter.server import HermesACPAgent, HERMES_VERSION
+from acp_adapter.server import DAClawACPAgent, HERMES_VERSION
 from acp_adapter.session import SessionManager
 from hermes_state import SessionDB
 
@@ -39,8 +39,8 @@ def mock_manager():
 
 @pytest.fixture()
 def agent(mock_manager):
-    """HermesACPAgent backed by a mock session manager."""
-    return HermesACPAgent(session_manager=mock_manager)
+    """DAClawACPAgent backed by a mock session manager."""
+    return DAClawACPAgent(session_manager=mock_manager)
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +60,7 @@ class TestInitialize:
         resp = await agent.initialize(protocol_version=1)
         assert resp.agent_info is not None
         assert isinstance(resp.agent_info, Implementation)
-        assert resp.agent_info.name == "hermes-agent"
+        assert resp.agent_info.name == "daclaw-agent"
         assert resp.agent_info.version == HERMES_VERSION
 
     @pytest.mark.asyncio
@@ -668,7 +668,7 @@ class TestSlashCommands:
         manager = SessionManager(db=SessionDB(tmp_path / "state.db"))
 
         with patch("run_agent.AIAgent", side_effect=fake_agent):
-            acp_agent = HermesACPAgent(session_manager=manager)
+            acp_agent = DAClawACPAgent(session_manager=manager)
             state = manager.create_session(cwd="/tmp")
             result = acp_agent._cmd_model("anthropic:claude-sonnet-4-6", state)
 

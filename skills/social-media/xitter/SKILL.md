@@ -2,7 +2,7 @@
 name: xitter
 description: Interact with X/Twitter via the x-cli terminal client using official X API credentials. Use for posting, reading timelines, searching tweets, liking, retweeting, bookmarks, mentions, and user lookups.
 version: 1.0.0
-author: Siddharth Balyan + Hermes Agent
+author: Siddharth Balyan + DAClaw Agent
 license: MIT
 platforms: [linux, macos]
 prerequisites:
@@ -25,7 +25,7 @@ This skill is for:
 - liking and retweeting
 - checking mentions and bookmarks
 
-This skill intentionally does not vendor a separate CLI implementation into Hermes. Install and use upstream `x-cli` instead.
+This skill intentionally does not vendor a separate CLI implementation into DAClaw. Install and use upstream `x-cli` instead.
 
 ## Important Cost / Access Note
 

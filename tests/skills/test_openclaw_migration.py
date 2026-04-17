@@ -48,12 +48,12 @@ def test_extract_markdown_entries_promotes_heading_context():
 
 ### Active Projects
 
-- Hermes Agent
+- DAClaw Agent
 """
     entries = mod.extract_markdown_entries(text)
     assert "Tyler Williams: Founder of VANTA Research" in entries
     assert "Tyler Williams: Timezone: America/Los_Angeles" in entries
-    assert "Tyler Williams > Active Projects: Hermes Agent" in entries
+    assert "Tyler Williams > Active Projects: DAClaw Agent" in entries
 
 
 def test_merge_entries_respects_limit_and_reports_overflow():
@@ -727,7 +727,7 @@ def test_cron_store_is_archived_without_config_cron_section(tmp_path: Path):
     assert Path(archived_store["destination"]).joinpath("jobs.json").exists()
 
     notes_text = (output_dir / "MIGRATION_NOTES.md").read_text(encoding="utf-8")
-    assert "Run `hermes cron` to recreate scheduled tasks" in notes_text
+    assert "Run `daclaw cron` to recreate scheduled tasks" in notes_text
     assert "archive/cron-config.json" not in notes_text
 
 
@@ -761,19 +761,19 @@ def test_skill_installs_cleanly_under_skills_guard():
 
 def test_rebrand_text_replaces_openclaw_variants():
     mod = load_module()
-    assert mod.rebrand_text("OpenClaw prefers Python 3.11") == "Hermes prefers Python 3.11"
-    assert mod.rebrand_text("I told Open Claw to use dark mode") == "I told Hermes to use dark mode"
-    assert mod.rebrand_text("Open-Claw config is great") == "Hermes config is great"
-    assert mod.rebrand_text("openclaw should always respond concisely") == "Hermes should always respond concisely"
-    assert mod.rebrand_text("OPENCLAW uses tools well") == "Hermes uses tools well"
+    assert mod.rebrand_text("OpenClaw prefers Python 3.11") == "DAClaw prefers Python 3.11"
+    assert mod.rebrand_text("I told Open Claw to use dark mode") == "I told DAClaw to use dark mode"
+    assert mod.rebrand_text("Open-Claw config is great") == "DAClaw config is great"
+    assert mod.rebrand_text("openclaw should always respond concisely") == "DAClaw should always respond concisely"
+    assert mod.rebrand_text("OPENCLAW uses tools well") == "DAClaw uses tools well"
 
 
 def test_rebrand_text_replaces_legacy_bot_names():
     mod = load_module()
-    assert mod.rebrand_text("ClawdBot remembers my timezone") == "Hermes remembers my timezone"
-    assert mod.rebrand_text("clawdbot prefers tabs") == "Hermes prefers tabs"
-    assert mod.rebrand_text("MoltBot was configured for Spanish") == "Hermes was configured for Spanish"
-    assert mod.rebrand_text("moltbot uses Python") == "Hermes uses Python"
+    assert mod.rebrand_text("ClawdBot remembers my timezone") == "DAClaw remembers my timezone"
+    assert mod.rebrand_text("clawdbot prefers tabs") == "DAClaw prefers tabs"
+    assert mod.rebrand_text("MoltBot was configured for Spanish") == "DAClaw was configured for Spanish"
+    assert mod.rebrand_text("moltbot uses Python") == "DAClaw uses Python"
 
 
 def test_rebrand_text_preserves_unrelated_content():
@@ -785,7 +785,7 @@ def test_rebrand_text_preserves_unrelated_content():
 def test_rebrand_text_handles_multiple_replacements():
     mod = load_module()
     text = "OpenClaw said to ask ClawdBot about MoltBot settings"
-    assert mod.rebrand_text(text) == "Hermes said to ask Hermes about Hermes settings"
+    assert mod.rebrand_text(text) == "DAClaw said to ask DAClaw about DAClaw settings"
 
 
 def test_migrate_memory_rebrands_entries(tmp_path):
@@ -800,7 +800,7 @@ def test_migrate_memory_rebrands_entries(tmp_path):
         encoding="utf-8",
     )
 
-    target_root = tmp_path / "hermes"
+    target_root = tmp_path / "daclaw"
     target_root.mkdir()
     (target_root / "memories").mkdir()
 
@@ -819,7 +819,7 @@ def test_migrate_memory_rebrands_entries(tmp_path):
     result = (target_root / "memories" / "MEMORY.md").read_text(encoding="utf-8")
     assert "OpenClaw" not in result
     assert "ClawdBot" not in result
-    assert "Hermes" in result
+    assert "DAClaw" in result
 
 
 def test_migrate_soul_rebrands_content(tmp_path):
@@ -831,7 +831,7 @@ def test_migrate_soul_rebrands_content(tmp_path):
     soul_md = workspace / "SOUL.md"
     soul_md.write_text("You are OpenClaw, an AI assistant made by SparkLab.", encoding="utf-8")
 
-    target_root = tmp_path / "hermes"
+    target_root = tmp_path / "daclaw"
     target_root.mkdir()
 
     migrator = mod.Migrator(
@@ -848,4 +848,4 @@ def test_migrate_soul_rebrands_content(tmp_path):
 
     result = (target_root / "SOUL.md").read_text(encoding="utf-8")
     assert "OpenClaw" not in result
-    assert "You are Hermes" in result
+    assert "You are DAClaw" in result

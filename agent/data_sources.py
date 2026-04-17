@@ -1,6 +1,6 @@
 """Data source adapters for Data Agent workflows.
 
-This module provides a small abstraction layer so Hermes can expose one
+This module provides a small abstraction layer so DAClaw can expose one
 data-analysis entry point while supporting multiple backends (CSV now, SQL
 later) behind the scenes.
 """

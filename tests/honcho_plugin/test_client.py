@@ -22,8 +22,8 @@ from plugins.memory.honcho.client import (
 class TestHonchoClientConfigDefaults:
     def test_default_values(self):
         config = HonchoClientConfig()
-        assert config.host == "hermes"
-        assert config.workspace_id == "hermes"
+        assert config.host == "daclaw"
+        assert config.workspace_id == "daclaw"
         assert config.api_key is None
         assert config.environment == "production"
         assert config.timeout is None
@@ -109,7 +109,7 @@ class TestFromGlobalConfig:
             "sessionPeerPrefix": True,
             "sessions": {"/home/user/proj": "my-session"},
             "hosts": {
-                "hermes": {
+                "daclaw": {
                     "workspace": "override-ws",
                     "aiPeer": "override-ai",
                 }
@@ -137,7 +137,7 @@ class TestFromGlobalConfig:
             "workspace": "root-ws",
             "aiPeer": "root-ai",
             "hosts": {
-                "hermes": {
+                "daclaw": {
                     "workspace": "host-ws",
                     "aiPeer": "host-ai",
                 }
@@ -194,7 +194,7 @@ class TestFromGlobalConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "contextTokens": 1000,
-            "hosts": {"hermes": {"contextTokens": 2000}},
+            "hosts": {"daclaw": {"contextTokens": 2000}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.context_tokens == 2000
@@ -205,7 +205,7 @@ class TestFromGlobalConfig:
         config_file.write_text(json.dumps({
             "apiKey": "key",
             "recallMode": "tools",
-            "hosts": {"hermes": {"recallMode": "context"}},
+            "hosts": {"daclaw": {"recallMode": "context"}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.recall_mode == "context"
@@ -256,7 +256,7 @@ class TestFromGlobalConfig:
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "baseUrl": "http://root:9000",
-            "hosts": {"hermes": {"baseUrl": "http://host-block:9001"}},
+            "hosts": {"daclaw": {"baseUrl": "http://host-block:9001"}},
         }))
 
         config = HonchoClientConfig.from_global_config(config_path=config_file)
@@ -306,10 +306,10 @@ class TestResolveSessionName:
     def test_per_repo_uses_git_root(self):
         config = HonchoClientConfig(session_strategy="per-repo")
         with patch.object(
-            HonchoClientConfig, "_git_repo_name", return_value="hermes-agent"
+            HonchoClientConfig, "_git_repo_name", return_value="daclaw-agent"
         ):
-            result = config.resolve_session_name("/home/user/hermes-agent/subdir")
-        assert result == "hermes-agent"
+            result = config.resolve_session_name("/home/user/daclaw-agent/subdir")
+        assert result == "daclaw-agent"
 
     def test_per_repo_with_peer_prefix(self):
         config = HonchoClientConfig(
@@ -340,7 +340,7 @@ class TestResolveSessionName:
 
 class TestResolveConfigPath:
     def test_prefers_hermes_home_when_exists(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         local_cfg = hermes_home / "honcho.json"
         local_cfg.write_text('{"apiKey": "local"}')
@@ -350,7 +350,7 @@ class TestResolveConfigPath:
         assert result == local_cfg
 
     def test_falls_back_to_global_when_no_local(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         # No honcho.json in HERMES_HOME — also isolate ~/.hermes so
         # the default-profile fallback doesn't hit the real filesystem.
@@ -373,7 +373,7 @@ class TestResolveConfigPath:
         assert result == GLOBAL_CONFIG_PATH
 
     def test_from_global_config_uses_local_path(self, tmp_path):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         local_cfg = hermes_home / "honcho.json"
         local_cfg.write_text(json.dumps({
@@ -393,7 +393,7 @@ class TestResolveActiveHost:
         with patch.dict(os.environ, {}, clear=True):
             os.environ.pop("HERMES_HONCHO_HOST", None)
             os.environ.pop("HERMES_HOME", None)
-            assert resolve_active_host() == "hermes"
+            assert resolve_active_host() == "daclaw"
 
     def test_explicit_env_var_wins(self):
         with patch.dict(os.environ, {"HERMES_HONCHO_HOST": "hermes.coder"}):
@@ -409,13 +409,13 @@ class TestResolveActiveHost:
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERMES_HONCHO_HOST", None)
             with patch("hermes_cli.profiles.get_active_profile_name", return_value="default"):
-                assert resolve_active_host() == "hermes"
+                assert resolve_active_host() == "daclaw"
 
     def test_custom_profile_returns_hermes(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("HERMES_HONCHO_HOST", None)
             with patch("hermes_cli.profiles.get_active_profile_name", return_value="custom"):
-                assert resolve_active_host() == "hermes"
+                assert resolve_active_host() == "daclaw"
 
     def test_profiles_import_failure_falls_back(self):
         import sys
@@ -425,7 +425,7 @@ class TestResolveActiveHost:
             saved = sys.modules.get("hermes_cli.profiles")
             sys.modules["hermes_cli.profiles"] = None  # type: ignore
             try:
-                assert resolve_active_host() == "hermes"
+                assert resolve_active_host() == "daclaw"
             finally:
                 if saved is not None:
                     sys.modules["hermes_cli.profiles"] = saved
@@ -438,21 +438,21 @@ class TestProfileScopedConfig:
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
             config = HonchoClientConfig.from_env(host="hermes.coder")
         assert config.host == "hermes.coder"
-        assert config.workspace_id == "hermes"  # shared workspace
+        assert config.workspace_id == "daclaw"  # shared workspace
         assert config.ai_peer == "hermes.coder"
 
     def test_from_env_default_workspace_preserved_for_default_host(self):
         with patch.dict(os.environ, {"HONCHO_API_KEY": "key"}):
-            config = HonchoClientConfig.from_env(host="hermes")
-        assert config.host == "hermes"
-        assert config.workspace_id == "hermes"
+            config = HonchoClientConfig.from_env(host="daclaw")
+        assert config.host == "daclaw"
+        assert config.workspace_id == "daclaw"
 
     def test_from_global_config_reads_profile_host_block(self, tmp_path):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({
             "apiKey": "shared-key",
             "hosts": {
-                "hermes": {"aiPeer": "hermes", "peerName": "alice"},
+                "daclaw": {"aiPeer": "daclaw", "peerName": "alice"},
                 "hermes.coder": {
                     "aiPeer": "hermes.coder",
                     "peerName": "alice-coder",
@@ -490,7 +490,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {"enabled": True, "aiPeer": "hermes"}},
+            "hosts": {"daclaw": {"enabled": True, "aiPeer": "daclaw"}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "unified"
@@ -507,7 +507,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {"enabled": True, "observationMode": "directional"}},
+            "hosts": {"daclaw": {"enabled": True, "observationMode": "directional"}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "directional"
@@ -518,7 +518,7 @@ class TestObservationModeMigration:
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
             "observationMode": "unified",
-            "hosts": {"hermes": {"enabled": True}},
+            "hosts": {"daclaw": {"enabled": True}},
         }))
         cfg = HonchoClientConfig.from_global_config(config_path=cfg_file)
         assert cfg.observation_mode == "unified"
@@ -528,7 +528,7 @@ class TestObservationModeMigration:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text(json.dumps({
             "apiKey": "k",
-            "hosts": {"hermes": {
+            "hosts": {"daclaw": {
                 "enabled": True,
                 "observation": {
                     "user": {"observeMe": True, "observeOthers": False},
@@ -558,7 +558,7 @@ class TestGetHonchoClient:
         cfg = HonchoClientConfig(
             api_key="test-key",
             timeout=91.0,
-            workspace_id="hermes",
+            workspace_id="daclaw",
             environment="production",
         )
 
@@ -577,7 +577,7 @@ class TestGetHonchoClient:
         fake_honcho = MagicMock(name="Honcho")
         cfg = HonchoClientConfig(
             api_key="test-key",
-            workspace_id="hermes",
+            workspace_id="daclaw",
             environment="production",
         )
 
@@ -597,7 +597,7 @@ class TestGetHonchoClient:
         fake_honcho = MagicMock(name="Honcho")
         cfg = HonchoClientConfig(
             api_key="test-key",
-            workspace_id="hermes",
+            workspace_id="daclaw",
             environment="production",
         )
 
@@ -686,7 +686,7 @@ class TestDialecticDepthParsing:
         config_file.write_text(json.dumps({
             "apiKey": "***",
             "dialecticDepth": 1,
-            "hosts": {"hermes": {"dialecticDepth": 3}},
+            "hosts": {"daclaw": {"dialecticDepth": 3}},
         }))
         config = HonchoClientConfig.from_global_config(config_path=config_file)
         assert config.dialectic_depth == 3

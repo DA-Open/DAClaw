@@ -322,7 +322,7 @@ def _get_named_custom_provider(requested_provider: str) -> Optional[Dict[str, An
         logger.warning(
             "custom_providers in config.yaml is a dict, not a list. "
             "Each entry must be prefixed with '-' in YAML. "
-            "Run 'hermes doctor' for details."
+            "Run 'daclaw doctor' for details."
         )
         return None
 
@@ -715,7 +715,7 @@ def resolve_runtime_provider(
         # For Nous, the pool entry's runtime_api_key is the agent_key — a
         # short-lived inference credential (~30 min TTL).  The pool doesn't
         # refresh it during selection (that would trigger network calls in
-        # non-runtime contexts like `hermes auth list`).  If the key is
+        # non-runtime contexts like `daclaw auth list`).  If the key is
         # expired, clear pool_api_key so we fall through to
         # resolve_nous_runtime_credentials() which handles refresh + mint.
         if provider == "nous" and entry is not None and pool_api_key:

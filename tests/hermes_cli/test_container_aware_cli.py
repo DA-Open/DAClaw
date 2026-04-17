@@ -33,7 +33,7 @@ def container_env(tmp_path, monkeypatch):
     container_mode.write_text(
         "# Written by NixOS activation script. Do not edit manually.\n"
         "backend=podman\n"
-        "container_name=hermes-agent\n"
+        "container_name=daclaw-agent\n"
         "exec_user=hermes\n"
         "hermes_bin=/data/current-package/bin/hermes\n"
     )
@@ -47,8 +47,8 @@ def test_get_container_exec_info_returns_metadata(container_env):
 
     assert info is not None
     assert info["backend"] == "podman"
-    assert info["container_name"] == "hermes-agent"
-    assert info["exec_user"] == "hermes"
+    assert info["container_name"] == "daclaw-agent"
+    assert info["exec_user"] == "daclaw"
     assert info["hermes_bin"] == "/data/current-package/bin/hermes"
 
 
@@ -112,8 +112,8 @@ def test_get_container_exec_info_defaults():
 
         assert info is not None
         assert info["backend"] == "docker"
-        assert info["container_name"] == "hermes-agent"
-        assert info["exec_user"] == "hermes"
+        assert info["container_name"] == "daclaw-agent"
+        assert info["exec_user"] == "daclaw"
         assert info["hermes_bin"] == "/data/current-package/bin/hermes"
 
 
@@ -152,8 +152,8 @@ def test_get_container_exec_info_crashes_on_permission_error(container_env):
 def docker_container_info():
     return {
         "backend": "docker",
-        "container_name": "hermes-agent",
-        "exec_user": "hermes",
+        "container_name": "daclaw-agent",
+        "exec_user": "daclaw",
         "hermes_bin": "/data/current-package/bin/hermes",
     }
 
@@ -162,8 +162,8 @@ def docker_container_info():
 def podman_container_info():
     return {
         "backend": "podman",
-        "container_name": "hermes-agent",
-        "exec_user": "hermes",
+        "container_name": "daclaw-agent",
+        "exec_user": "daclaw",
         "hermes_bin": "/data/current-package/bin/hermes",
     }
 
@@ -190,12 +190,12 @@ def test_exec_in_container_calls_execvp(docker_container_info):
     assert cmd[1] == "exec"
     assert "-it" in cmd
     idx_u = cmd.index("-u")
-    assert cmd[idx_u + 1] == "hermes"
+    assert cmd[idx_u + 1] == "daclaw"
     e_indices = [i for i, v in enumerate(cmd) if v == "-e"]
     e_values = [cmd[i + 1] for i in e_indices]
     assert "TERM=xterm-256color" in e_values
     assert "LANG=en_US.UTF-8" in e_values
-    assert "hermes-agent" in cmd
+    assert "daclaw-agent" in cmd
     assert "/data/current-package/bin/hermes" in cmd
     assert "chat" in cmd
 

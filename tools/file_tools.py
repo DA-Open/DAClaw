@@ -306,7 +306,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
                 ),
             })
 
-        # ── Hermes internal path guard ────────────────────────────────
+        # ── DAClaw internal path guard ────────────────────────────────
         # Prevent prompt injection via catalog or hub metadata files.
         from hermes_constants import get_hermes_home as _get_hh
         _hermes_home = _get_hh().resolve()
@@ -319,7 +319,7 @@ def read_file_tool(path: str, offset: int = 1, limit: int = 500, task_id: str = 
                 _resolved.relative_to(_blocked)
                 return json.dumps({
                     "error": (
-                        f"Access denied: {path} is an internal Hermes cache file "
+                        f"Access denied: {path} is an internal DAClaw cache file "
                         "and cannot be read directly to prevent prompt injection. "
                         "Use the skills_list or skill_view tools instead."
                     )

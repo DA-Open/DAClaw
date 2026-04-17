@@ -6,17 +6,17 @@ description: "External memory provider plugins — Honcho, OpenViking, Mem0, Hin
 
 # Memory Providers
 
-Hermes Agent ships with 8 external memory provider plugins that give the agent persistent, cross-session knowledge beyond the built-in MEMORY.md and USER.md. Only **one** external provider can be active at a time — the built-in memory is always active alongside it.
+DAClaw Agent ships with 8 external memory provider plugins that give the agent persistent, cross-session knowledge beyond the built-in MEMORY.md and USER.md. Only **one** external provider can be active at a time — the built-in memory is always active alongside it.
 
 ## Quick Start
 
 ```bash
-hermes memory setup      # interactive picker + configuration
-hermes memory status     # check what's active
-hermes memory off        # disable external provider
+daclaw memory setup      # interactive picker + configuration
+daclaw memory status     # check what's active
+daclaw memory off        # disable external provider
 ```
 
-You can also select the active memory provider via `hermes plugins` → Provider Plugins → Memory Provider.
+You can also select the active memory provider via `daclaw plugins` → Provider Plugins → Memory Provider.
 
 Or set manually in `~/.hermes/config.yaml`:
 
@@ -27,7 +27,7 @@ memory:
 
 ## How It Works
 
-When a memory provider is active, Hermes automatically:
+When a memory provider is active, DAClaw automatically:
 
 1. **Injects provider context** into the system prompt (what the provider knows)
 2. **Prefetches relevant memories** before each turn (background, non-blocking)
@@ -63,12 +63,12 @@ AI-native cross-session user modeling with dialectic reasoning, session-scoped c
 
 **Setup Wizard:**
 ```bash
-hermes honcho setup        # (legacy command) 
+daclaw honcho setup        # (legacy command) 
 # or
-hermes memory setup        # select "honcho"
+daclaw memory setup        # select "honcho"
 ```
 
-**Config:** `$HERMES_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global). Resolution order: `$HERMES_HOME/honcho.json` > `~/.hermes/honcho.json` > `~/.honcho/config.json`. See the [config reference](https://github.com/hermes-ai/hermes-agent/blob/main/plugins/memory/honcho/README.md) and the [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hermes).
+**Config:** `$HERMES_HOME/honcho.json` (profile-local) or `~/.honcho/config.json` (global). Resolution order: `$HERMES_HOME/honcho.json` > `~/.hermes/honcho.json` > `~/.honcho/config.json`. See the [config reference](https://github.com/hermes-ai/daclaw-agent/blob/main/plugins/memory/honcho/README.md) and the [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hermes).
 
 <details>
 <summary>Full config reference</summary>
@@ -105,11 +105,11 @@ hermes memory setup        # select "honcho"
 {
   "apiKey": "your-key-from-app.honcho.dev",
   "hosts": {
-    "hermes": {
+    "daclaw": {
       "enabled": true,
-      "aiPeer": "hermes",
+      "aiPeer": "daclaw",
       "peerName": "your-name",
-      "workspace": "hermes"
+      "workspace": "daclaw"
     }
   }
 }
@@ -124,11 +124,11 @@ hermes memory setup        # select "honcho"
 {
   "baseUrl": "http://localhost:8000",
   "hosts": {
-    "hermes": {
+    "daclaw": {
       "enabled": true,
-      "aiPeer": "hermes",
+      "aiPeer": "daclaw",
       "peerName": "your-name",
-      "workspace": "hermes"
+      "workspace": "daclaw"
     }
   }
 }
@@ -136,16 +136,16 @@ hermes memory setup        # select "honcho"
 
 </details>
 
-:::tip Migrating from `hermes honcho`
-If you previously used `hermes honcho setup`, your config and all server-side data are intact. Just re-enable through the setup wizard again or manually set `memory.provider: honcho` to reactivate via the new system.
+:::tip Migrating from `daclaw honcho`
+If you previously used `daclaw honcho setup`, your config and all server-side data are intact. Just re-enable through the setup wizard again or manually set `memory.provider: honcho` to reactivate via the new system.
 :::
 
 **Multi-agent / Profiles:**
 
-Each Hermes profile gets its own Honcho AI peer while sharing the same workspace -- all profiles see the same user representation, but each agent builds its own identity and observations.
+Each DAClaw profile gets its own Honcho AI peer while sharing the same workspace -- all profiles see the same user representation, but each agent builds its own identity and observations.
 
 ```bash
-hermes profile create coder --clone   # creates honcho peer "coder", inherits config from default
+daclaw profile create coder --clone   # creates honcho peer "coder", inherits config from default
 ```
 
 What `--clone` does: creates a `hermes.coder` host block in `honcho.json` with `aiPeer: "coder"`, shared `workspace`, inherited `peerName`, `recallMode`, `writeFrequency`, `observation`, etc. The peer is eagerly created in Honcho so it exists before first message.
@@ -153,10 +153,10 @@ What `--clone` does: creates a `hermes.coder` host block in `honcho.json` with `
 For profiles created before Honcho was set up:
 
 ```bash
-hermes honcho sync   # scans all profiles, creates host blocks for any missing ones
+daclaw honcho sync   # scans all profiles, creates host blocks for any missing ones
 ```
 
-This inherits settings from the default `hermes` host block and creates new AI peers for each profile. Idempotent -- skips profiles that already have a host block.
+This inherits settings from the default `daclaw` host block and creates new AI peers for each profile. Idempotent -- skips profiles that already have a host block.
 
 <details>
 <summary>Full honcho.json example (multi-profile)</summary>
@@ -164,13 +164,13 @@ This inherits settings from the default `hermes` host block and creates new AI p
 ```json
 {
   "apiKey": "your-key",
-  "workspace": "hermes",
+  "workspace": "daclaw",
   "peerName": "eri",
   "hosts": {
-    "hermes": {
+    "daclaw": {
       "enabled": true,
-      "aiPeer": "hermes",
-      "workspace": "hermes",
+      "aiPeer": "daclaw",
+      "workspace": "daclaw",
       "peerName": "eri",
       "recallMode": "hybrid",
       "writeFrequency": "async",
@@ -191,7 +191,7 @@ This inherits settings from the default `hermes` host block and creates new AI p
     "hermes.coder": {
       "enabled": true,
       "aiPeer": "coder",
-      "workspace": "hermes",
+      "workspace": "daclaw",
       "peerName": "eri",
       "recallMode": "tools",
       "observation": {
@@ -202,7 +202,7 @@ This inherits settings from the default `hermes` host block and creates new AI p
     "hermes.writer": {
       "enabled": true,
       "aiPeer": "writer",
-      "workspace": "hermes",
+      "workspace": "daclaw",
       "peerName": "eri"
     }
   },
@@ -214,7 +214,7 @@ This inherits settings from the default `hermes` host block and creates new AI p
 
 </details>
 
-See the [config reference](https://github.com/hermes-ai/hermes-agent/blob/main/plugins/memory/honcho/README.md) and [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hermes).
+See the [config reference](https://github.com/hermes-ai/daclaw-agent/blob/main/plugins/memory/honcho/README.md) and [Honcho integration guide](https://docs.honcho.dev/v3/guides/integrations/hermes).
 
 
 ---
@@ -238,10 +238,10 @@ Context database by Volcengine (ByteDance) with filesystem-style knowledge hiera
 pip install openviking
 openviking-server
 
-# Then configure Hermes
-hermes memory setup    # select "openviking"
+# Then configure DAClaw
+daclaw memory setup    # select "openviking"
 # Or manually:
-hermes config set memory.provider openviking
+daclaw config set memory.provider openviking
 echo "OPENVIKING_ENDPOINT=http://localhost:1933" >> ~/.hermes/.env
 ```
 
@@ -267,9 +267,9 @@ Server-side LLM fact extraction with semantic search, reranking, and automatic d
 
 **Setup:**
 ```bash
-hermes memory setup    # select "mem0"
+daclaw memory setup    # select "mem0"
 # Or manually:
-hermes config set memory.provider mem0
+daclaw config set memory.provider mem0
 echo "MEM0_API_KEY=your-key" >> ~/.hermes/.env
 ```
 
@@ -278,7 +278,7 @@ echo "MEM0_API_KEY=your-key" >> ~/.hermes/.env
 | Key | Default | Description |
 |-----|---------|-------------|
 | `user_id` | `hermes-user` | User identifier |
-| `agent_id` | `hermes` | Agent identifier |
+| `agent_id` | `daclaw` | Agent identifier |
 
 ---
 
@@ -297,22 +297,22 @@ Long-term memory with knowledge graph, entity resolution, and multi-strategy ret
 
 **Setup:**
 ```bash
-hermes memory setup    # select "hindsight"
+daclaw memory setup    # select "hindsight"
 # Or manually:
-hermes config set memory.provider hindsight
+daclaw config set memory.provider hindsight
 echo "HINDSIGHT_API_KEY=your-key" >> ~/.hermes/.env
 ```
 
 The setup wizard installs dependencies automatically and only installs what's needed for the selected mode (`hindsight-client` for cloud, `hindsight-all` for local). Requires `hindsight-client >= 0.4.22` (auto-upgraded on session start if outdated).
 
-**Local mode UI:** `hindsight-embed -p hermes ui start`
+**Local mode UI:** `hindsight-embed -p daclaw ui start`
 
 **Config:** `$HERMES_HOME/hindsight/config.json`
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `mode` | `cloud` | `cloud` or `local` |
-| `bank_id` | `hermes` | Memory bank identifier |
+| `bank_id` | `daclaw` | Memory bank identifier |
 | `recall_budget` | `mid` | Recall thoroughness: `low` / `mid` / `high` |
 | `memory_mode` | `hybrid` | `hybrid` (context + tools), `context` (auto-inject only), `tools` (tools only) |
 | `auto_retain` | `true` | Automatically retain conversation turns |
@@ -321,7 +321,7 @@ The setup wizard installs dependencies automatically and only installs what's ne
 | `tags` | — | Tags applied when storing memories |
 | `recall_tags` | — | Tags to filter on recall |
 
-See [plugin README](https://github.com/NousResearch/hermes-agent/blob/main/plugins/memory/hindsight/README.md) for the full configuration reference.
+See [plugin README](https://github.com/NousResearch/daclaw-agent/blob/main/plugins/memory/hindsight/README.md) for the full configuration reference.
 
 ---
 
@@ -340,9 +340,9 @@ Local SQLite fact store with FTS5 full-text search, trust scoring, and HRR (Holo
 
 **Setup:**
 ```bash
-hermes memory setup    # select "holographic"
+daclaw memory setup    # select "holographic"
 # Or manually:
-hermes config set memory.provider holographic
+daclaw config set memory.provider holographic
 ```
 
 **Config:** `config.yaml` under `plugins.hermes-memory-store`
@@ -376,9 +376,9 @@ Cloud memory API with hybrid search (Vector + BM25 + Reranking), 7 memory types,
 
 **Setup:**
 ```bash
-hermes memory setup    # select "retaindb"
+daclaw memory setup    # select "retaindb"
 # Or manually:
-hermes config set memory.provider retaindb
+daclaw config set memory.provider retaindb
 echo "RETAINDB_API_KEY=your-key" >> ~/.hermes/.env
 ```
 
@@ -402,10 +402,10 @@ Persistent memory via the `brv` CLI — hierarchical knowledge tree with tiered 
 # Install the CLI first
 curl -fsSL https://byterover.dev/install.sh | sh
 
-# Then configure Hermes
-hermes memory setup    # select "byterover"
+# Then configure DAClaw
+daclaw memory setup    # select "byterover"
 # Or manually:
-hermes config set memory.provider byterover
+daclaw config set memory.provider byterover
 ```
 
 **Key features:**
@@ -430,9 +430,9 @@ Semantic long-term memory with profile recall, semantic search, explicit memory 
 
 **Setup:**
 ```bash
-hermes memory setup    # select "supermemory"
+daclaw memory setup    # select "supermemory"
 # Or manually:
-hermes config set memory.provider supermemory
+daclaw config set memory.provider supermemory
 echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
 ```
 
@@ -440,7 +440,7 @@ echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `container_tag` | `hermes` | Container tag used for search and writes. Supports `{identity}` template for profile-scoped tags. |
+| `container_tag` | `daclaw` | Container tag used for search and writes. Supports `{identity}` template for profile-scoped tags. |
 | `auto_recall` | `true` | Inject relevant memory context before turns |
 | `auto_capture` | `true` | Store cleaned user-assistant turns after each response |
 | `max_recall_results` | `10` | Max recalled items to format into context |
@@ -456,7 +456,7 @@ echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
 - Session-end conversation ingest for richer graph-level knowledge building
 - Profile facts injected on first turn and at configurable intervals
 - Trivial message filtering (skips "ok", "thanks", etc.)
-- **Profile-scoped containers** — use `{identity}` in `container_tag` (e.g. `hermes-{identity}` → `hermes-coder`) to isolate memories per Hermes profile
+- **Profile-scoped containers** — use `{identity}` in `container_tag` (e.g. `hermes-{identity}` → `hermes-coder`) to isolate memories per DAClaw profile
 - **Multi-container mode** — enable `enable_custom_container_tags` with a `custom_containers` list to let the agent read/write across named containers. Automatic operations (sync, prefetch) stay on the primary container.
 
 <details>
@@ -464,7 +464,7 @@ echo 'SUPERMEMORY_API_KEY=***' >> ~/.hermes/.env
 
 ```json
 {
-  "container_tag": "hermes",
+  "container_tag": "daclaw",
   "enable_custom_container_tags": true,
   "custom_containers": ["project-alpha", "shared-knowledge"],
   "custom_container_instructions": "Use project-alpha for coding context."

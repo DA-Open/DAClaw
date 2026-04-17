@@ -1,10 +1,10 @@
 """
-HermesAgentBaseEnv -- Abstract Base Environment for Hermes-Agent + Atropos
+DAClawAgentBaseEnv -- Abstract Base Environment for DAClaw-Agent + Atropos
 
-Provides the Atropos integration plumbing that all hermes-agent environments share:
+Provides the Atropos integration plumbing that all daclaw-agent environments share:
 - Two-mode operation (OpenAI server for Phase 1, VLLM ManagedServer for Phase 2)
 - Per-group toolset/distribution resolution
-- Agent loop orchestration via HermesAgentLoop
+- Agent loop orchestration via DAClawAgentLoop
 - ToolContext creation for reward functions
 - ScoredDataGroup construction from ManagedServer state
 
@@ -26,7 +26,7 @@ from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-# Ensure the hermes-agent repo root is on sys.path so that imports like
+# Ensure the daclaw-agent repo root is on sys.path so that imports like
 # `from model_tools import ...` and `from environments.X import ...` work
 # regardless of where the script is invoked from.
 _repo_root = Path(__file__).resolve().parent.parent
@@ -36,7 +36,7 @@ if str(_repo_root) not in sys.path:
 from dotenv import load_dotenv
 from pydantic import Field
 
-# Load API keys from hermes-agent/.env so all environments can access them
+# Load API keys from daclaw-agent/.env so all environments can access them
 _env_path = _repo_root / ".env"
 if _env_path.exists():
     load_dotenv(dotenv_path=_env_path)
@@ -60,7 +60,7 @@ from atroposlib.envs.server_handling.server_manager import (
 )
 from atroposlib.type_definitions import Item
 
-from environments.agent_loop import AgentResult, HermesAgentLoop
+from environments.agent_loop import AgentResult, DAClawAgentLoop
 from environments.tool_context import ToolContext
 from tools.budget_config import (
     DEFAULT_RESULT_SIZE_CHARS,
@@ -68,16 +68,16 @@ from tools.budget_config import (
     DEFAULT_PREVIEW_SIZE_CHARS,
 )
 
-# Import hermes-agent toolset infrastructure
+# Import daclaw-agent toolset infrastructure
 from model_tools import get_tool_definitions
 from toolset_distributions import sample_toolsets_from_distribution
 
 logger = logging.getLogger(__name__)
 
 
-class HermesAgentEnvConfig(BaseEnvConfig):
+class DAClawAgentEnvConfig(BaseEnvConfig):
     """
-    Configuration for hermes-agent Atropos environments.
+    Configuration for daclaw-agent Atropos environments.
 
     Extends BaseEnvConfig with agent-specific settings for toolsets,
     terminal backend, dataset loading, and tool call parsing.
@@ -87,7 +87,7 @@ class HermesAgentEnvConfig(BaseEnvConfig):
     # Mutually exclusive: use either enabled_toolsets OR distribution
     enabled_toolsets: Optional[List[str]] = Field(
         default=None,
-        description="Explicit list of hermes toolsets to enable (e.g., ['terminal', 'file', 'web']). "
+        description="Explicit list of daclaw toolsets to enable (e.g., ['terminal', 'file', 'web']). "
         "If None and distribution is also None, all available toolsets are enabled.",
     )
     disabled_toolsets: Optional[List[str]] = Field(
@@ -159,7 +159,7 @@ class HermesAgentEnvConfig(BaseEnvConfig):
 
     # --- Phase 2: Tool call parsing ---
     tool_call_parser: str = Field(
-        default="hermes",
+        default="daclaw",
         description="Tool call parser name for Phase 2 (VLLM server type). "
         "Ignored in Phase 1 (OpenAI server type where VLLM parses natively). "
         "Options: hermes, mistral, llama3_json, qwen, deepseek_v3, etc.",
@@ -218,9 +218,9 @@ class HermesAgentEnvConfig(BaseEnvConfig):
         )
 
 
-class HermesAgentBaseEnv(BaseEnv):
+class DAClawAgentBaseEnv(BaseEnv):
     """
-    Abstract base environment for hermes-agent Atropos integration.
+    Abstract base environment for daclaw-agent Atropos integration.
 
     Handles two modes of operation:
     - Phase 1 (OpenAI server type): Uses server.chat_completion() directly.
@@ -240,19 +240,19 @@ class HermesAgentBaseEnv(BaseEnv):
         evaluate()        -- Periodic evaluation
     """
 
-    name: Optional[str] = "hermes-agent"
-    env_config_cls = HermesAgentEnvConfig
+    name: Optional[str] = "daclaw-agent"
+    env_config_cls = DAClawAgentEnvConfig
 
     def __init__(
         self,
-        config: HermesAgentEnvConfig,
+        config: DAClawAgentEnvConfig,
         server_configs: Union[ServerBaseline, List[APIServerConfig]],
         slurm=False,
         testing=False,
     ):
         super().__init__(config, server_configs, slurm, testing)
 
-        # Set terminal environment variables so hermes tools pick them up.
+        # Set terminal environment variables so daclaw tools pick them up.
         # These can all be overridden per-environment via config fields instead
         # of requiring users to set shell env vars.
         if config.terminal_backend:
@@ -522,7 +522,7 @@ class HermesAgentBaseEnv(BaseEnv):
                     tokenizer=self.tokenizer,
                     preserve_think_blocks=bool(self.config.thinking_mode),
                 ) as managed:
-                    agent = HermesAgentLoop(
+                    agent = DAClawAgentLoop(
                         server=managed,
                         tool_schemas=tools,
                         valid_tool_names=valid_names,
@@ -540,7 +540,7 @@ class HermesAgentBaseEnv(BaseEnv):
                     "ManagedServer not available (OpenAI server?). "
                     "Falling back to direct server mode."
                 )
-                agent = HermesAgentLoop(
+                agent = DAClawAgentLoop(
                     server=self.server,
                     tool_schemas=tools,
                     valid_tool_names=valid_names,
@@ -554,7 +554,7 @@ class HermesAgentBaseEnv(BaseEnv):
                 result = await agent.run(messages)
         else:
             # Phase 1: OpenAI server -- native tool_calls, placeholder tokens
-            agent = HermesAgentLoop(
+            agent = DAClawAgentLoop(
                 server=self.server,
                 tool_schemas=tools,
                 valid_tool_names=valid_names,
@@ -689,7 +689,7 @@ class HermesAgentBaseEnv(BaseEnv):
         Score the rollout. Has full access to:
         - item: the original dataset item (ground truth, test commands, etc.)
         - result: AgentResult with full messages, turn count, reasoning, etc.
-        - ctx: ToolContext -- call ANY hermes-agent tool (terminal, file, web,
+        - ctx: ToolContext -- call ANY daclaw-agent tool (terminal, file, web,
                browser, vision...) scoped to this rollout's sandbox. Nothing
                is off-limits.
 

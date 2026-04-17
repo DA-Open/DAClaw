@@ -1,4 +1,4 @@
-"""Tests for Codex auth — tokens stored in Hermes auth store (~/.hermes/auth.json)."""
+"""Tests for Codex auth — tokens stored in DAClaw auth store (~/.hermes/auth.json)."""
 
 import json
 import time
@@ -24,7 +24,7 @@ from hermes_cli.auth import (
 
 
 def _setup_hermes_auth(hermes_home: Path, *, access_token: str = "access", refresh_token: str = "refresh"):
-    """Write Codex tokens into the Hermes auth store."""
+    """Write Codex tokens into the DAClaw auth store."""
     hermes_home.mkdir(parents=True, exist_ok=True)
     auth_store = {
         "version": 1,
@@ -52,7 +52,7 @@ def _jwt_with_exp(exp_epoch: int) -> str:
 
 
 def test_read_codex_tokens_success(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_hermes_auth(hermes_home)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -62,7 +62,7 @@ def test_read_codex_tokens_success(tmp_path, monkeypatch):
 
 
 def test_read_codex_tokens_missing(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     hermes_home.mkdir(parents=True, exist_ok=True)
     # Empty auth store
     (hermes_home / "auth.json").write_text(json.dumps({"version": 1, "providers": {}}))
@@ -74,7 +74,7 @@ def test_read_codex_tokens_missing(tmp_path, monkeypatch):
 
 
 def test_resolve_codex_runtime_credentials_missing_access_token(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_hermes_auth(hermes_home, access_token="")
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -85,7 +85,7 @@ def test_resolve_codex_runtime_credentials_missing_access_token(tmp_path, monkey
 
 
 def test_resolve_codex_runtime_credentials_refreshes_expiring_token(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     expiring_token = _jwt_with_exp(int(time.time()) - 10)
     _setup_hermes_auth(hermes_home, access_token=expiring_token, refresh_token="refresh-old")
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
@@ -105,7 +105,7 @@ def test_resolve_codex_runtime_credentials_refreshes_expiring_token(tmp_path, mo
 
 
 def test_resolve_codex_runtime_credentials_force_refresh(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_hermes_auth(hermes_home, access_token="access-current", refresh_token="refresh-old")
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -130,7 +130,7 @@ def test_resolve_provider_explicit_codex_does_not_fallback(monkeypatch):
 
 
 def test_save_codex_tokens_roundtrip(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     hermes_home.mkdir(parents=True, exist_ok=True)
     (hermes_home / "auth.json").write_text(json.dumps({"version": 1, "providers": {}}))
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
@@ -162,8 +162,8 @@ def test_import_codex_cli_tokens_missing(tmp_path, monkeypatch):
 
 
 def test_codex_tokens_not_written_to_shared_file(tmp_path, monkeypatch):
-    """Verify _save_codex_tokens writes only to Hermes auth store, not ~/.codex/."""
-    hermes_home = tmp_path / "hermes"
+    """Verify _save_codex_tokens writes only to DAClaw auth store, not ~/.codex/."""
+    hermes_home = tmp_path / "daclaw"
     codex_home = tmp_path / "codex-cli"
     hermes_home.mkdir(parents=True, exist_ok=True)
     codex_home.mkdir(parents=True, exist_ok=True)
@@ -174,10 +174,10 @@ def test_codex_tokens_not_written_to_shared_file(tmp_path, monkeypatch):
 
     _save_codex_tokens({"access_token": "hermes-at", "refresh_token": "hermes-rt"})
 
-    # ~/.codex/auth.json should NOT exist — _save_codex_tokens only touches Hermes store
+    # ~/.codex/auth.json should NOT exist — _save_codex_tokens only touches DAClaw store
     assert not (codex_home / "auth.json").exists()
 
-    # Hermes auth store should have the tokens
+    # DAClaw auth store should have the tokens
     data = _read_codex_tokens()
     assert data["tokens"]["access_token"] == "hermes-at"
 
@@ -243,7 +243,7 @@ def test_refresh_codex_auth_tokens_writes_back_to_cli(tmp_path, monkeypatch):
     """After refreshing, _refresh_codex_auth_tokens writes back to ~/.codex/auth.json."""
     from hermes_cli.auth import _refresh_codex_auth_tokens
 
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     codex_home = tmp_path / "codex-cli"
     hermes_home.mkdir(parents=True, exist_ok=True)
     codex_home.mkdir(parents=True, exist_ok=True)
@@ -275,7 +275,7 @@ def test_refresh_codex_auth_tokens_writes_back_to_cli(tmp_path, monkeypatch):
 
 
 def test_resolve_returns_hermes_auth_store_source(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_hermes_auth(hermes_home)
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 

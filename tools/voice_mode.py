@@ -6,7 +6,7 @@ sounddevice or system audio players.
 
 Dependencies (optional):
     pip install sounddevice numpy
-    or: pip install hermes-agent[voice]
+    or: pip install daclaw-agent[voice]
 """
 
 import logging
@@ -583,7 +583,7 @@ class AudioRecorder:
             raise RuntimeError(
                 "Voice mode requires sounddevice and numpy.\n"
                 "Install with: pip install sounddevice numpy\n"
-                "Or: pip install hermes-agent[voice]"
+                "Or: pip install daclaw-agent[voice]"
             ) from e
 
         with self._lock:

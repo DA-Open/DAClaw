@@ -264,7 +264,7 @@ class TestHealthEndpoint:
             assert resp.status == 200
             data = await resp.json()
             assert data["status"] == "ok"
-            assert data["platform"] == "hermes-agent"
+            assert data["platform"] == "daclaw-agent"
 
     @pytest.mark.asyncio
     async def test_v1_health_alias_returns_ok(self, adapter):
@@ -275,7 +275,7 @@ class TestHealthEndpoint:
             assert resp.status == 200
             data = await resp.json()
             assert data["status"] == "ok"
-            assert data["platform"] == "hermes-agent"
+            assert data["platform"] == "daclaw-agent"
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +300,7 @@ class TestHealthDetailedEndpoint:
                 assert resp.status == 200
                 data = await resp.json()
                 assert data["status"] == "ok"
-                assert data["platform"] == "hermes-agent"
+                assert data["platform"] == "daclaw-agent"
                 assert data["gateway_state"] == "running"
                 assert data["platforms"] == {"telegram": {"state": "connected"}}
                 assert data["active_agents"] == 2
@@ -345,8 +345,8 @@ class TestModelsEndpoint:
             data = await resp.json()
             assert data["object"] == "list"
             assert len(data["data"]) == 1
-            assert data["data"][0]["id"] == "hermes-agent"
-            assert data["data"][0]["owned_by"] == "hermes"
+            assert data["data"][0]["id"] == "daclaw-agent"
+            assert data["data"][0]["owned_by"] == "daclaw"
 
     @pytest.mark.asyncio
     async def test_models_returns_profile_name(self):
@@ -373,9 +373,9 @@ class TestModelsEndpoint:
         assert APIServerAdapter._resolve_model_name("my-bot") == "my-bot"
 
     def test_resolve_model_name_default_profile(self):
-        """Default profile falls back to 'hermes-agent'."""
+        """Default profile falls back to 'daclaw-agent'."""
         with patch("hermes_cli.profiles.get_active_profile_name", return_value="default"):
-            assert APIServerAdapter._resolve_model_name("") == "hermes-agent"
+            assert APIServerAdapter._resolve_model_name("") == "daclaw-agent"
 
     def test_resolve_model_name_named_profile(self):
         """Named profile uses the profile name as model name."""
@@ -678,7 +678,7 @@ class TestChatCompletionsEndpoint:
                 resp = await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [{"role": "user", "content": "Hello"}],
                     },
                 )
@@ -687,7 +687,7 @@ class TestChatCompletionsEndpoint:
             data = await resp.json()
             assert data["object"] == "chat.completion"
             assert data["id"].startswith("chatcmpl-")
-            assert data["model"] == "hermes-agent"
+            assert data["model"] == "daclaw-agent"
             assert len(data["choices"]) == 1
             assert data["choices"][0]["message"]["role"] == "assistant"
             assert data["choices"][0]["message"]["content"] == "Hello! How can I help you today?"
@@ -710,7 +710,7 @@ class TestChatCompletionsEndpoint:
                 resp = await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [
                             {"role": "system", "content": "You are a pirate."},
                             {"role": "user", "content": "Hello"},
@@ -736,7 +736,7 @@ class TestChatCompletionsEndpoint:
                 resp = await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [
                             {"role": "user", "content": "1+1=?"},
                             {"role": "assistant", "content": "2"},
@@ -762,7 +762,7 @@ class TestChatCompletionsEndpoint:
                 resp = await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [{"role": "user", "content": "Hello"}],
                     },
                 )
@@ -785,7 +785,7 @@ class TestChatCompletionsEndpoint:
                 await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [{"role": "user", "content": "Hello"}],
                     },
                 )
@@ -797,7 +797,7 @@ class TestChatCompletionsEndpoint:
                 await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [
                             {"role": "user", "content": "Hello"},
                             {"role": "assistant", "content": "Hi there!"},
@@ -824,7 +824,7 @@ class TestChatCompletionsEndpoint:
                     await cli.post(
                         "/v1/chat/completions",
                         json={
-                            "model": "hermes-agent",
+                            "model": "daclaw-agent",
                             "messages": [{"role": "user", "content": first_msg}],
                         },
                     )
@@ -906,7 +906,7 @@ class TestResponsesEndpoint:
                 resp = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "What is the capital of France?",
                     },
                 )
@@ -933,7 +933,7 @@ class TestResponsesEndpoint:
                 resp = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": [
                             {"role": "user", "content": "Hello"},
                             {"role": "user", "content": "What is 2+2?"},
@@ -959,7 +959,7 @@ class TestResponsesEndpoint:
                 resp = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "Hello",
                         "instructions": "Talk like a pirate.",
                     },
@@ -985,7 +985,7 @@ class TestResponsesEndpoint:
                 mock_run.return_value = (mock_result_1, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
                 resp1 = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "What is 1+1?"},
+                    json={"model": "daclaw-agent", "input": "What is 1+1?"},
                 )
 
             assert resp1.status == 200
@@ -1004,7 +1004,7 @@ class TestResponsesEndpoint:
                 resp2 = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "Now add 1 more",
                         "previous_response_id": response_id,
                     },
@@ -1033,7 +1033,7 @@ class TestResponsesEndpoint:
                 mock_run.return_value = (mock_result, usage)
                 resp1 = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "Hello"},
+                    json={"model": "daclaw-agent", "input": "Hello"},
                 )
             assert resp1.status == 200
             first_session_id = mock_run.call_args.kwargs["session_id"]
@@ -1046,7 +1046,7 @@ class TestResponsesEndpoint:
                 resp2 = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "Follow up",
                         "previous_response_id": response_id,
                     },
@@ -1064,7 +1064,7 @@ class TestResponsesEndpoint:
             resp = await cli.post(
                 "/v1/responses",
                 json={
-                    "model": "hermes-agent",
+                    "model": "daclaw-agent",
                     "input": "follow up",
                     "previous_response_id": "resp_nonexistent",
                 },
@@ -1083,7 +1083,7 @@ class TestResponsesEndpoint:
                 resp = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "Hello",
                         "store": False,
                     },
@@ -1107,7 +1107,7 @@ class TestResponsesEndpoint:
                 resp1 = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "Hello",
                         "instructions": "Be a pirate",
                     },
@@ -1122,7 +1122,7 @@ class TestResponsesEndpoint:
                 resp2 = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "Tell me more",
                         "previous_response_id": resp_id,
                     },
@@ -1140,7 +1140,7 @@ class TestResponsesEndpoint:
                 mock_run.side_effect = RuntimeError("Boom")
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "Hello"},
+                    json={"model": "daclaw-agent", "input": "Hello"},
                 )
 
             assert resp.status == 500
@@ -1151,7 +1151,7 @@ class TestResponsesEndpoint:
         async with TestClient(TestServer(app)) as cli:
             resp = await cli.post(
                 "/v1/responses",
-                json={"model": "hermes-agent", "input": 42},
+                json={"model": "daclaw-agent", "input": 42},
             )
             assert resp.status == 400
 
@@ -1174,7 +1174,7 @@ class TestResponsesStreaming:
             with patch.object(adapter, "_run_agent", side_effect=_mock_run_agent):
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "hi", "stream": True},
+                    json={"model": "daclaw-agent", "input": "hi", "stream": True},
                 )
                 assert resp.status == 200
                 assert "text/event-stream" in resp.headers.get("Content-Type", "")
@@ -1232,7 +1232,7 @@ class TestResponsesStreaming:
             with patch.object(adapter, "_run_agent", side_effect=_mock_run_agent):
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "read the file", "stream": True},
+                    json={"model": "daclaw-agent", "input": "read the file", "stream": True},
                 )
                 assert resp.status == 200
                 body = await resp.text()
@@ -1261,7 +1261,7 @@ class TestResponsesStreaming:
             with patch.object(adapter, "_run_agent", side_effect=_mock_run_agent):
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "store this", "stream": True},
+                    json={"model": "daclaw-agent", "input": "store this", "stream": True},
                 )
                 body = await resp.text()
                 response_id = None
@@ -1400,7 +1400,7 @@ class TestMultipleSystemMessages:
                 resp = await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [
                             {"role": "system", "content": "You are helpful."},
                             {"role": "system", "content": "Be concise."},
@@ -1449,7 +1449,7 @@ class TestGetResponse:
                 mock_run.return_value = (mock_result, {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15})
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "Hi"},
+                    json={"model": "daclaw-agent", "input": "Hi"},
                 )
 
             assert resp.status == 200
@@ -1496,7 +1496,7 @@ class TestDeleteResponse:
                 mock_run.return_value = (mock_result, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "Hi"},
+                    json={"model": "daclaw-agent", "input": "Hi"},
                 )
 
             data = await resp.json()
@@ -1573,7 +1573,7 @@ class TestToolCallsInOutput:
                 mock_run.return_value = (mock_result, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "What is 6*7?"},
+                    json={"model": "daclaw-agent", "input": "What is 6*7?"},
                 )
 
             assert resp.status == 200
@@ -1603,7 +1603,7 @@ class TestToolCallsInOutput:
                 mock_run.return_value = (mock_result, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "Hello"},
+                    json={"model": "daclaw-agent", "input": "Hello"},
                 )
 
             assert resp.status == 200
@@ -1630,7 +1630,7 @@ class TestUsageCounting:
                 mock_run.return_value = (mock_result, usage)
                 resp = await cli.post(
                     "/v1/responses",
-                    json={"model": "hermes-agent", "input": "Hi"},
+                    json={"model": "daclaw-agent", "input": "Hi"},
                 )
 
             assert resp.status == 200
@@ -1652,7 +1652,7 @@ class TestUsageCounting:
                 resp = await cli.post(
                     "/v1/chat/completions",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [{"role": "user", "content": "Hi"}],
                     },
                 )
@@ -1690,7 +1690,7 @@ class TestTruncation:
                 resp = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "follow up",
                         "previous_response_id": "resp_prev",
                         "truncation": "auto",
@@ -1721,7 +1721,7 @@ class TestTruncation:
                 resp = await cli.post(
                     "/v1/responses",
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "input": "follow up",
                         "previous_response_id": "resp_prev2",
                     },
@@ -1987,14 +1987,14 @@ class TestConversationParameter:
 
 
 # ---------------------------------------------------------------------------
-# X-Hermes-Session-Id header (session continuity)
+# X-DAClaw-Session-Id header (session continuity)
 # ---------------------------------------------------------------------------
 
 
 class TestSessionIdHeader:
     @pytest.mark.asyncio
     async def test_new_session_response_includes_session_id_header(self, adapter):
-        """Without X-Hermes-Session-Id, a new session is created and returned in the header."""
+        """Without X-DAClaw-Session-Id, a new session is created and returned in the header."""
         mock_result = {"final_response": "Hello!", "messages": [], "api_calls": 1}
         app = _create_app(adapter)
         async with TestClient(TestServer(app)) as cli:
@@ -2002,14 +2002,14 @@ class TestSessionIdHeader:
                 mock_run.return_value = (mock_result, {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0})
                 resp = await cli.post(
                     "/v1/chat/completions",
-                    json={"model": "hermes-agent", "messages": [{"role": "user", "content": "Hi"}]},
+                    json={"model": "daclaw-agent", "messages": [{"role": "user", "content": "Hi"}]},
                 )
             assert resp.status == 200
-            assert resp.headers.get("X-Hermes-Session-Id") is not None
+            assert resp.headers.get("X-DAClaw-Session-Id") is not None
 
     @pytest.mark.asyncio
     async def test_provided_session_id_is_used_and_echoed(self, auth_adapter):
-        """When X-Hermes-Session-Id is provided, it's passed to the agent and echoed in the response."""
+        """When X-DAClaw-Session-Id is provided, it's passed to the agent and echoed in the response."""
         mock_result = {"final_response": "Continuing!", "messages": [], "api_calls": 1}
         mock_db = MagicMock()
         mock_db.get_messages_as_conversation.return_value = [
@@ -2024,18 +2024,18 @@ class TestSessionIdHeader:
 
                 resp = await cli.post(
                     "/v1/chat/completions",
-                    headers={"X-Hermes-Session-Id": "my-session-123", "Authorization": "Bearer sk-secret"},
-                    json={"model": "hermes-agent", "messages": [{"role": "user", "content": "Continue"}]},
+                    headers={"X-DAClaw-Session-Id": "my-session-123", "Authorization": "Bearer sk-secret"},
+                    json={"model": "daclaw-agent", "messages": [{"role": "user", "content": "Continue"}]},
                 )
 
             assert resp.status == 200
-            assert resp.headers.get("X-Hermes-Session-Id") == "my-session-123"
+            assert resp.headers.get("X-DAClaw-Session-Id") == "my-session-123"
             call_kwargs = mock_run.call_args.kwargs
             assert call_kwargs["session_id"] == "my-session-123"
 
     @pytest.mark.asyncio
     async def test_provided_session_id_loads_history_from_db(self, auth_adapter):
-        """When X-Hermes-Session-Id is provided, history comes from SessionDB not request body."""
+        """When X-DAClaw-Session-Id is provided, history comes from SessionDB not request body."""
         mock_result = {"final_response": "OK", "messages": [], "api_calls": 1}
         db_history = [
             {"role": "user", "content": "stored message 1"},
@@ -2051,10 +2051,10 @@ class TestSessionIdHeader:
 
                 resp = await cli.post(
                     "/v1/chat/completions",
-                    headers={"X-Hermes-Session-Id": "existing-session", "Authorization": "Bearer sk-secret"},
+                    headers={"X-DAClaw-Session-Id": "existing-session", "Authorization": "Bearer sk-secret"},
                     # Request body has different history — should be ignored
                     json={
-                        "model": "hermes-agent",
+                        "model": "daclaw-agent",
                         "messages": [
                             {"role": "user", "content": "old msg from client"},
                             {"role": "assistant", "content": "old reply from client"},
@@ -2083,8 +2083,8 @@ class TestSessionIdHeader:
 
                 resp = await cli.post(
                     "/v1/chat/completions",
-                    headers={"X-Hermes-Session-Id": "some-session", "Authorization": "Bearer sk-secret"},
-                    json={"model": "hermes-agent", "messages": [{"role": "user", "content": "Hi"}]},
+                    headers={"X-DAClaw-Session-Id": "some-session", "Authorization": "Bearer sk-secret"},
+                    json={"model": "daclaw-agent", "messages": [{"role": "user", "content": "Hi"}]},
                 )
 
             assert resp.status == 200

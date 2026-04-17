@@ -6,7 +6,7 @@ description: "Run custom code at key lifecycle points — log activity, send ale
 
 # Event Hooks
 
-Hermes has two hook systems that run custom code at key lifecycle points:
+DAClaw has two hook systems that run custom code at key lifecycle points:
 
 | System | Registered via | Runs in | Use case |
 |--------|---------------|---------|----------|
@@ -97,7 +97,7 @@ The gateway ships with a built-in `boot-md` hook that looks for `~/.hermes/BOOT.
 ```markdown
 # Startup Checklist
 
-1. Check if any cron jobs failed overnight — run `hermes cron list`
+1. Check if any cron jobs failed overnight — run `daclaw cron list`
 2. Send a message to Discord #general saying "Gateway restarted, all systems go"
 3. Check if /opt/app/deploy.log has any errors from the last 24 hours
 ```
@@ -372,7 +372,7 @@ def my_callback(session_id: str, user_message: str, conversation_history: list,
 
 ```python
 # Inject context
-return {"context": "Recalled memories:\n- User likes Python\n- Working on hermes-agent"}
+return {"context": "Recalled memories:\n- User likes Python\n- Working on daclaw-agent"}
 
 # Plain string (equivalent)
 return "Recalled memories:\n- User likes Python"
@@ -381,7 +381,7 @@ return "Recalled memories:\n- User likes Python"
 return None
 ```
 
-**Where context is injected:** Always the **user message**, never the system prompt. This preserves the prompt cache — the system prompt stays identical across turns, so cached tokens are reused. The system prompt is Hermes's territory (model guidance, tool enforcement, personality, skills). Plugins contribute context alongside the user's input.
+**Where context is injected:** Always the **user message**, never the system prompt. This preserves the prompt cache — the system prompt stays identical across turns, so cached tokens are reused. The system prompt is DAClaw's territory (model guidance, tool enforcement, personality, skills). Plugins contribute context alongside the user's input.
 
 All injected context is **ephemeral** — added at API call time only. The original user message in the conversation history is never mutated, and nothing is persisted to the session database.
 

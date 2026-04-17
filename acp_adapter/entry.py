@@ -1,4 +1,4 @@
-"""CLI entry point for the hermes-agent ACP adapter.
+"""CLI entry point for the daclaw-agent ACP adapter.
 
 Loads environment variables from ``~/.hermes/.env``, configures logging
 to write to stderr (so stdout is reserved for ACP JSON-RPC transport),
@@ -8,7 +8,7 @@ Usage::
 
     python -m acp_adapter.entry
     # or
-    hermes acp
+    daclaw acp
     # or
     hermes-acp
 """
@@ -61,7 +61,7 @@ def main() -> None:
     _load_env()
 
     logger = logging.getLogger(__name__)
-    logger.info("Starting hermes-agent ACP adapter")
+    logger.info("Starting daclaw-agent ACP adapter")
 
     # Ensure the project root is on sys.path so ``from run_agent import AIAgent`` works
     project_root = str(Path(__file__).resolve().parent.parent)
@@ -69,9 +69,9 @@ def main() -> None:
         sys.path.insert(0, project_root)
 
     import acp
-    from .server import HermesACPAgent
+    from .server import DAClawACPAgent
 
-    agent = HermesACPAgent()
+    agent = DAClawACPAgent()
     try:
         asyncio.run(acp.run_agent(agent, use_unstable_protocol=True))
     except KeyboardInterrupt:

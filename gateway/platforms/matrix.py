@@ -437,7 +437,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 resp = await client.login(
                     identifier=self._user_id,
                     password=self._password,
-                    device_name="Hermes Agent",
+                    device_name="DAClaw Agent",
                     device_id=self._device_id or None,
                 )
                 if resp and hasattr(resp, "device_id"):
@@ -483,7 +483,7 @@ class MatrixAdapter(BasePlatformAdapter):
                 await crypto_db.start()
                 self._crypto_db = crypto_db
 
-                _acct_id = self._user_id or "hermes"
+                _acct_id = self._user_id or "daclaw"
                 _pickle_key = f"{_acct_id}:{self._device_id or 'default'}"
                 crypto_store = PgCryptoStore(
                     account_id=_acct_id,

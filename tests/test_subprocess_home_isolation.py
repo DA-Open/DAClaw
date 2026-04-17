@@ -4,7 +4,7 @@ Verifies that subprocesses (terminal, execute_code, background processes)
 receive a per-profile HOME directory while the Python process's own HOME
 and Path.home() remain unchanged.
 
-See: https://github.com/NousResearch/hermes-agent/issues/4426
+See: https://github.com/NousResearch/daclaw-agent/issues/4426
 """
 
 import os
@@ -81,7 +81,7 @@ class TestMakeRunEnvHomeInjection:
     """Verify _make_run_env() injects HOME into subprocess envs."""
 
     def test_injects_home_when_profile_home_exists(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         (hermes_home / "home").mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
@@ -94,7 +94,7 @@ class TestMakeRunEnvHomeInjection:
         assert result["HOME"] == str(hermes_home / "home")
 
     def test_no_injection_when_home_dir_missing(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         # No home/ subdirectory
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
@@ -125,7 +125,7 @@ class TestSanitizeSubprocessEnvHomeInjection:
     """Verify _sanitize_subprocess_env() injects HOME for background procs."""
 
     def test_injects_home_when_profile_home_exists(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         (hermes_home / "home").mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
@@ -137,7 +137,7 @@ class TestSanitizeSubprocessEnvHomeInjection:
         assert result["HOME"] == str(hermes_home / "home")
 
     def test_no_injection_when_home_dir_missing(self, tmp_path, monkeypatch):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -181,7 +181,7 @@ class TestPythonProcessUnchanged:
     def test_path_home_unchanged_after_subprocess_home_resolved(
         self, tmp_path, monkeypatch
     ):
-        hermes_home = tmp_path / "hermes"
+        hermes_home = tmp_path / "daclaw"
         hermes_home.mkdir()
         (hermes_home / "home").mkdir()
         monkeypatch.setenv("HERMES_HOME", str(hermes_home))

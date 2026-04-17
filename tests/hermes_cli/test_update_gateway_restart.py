@@ -1,6 +1,6 @@
 """Tests for cmd_update gateway auto-restart — systemd + launchd coverage.
 
-Ensures ``hermes update`` correctly detects running gateways managed by
+Ensures ``daclaw update`` correctly detects running gateways managed by
 systemd (Linux) or launchd (macOS) and restarts/informs the user properly,
 rather than leaving zombie processes or telling users to manually restart
 when launchd will auto-respawn.
@@ -52,13 +52,13 @@ def _make_run_side_effect(
             if "--user" in joined and systemd_active:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded active running Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded active running DAClaw Gateway\n",
                     stderr="",
                 )
             elif "--user" not in joined and system_service_active:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded active running Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded active running DAClaw Gateway\n",
                     stderr="",
                 )
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -317,7 +317,7 @@ class TestCmdUpdateLaunchdRestart:
         self, mock_run, _mock_which, mock_args, capsys, tmp_path, monkeypatch,
     ):
         """When launchd is running the gateway, update should print
-        'auto-restart via launchd' instead of 'Restart it with: hermes gateway run'."""
+        'auto-restart via launchd' instead of 'Restart it with: daclaw gateway run'."""
         # Create a fake launchd plist so is_macos + plist.exists() passes
         plist_path = tmp_path / "ai.hermes.gateway.plist"
         plist_path.write_text("<plist/>")
@@ -341,7 +341,7 @@ class TestCmdUpdateLaunchdRestart:
 
         captured = capsys.readouterr().out
         assert "Restarted" in captured
-        assert "Restart manually: hermes gateway run" not in captured
+        assert "Restart manually: daclaw gateway run" not in captured
         mock_launchd_restart.assert_called_once_with()
 
     @patch("shutil.which", return_value=None)
@@ -370,7 +370,7 @@ class TestCmdUpdateLaunchdRestart:
             cmd_update(mock_args)
 
         captured = capsys.readouterr().out
-        assert "Restart manually: hermes gateway run" in captured
+        assert "Restart manually: daclaw gateway run" in captured
 
     @patch("shutil.which", return_value=None)
     @patch("subprocess.run")
@@ -519,7 +519,7 @@ class TestCmdUpdateSystemService:
 class TestServicePidExclusion:
     """After restarting a service, the stale-process sweep must NOT kill
     the freshly-spawned service PID.  This was the root cause of the bug
-    where ``hermes update`` would restart the gateway and immediately kill it.
+    where ``daclaw update`` would restart the gateway and immediately kill it.
     """
 
     @patch("shutil.which", return_value=None)
@@ -667,7 +667,7 @@ class TestGetServicePids:
             if "list-units" in joined:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded active running Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded active running DAClaw Gateway\n",
                     stderr="",
                 )
             if "show" in joined and "MainPID" in joined:
@@ -717,7 +717,7 @@ class TestGetServicePids:
             if "list-units" in joined:
                 return subprocess.CompletedProcess(
                     cmd, 0,
-                    stdout="hermes-gateway.service loaded inactive dead Hermes Gateway\n",
+                    stdout="hermes-gateway.service loaded inactive dead DAClaw Gateway\n",
                     stderr="",
                 )
             if "show" in joined and "MainPID" in joined:
@@ -784,8 +784,8 @@ class TestFindGatewayPidsExclude:
             return subprocess.CompletedProcess(
                 cmd, 0,
                 stdout=(
-                    "100 /Users/dgrieco/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile orcha gateway run --replace\n"
-                    "200 /Users/dgrieco/.hermes/hermes-agent/venv/bin/python -m hermes_cli.main --profile other gateway run --replace\n"
+                    "100 /Users/dgrieco/.hermes/daclaw-agent/venv/bin/python -m hermes_cli.main --profile orcha gateway run --replace\n"
+                    "200 /Users/dgrieco/.hermes/daclaw-agent/venv/bin/python -m hermes_cli.main --profile other gateway run --replace\n"
                 ),
                 stderr="",
             )
@@ -806,7 +806,7 @@ class TestFindGatewayPidsExclude:
 
 
 class TestGatewayModeWritesExitCodeEarly:
-    """When running as ``hermes update --gateway``, the exit code marker must be
+    """When running as ``daclaw update --gateway``, the exit code marker must be
     written *before* the gateway restart attempt.  Without this, systemd's
     ``KillMode=mixed`` kills the update process (and its wrapping shell) during
     the cgroup teardown, so the shell epilogue that normally writes the exit

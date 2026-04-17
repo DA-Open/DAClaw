@@ -1,27 +1,27 @@
 ---
 sidebar_position: 2
 title: "Installation"
-description: "Install Hermes Agent on Linux, macOS, WSL2, or Android via Termux"
+description: "Install DAClaw Agent on Linux, macOS, WSL2, or Android via Termux"
 ---
 
 # Installation
 
-Get Hermes Agent up and running in under two minutes with the one-line installer, or follow the manual steps for full control.
+Get DAClaw Agent up and running in under two minutes with the one-line installer, or follow the manual steps for full control.
 
 ## Quick Install
 
 ### Linux / macOS / WSL2
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
 ```
 
 ### Android / Termux
 
-Hermes now ships a Termux-aware installer path too:
+DAClaw now ships a Termux-aware installer path too:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
 ```
 
 The installer detects Termux automatically and switches to a tested Android flow:
@@ -34,12 +34,12 @@ The installer detects Termux automatically and switches to a tested Android flow
 If you want the fully explicit path, follow the dedicated [Termux guide](./termux.md).
 
 :::warning Windows
-Native Windows is **not supported**. Please install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and run Hermes Agent from there. The install command above works inside WSL2.
+Native Windows is **not supported**. Please install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and run DAClaw Agent from there. The install command above works inside WSL2.
 :::
 
 ### What the Installer Does
 
-The installer handles everything automatically — all dependencies (Python, Node.js, ripgrep, ffmpeg), the repo clone, virtual environment, global `hermes` command setup, and LLM provider configuration. By the end, you're ready to chat.
+The installer handles everything automatically — all dependencies (Python, Node.js, ripgrep, ffmpeg), the repo clone, virtual environment, global `daclaw` command setup, and LLM provider configuration. By the end, you're ready to chat.
 
 ### After Installation
 
@@ -47,17 +47,17 @@ Reload your shell and start chatting:
 
 ```bash
 source ~/.bashrc   # or: source ~/.zshrc
-hermes             # Start chatting!
+daclaw             # Start chatting!
 ```
 
 To reconfigure individual settings later, use the dedicated commands:
 
 ```bash
-hermes model          # Choose your LLM provider and model
-hermes tools          # Configure which tools are enabled
-hermes gateway setup  # Set up messaging platforms
-hermes config set     # Set individual config values
-hermes setup          # Or run the full setup wizard to configure everything at once
+daclaw model          # Choose your LLM provider and model
+daclaw tools          # Configure which tools are enabled
+daclaw gateway setup  # Set up messaging platforms
+daclaw config set     # Set individual config values
+daclaw setup          # Or run the full setup wizard to configure everything at once
 ```
 
 ---
@@ -91,8 +91,8 @@ If you prefer full control over the installation process, follow these steps.
 Clone with `--recurse-submodules` to pull the required submodules:
 
 ```bash
-git clone --recurse-submodules https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent
+git clone --recurse-submodules https://github.com/NousResearch/daclaw-agent.git
+cd daclaw-agent
 ```
 
 If you already cloned without `--recurse-submodules`:
@@ -111,7 +111,7 @@ uv venv venv --python 3.11
 ```
 
 :::tip
-You do **not** need to activate the venv to use `hermes`. The entry point has a hardcoded shebang pointing to the venv Python, so it works globally once symlinked.
+You do **not** need to activate the venv to use `daclaw`. The entry point has a hardcoded shebang pointing to the venv Python, so it works globally once symlinked.
 :::
 
 ### Step 3: Install Python Dependencies
@@ -203,10 +203,10 @@ FAL_KEY=your-fal-key                   # Image generation (FLUX)
 
 Or set them via the CLI:
 ```bash
-hermes config set OPENROUTER_API_KEY sk-or-v1-your-key-here
+daclaw config set OPENROUTER_API_KEY sk-or-v1-your-key-here
 ```
 
-### Step 8: Add `hermes` to Your PATH
+### Step 8: Add `daclaw` to Your PATH
 
 ```bash
 mkdir -p ~/.local/bin
@@ -229,16 +229,16 @@ fish_add_path $HOME/.local/bin
 ### Step 9: Configure Your Provider
 
 ```bash
-hermes model       # Select your LLM provider and model
+daclaw model       # Select your LLM provider and model
 ```
 
 ### Step 10: Verify the Installation
 
 ```bash
-hermes version    # Check that the command is available
-hermes doctor     # Run diagnostics to verify everything is working
-hermes status     # Check your configuration
-hermes chat -q "Hello! What tools do you have available?"
+daclaw version    # Check that the command is available
+daclaw doctor     # Run diagnostics to verify everything is working
+daclaw status     # Check your configuration
+daclaw chat -q "Hello! What tools do you have available?"
 ```
 
 ---
@@ -252,8 +252,8 @@ For those who just want the commands:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone & enter
-git clone --recurse-submodules https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent
+git clone --recurse-submodules https://github.com/NousResearch/daclaw-agent.git
+cd daclaw-agent
 
 # Create venv with Python 3.11
 uv venv venv --python 3.11
@@ -270,13 +270,13 @@ cp cli-config.yaml.example ~/.hermes/config.yaml
 touch ~/.hermes/.env
 echo 'OPENROUTER_API_KEY=sk-or-v1-your-key' >> ~/.hermes/.env
 
-# Make hermes available globally
+# Make daclaw available globally
 mkdir -p ~/.local/bin
 ln -sf "$(pwd)/venv/bin/hermes" ~/.local/bin/hermes
 
 # Verify
-hermes doctor
-hermes
+daclaw doctor
+daclaw
 ```
 
 ---
@@ -286,7 +286,7 @@ hermes
 | Problem | Solution |
 |---------|----------|
 | `hermes: command not found` | Reload your shell (`source ~/.bashrc`) or check PATH |
-| `API key not set` | Run `hermes model` to configure your provider, or `hermes config set OPENROUTER_API_KEY your_key` |
-| Missing config after update | Run `hermes config check` then `hermes config migrate` |
+| `API key not set` | Run `daclaw model` to configure your provider, or `daclaw config set OPENROUTER_API_KEY your_key` |
+| Missing config after update | Run `daclaw config check` then `daclaw config migrate` |
 
-For more diagnostics, run `hermes doctor` — it will tell you exactly what's missing and how to fix it.
+For more diagnostics, run `daclaw doctor` — it will tell you exactly what's missing and how to fix it.

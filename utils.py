@@ -1,4 +1,4 @@
-"""Shared utility functions for hermes-agent."""
+"""Shared utility functions for daclaw-agent."""
 
 import json
 import logging

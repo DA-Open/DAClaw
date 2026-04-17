@@ -46,7 +46,7 @@ def _get_lock_dir() -> Path:
     if override:
         return Path(override)
     state_home = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    return state_home / "hermes" / _LOCKS_DIRNAME
+    return state_home / "daclaw" / _LOCKS_DIRNAME
 
 
 def _utc_now_iso() -> str:
@@ -112,7 +112,7 @@ def _read_process_cmdline(pid: int) -> Optional[str]:
 
 
 def _looks_like_gateway_process(pid: int) -> bool:
-    """Return True when the live PID still looks like the Hermes gateway."""
+    """Return True when the live PID still looks like the DAClaw gateway."""
     cmdline = _read_process_cmdline(pid)
     if not cmdline:
         return False
@@ -120,7 +120,7 @@ def _looks_like_gateway_process(pid: int) -> bool:
     patterns = (
         "hermes_cli.main gateway",
         "hermes_cli/main.py gateway",
-        "hermes gateway",
+        "daclaw gateway",
         "gateway/run.py",
     )
     return any(pattern in cmdline for pattern in patterns)
@@ -139,7 +139,7 @@ def _record_looks_like_gateway(record: dict[str, Any]) -> bool:
     patterns = (
         "hermes_cli.main gateway",
         "hermes_cli/main.py gateway",
-        "hermes gateway",
+        "daclaw gateway",
         "gateway/run.py",
     )
     return any(pattern in cmdline for pattern in patterns)

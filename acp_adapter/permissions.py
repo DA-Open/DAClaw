@@ -1,4 +1,4 @@
-"""ACP permission bridging — maps ACP approval requests to hermes approval callbacks."""
+"""ACP permission bridging — maps ACP approval requests to daclaw approval callbacks."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from acp.schema import (
 
 logger = logging.getLogger(__name__)
 
-# Maps ACP PermissionOptionKind -> hermes approval result strings
+# Maps ACP PermissionOptionKind -> daclaw approval result strings
 _KIND_TO_HERMES = {
     "allow_once": "once",
     "allow_always": "always",

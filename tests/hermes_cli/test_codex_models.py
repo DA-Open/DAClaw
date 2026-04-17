@@ -111,9 +111,9 @@ def test_model_command_uses_runtime_access_token_for_codex_list(monkeypatch):
 
 
 def _make_cli(model="anthropic/claude-opus-4.6", **kwargs):
-    """Create a HermesCLI with minimal mocking."""
+    """Create a DAClawCLI with minimal mocking."""
     import cli as _cli_mod
-    from cli import HermesCLI
+    from cli import DAClawCLI
 
     _clean_config = {
         "model": {
@@ -131,7 +131,7 @@ def _make_cli(model="anthropic/claude-opus-4.6", **kwargs):
         patch.dict("os.environ", clean_env, clear=False),
         patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
     ):
-        cli = HermesCLI(model=model, **kwargs)
+        cli = DAClawCLI(model=model, **kwargs)
     return cli
 
 
@@ -227,8 +227,8 @@ class TestNormalizeModelForProvider:
             patch.dict("os.environ", {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}, clear=False),
             patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
         ):
-            from cli import HermesCLI
-            cli = HermesCLI()
+            from cli import DAClawCLI
+            cli = DAClawCLI()
 
         assert cli._model_is_default is True
         with patch(
@@ -258,8 +258,8 @@ class TestNormalizeModelForProvider:
             patch.dict("os.environ", {"LLM_MODEL": "", "HERMES_MAX_ITERATIONS": ""}, clear=False),
             patch.dict(_cli_mod.__dict__, {"CLI_CONFIG": _clean_config}),
         ):
-            from cli import HermesCLI
-            cli = HermesCLI()
+            from cli import DAClawCLI
+            cli = DAClawCLI()
 
         with patch(
             "hermes_cli.codex_models.get_codex_model_ids",

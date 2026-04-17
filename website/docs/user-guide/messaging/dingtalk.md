@@ -1,22 +1,22 @@
 ---
 sidebar_position: 10
 title: "DingTalk"
-description: "Set up Hermes Agent as a DingTalk chatbot"
+description: "Set up DAClaw Agent as a DingTalk chatbot"
 ---
 
 # DingTalk Setup
 
-Hermes Agent integrates with DingTalk (钉钉) as a chatbot, letting you chat with your AI assistant through direct messages or group chats. The bot connects via DingTalk's Stream Mode — a long-lived WebSocket connection that requires no public URL or webhook server — and replies using markdown-formatted messages through DingTalk's session webhook API.
+DAClaw Agent integrates with DingTalk (钉钉) as a chatbot, letting you chat with your AI assistant through direct messages or group chats. The bot connects via DingTalk's Stream Mode — a long-lived WebSocket connection that requires no public URL or webhook server — and replies using markdown-formatted messages through DingTalk's session webhook API.
 
-Before setup, here's the part most people want to know: how Hermes behaves once it's in your DingTalk workspace.
+Before setup, here's the part most people want to know: how DAClaw behaves once it's in your DingTalk workspace.
 
-## How Hermes Behaves
+## How DAClaw Behaves
 
 | Context | Behavior |
 |---------|----------|
-| **DMs (1:1 chat)** | Hermes responds to every message. No `@mention` needed. Each DM has its own session. |
-| **Group chats** | Hermes responds when you `@mention` it. Without a mention, Hermes ignores the message. |
-| **Shared groups with multiple users** | By default, Hermes isolates session history per user inside the group. Two people talking in the same group do not share one transcript unless you explicitly disable that. |
+| **DMs (1:1 chat)** | DAClaw responds to every message. No `@mention` needed. Each DM has its own session. |
+| **Group chats** | DAClaw responds when you `@mention` it. Without a mention, DAClaw ignores the message. |
+| **Shared groups with multiple users** | By default, DAClaw isolates session history per user inside the group. Two people talking in the same group do not share one transcript unless you explicitly disable that. |
 
 ### Session Model in DingTalk
 
@@ -56,7 +56,7 @@ pip install dingtalk-stream httpx
 2. Log in with your DingTalk admin account.
 3. Click **Application Development** → **Custom Apps** → **Create App via H5 Micro-App** (or **Robot** depending on your console version).
 4. Fill in:
-   - **App Name**: e.g., `Hermes Agent`
+   - **App Name**: e.g., `DAClaw Agent`
    - **Description**: optional
 5. After creating, navigate to **Credentials & Basic Info** to find your **Client ID** (AppKey) and **Client Secret** (AppSecret). Copy both.
 
@@ -76,21 +76,21 @@ Stream Mode is the recommended setup. It uses a long-lived WebSocket connection 
 
 ## Step 3: Find Your DingTalk User ID
 
-Hermes Agent uses your DingTalk User ID to control who can interact with the bot. DingTalk User IDs are alphanumeric strings set by your organization's admin.
+DAClaw Agent uses your DingTalk User ID to control who can interact with the bot. DingTalk User IDs are alphanumeric strings set by your organization's admin.
 
 To find yours:
 
 1. Ask your DingTalk organization admin — User IDs are configured in the DingTalk admin console under **Contacts** → **Members**.
 2. Alternatively, the bot logs the `sender_id` for each incoming message. Start the gateway, send the bot a message, then check the logs for your ID.
 
-## Step 4: Configure Hermes Agent
+## Step 4: Configure DAClaw Agent
 
 ### Option A: Interactive Setup (Recommended)
 
 Run the guided setup command:
 
 ```bash
-hermes gateway setup
+daclaw gateway setup
 ```
 
 Select **DingTalk** when prompted, then paste your Client ID, Client Secret, and allowed user IDs when asked.
@@ -124,13 +124,13 @@ group_sessions_per_user: true
 Once configured, start the DingTalk gateway:
 
 ```bash
-hermes gateway
+daclaw gateway
 ```
 
 The bot should connect to DingTalk's Stream Mode within a few seconds. Send it a message — either a DM or in a group where it's been added — to test.
 
 :::tip
-You can run `hermes gateway` in the background or as a systemd service for persistent operation. See the deployment docs for details.
+You can run `daclaw gateway` in the background or as a systemd service for persistent operation. See the deployment docs for details.
 :::
 
 ## Troubleshooting
@@ -165,9 +165,9 @@ pip install dingtalk-stream httpx
 
 ### Bot is offline
 
-**Cause**: The Hermes gateway isn't running, or it failed to connect.
+**Cause**: The DAClaw gateway isn't running, or it failed to connect.
 
-**Fix**: Check that `hermes gateway` is running. Look at the terminal output for error messages. Common issues: wrong credentials, app deactivated, `dingtalk-stream` or `httpx` not installed.
+**Fix**: Check that `daclaw gateway` is running. Look at the terminal output for error messages. Common issues: wrong credentials, app deactivated, `dingtalk-stream` or `httpx` not installed.
 
 ### "No session_webhook available"
 
@@ -181,7 +181,7 @@ pip install dingtalk-stream httpx
 Always set `DINGTALK_ALLOWED_USERS` to restrict who can interact with the bot. Without it, the gateway denies all users by default as a safety measure. Only add User IDs of people you trust — authorized users have full access to the agent's capabilities, including tool use and system access.
 :::
 
-For more information on securing your Hermes Agent deployment, see the [Security Guide](../security.md).
+For more information on securing your DAClaw Agent deployment, see the [Security Guide](../security.md).
 
 ## Notes
 

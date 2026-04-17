@@ -137,7 +137,7 @@ def test_get_nous_auth_status_checks_credential_pool(tmp_path, monkeypatch):
     """
     from hermes_cli.auth import get_nous_auth_status
 
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     hermes_home.mkdir(parents=True, exist_ok=True)
     # Empty auth store — no Nous provider entry
     (hermes_home / "auth.json").write_text(json.dumps({
@@ -173,7 +173,7 @@ def test_get_nous_auth_status_auth_store_fallback(tmp_path, monkeypatch):
     """
     from hermes_cli.auth import get_nous_auth_status
 
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_nous_auth(hermes_home, access_token="at-123")
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -188,7 +188,7 @@ def test_get_nous_auth_status_empty_returns_not_logged_in(tmp_path, monkeypatch)
     """
     from hermes_cli.auth import get_nous_auth_status
 
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     hermes_home.mkdir(parents=True, exist_ok=True)
     (hermes_home / "auth.json").write_text(json.dumps({
         "version": 1, "providers": {},
@@ -200,7 +200,7 @@ def test_get_nous_auth_status_empty_returns_not_logged_in(tmp_path, monkeypatch)
 
 
 def test_refresh_token_persisted_when_mint_returns_insufficient_credits(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_nous_auth(hermes_home, refresh_token="refresh-old")
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -241,7 +241,7 @@ def test_refresh_token_persisted_when_mint_returns_insufficient_credits(tmp_path
 
 
 def test_refresh_token_persisted_when_mint_times_out(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_nous_auth(hermes_home, refresh_token="refresh-old")
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 
@@ -269,7 +269,7 @@ def test_refresh_token_persisted_when_mint_times_out(tmp_path, monkeypatch):
 
 
 def test_mint_retry_uses_latest_rotated_refresh_token(tmp_path, monkeypatch):
-    hermes_home = tmp_path / "hermes"
+    hermes_home = tmp_path / "daclaw"
     _setup_nous_auth(hermes_home, refresh_token="refresh-old")
     monkeypatch.setenv("HERMES_HOME", str(hermes_home))
 

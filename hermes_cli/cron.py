@@ -1,5 +1,5 @@
 """
-Cron subcommand for hermes CLI.
+Cron subcommand for daclaw CLI.
 
 Handles standalone cron management commands like list, create, edit,
 pause/resume/run/remove, status, and tick.
@@ -46,7 +46,7 @@ def cron_list(show_all: bool = False):
 
     if not jobs:
         print(color("No scheduled jobs.", Colors.DIM))
-        print(color("Create one with 'hermes cron create ...' or the /cron command in chat.", Colors.DIM))
+        print(color("Create one with 'daclaw cron create ...' or the /cron command in chat.", Colors.DIM))
         return
 
     print()
@@ -113,8 +113,8 @@ def cron_list(show_all: bool = False):
     from hermes_cli.gateway import find_gateway_pids
     if not find_gateway_pids():
         print(color("  ⚠  Gateway is not running — jobs won't fire automatically.", Colors.YELLOW))
-        print(color("     Start it with: hermes gateway install", Colors.DIM))
-        print(color("                    sudo hermes gateway install --system  # Linux servers", Colors.DIM))
+        print(color("     Start it with: daclaw gateway install", Colors.DIM))
+        print(color("                    sudo daclaw gateway install --system  # Linux servers", Colors.DIM))
         print()
 
 
@@ -139,9 +139,9 @@ def cron_status():
         print(color("✗ Gateway is not running — cron jobs will NOT fire", Colors.RED))
         print()
         print("  To enable automatic execution:")
-        print("    hermes gateway install    # Install as a user service")
-        print("    sudo hermes gateway install --system  # Linux servers: boot-time system service")
-        print("    hermes gateway            # Or run in foreground")
+        print("    daclaw gateway install    # Install as a user service")
+        print("    sudo daclaw gateway install --system  # Linux servers: boot-time system service")
+        print("    daclaw gateway            # Or run in foreground")
 
     print()
 
@@ -286,5 +286,5 @@ def cron_command(args):
         return _job_action("remove", args.job_id, "Removed")
 
     print(f"Unknown cron command: {subcmd}")
-    print("Usage: hermes cron [list|create|edit|pause|resume|run|remove|status|tick]")
+    print("Usage: daclaw cron [list|create|edit|pause|resume|run|remove|status|tick]")
     sys.exit(1)

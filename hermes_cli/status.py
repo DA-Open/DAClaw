@@ -1,7 +1,7 @@
 """
-Status command for hermes CLI.
+Status command for daclaw CLI.
 
-Shows the status of all Hermes Agent components.
+Shows the status of all DAClaw Agent components.
 """
 
 import os
@@ -83,13 +83,13 @@ from hermes_constants import is_termux as _is_termux
 
 
 def show_status(args):
-    """Show status of all Hermes Agent components."""
+    """Show status of all DAClaw Agent components."""
     show_all = getattr(args, 'all', False)
     deep = getattr(args, 'deep', False)
     
     print()
     print(color("┌─────────────────────────────────────────────────────────┐", Colors.CYAN))
-    print(color("│                 ⚕ Hermes Agent Status                  │", Colors.CYAN))
+    print(color("│                 ⚕ DAClaw Agent Status                  │", Colors.CYAN))
     print(color("└─────────────────────────────────────────────────────────┘", Colors.CYAN))
     
     # =========================================================================
@@ -165,7 +165,7 @@ def show_status(args):
     nous_logged_in = bool(nous_status.get("logged_in"))
     print(
         f"  {'Nous Portal':<12}  {check_mark(nous_logged_in)} "
-        f"{'logged in' if nous_logged_in else 'not logged in (run: hermes model)'}"
+        f"{'logged in' if nous_logged_in else 'not logged in (run: daclaw model)'}"
     )
     if nous_logged_in:
         portal_url = nous_status.get("portal_base_url") or "(unknown)"
@@ -180,7 +180,7 @@ def show_status(args):
     codex_logged_in = bool(codex_status.get("logged_in"))
     print(
         f"  {'OpenAI Codex':<12}  {check_mark(codex_logged_in)} "
-        f"{'logged in' if codex_logged_in else 'not logged in (run: hermes model)'}"
+        f"{'logged in' if codex_logged_in else 'not logged in (run: daclaw model)'}"
     )
     codex_auth_file = codex_status.get("auth_store")
     if codex_auth_file:
@@ -250,7 +250,7 @@ def show_status(args):
             if key_val:
                 break
         configured = bool(key_val)
-        label = "configured" if configured else "not configured (run: hermes model)"
+        label = "configured" if configured else "not configured (run: daclaw model)"
         print(f"  {pname:<16} {check_mark(configured)} {label}")
 
     # =========================================================================
@@ -262,7 +262,7 @@ def show_status(args):
     terminal_env = os.getenv("TERMINAL_ENV", "")
     if not terminal_env:
         # Fall back to config file value when env var isn't set
-        # (hermes status doesn't go through cli.py's config loading)
+        # (daclaw status doesn't go through cli.py's config loading)
         try:
             _cfg = load_config()
             terminal_env = _cfg.get("terminal", {}).get("backend", "local")
@@ -343,7 +343,7 @@ def show_status(args):
                 rendered += ", ..."
             print(f"  PID(s):       {rendered}")
         else:
-            print("  Start with:   hermes gateway")
+            print("  Start with:   daclaw gateway")
             print("  Note:         Android may stop background jobs when Termux is suspended")
 
     elif sys.platform.startswith('linux'):
@@ -471,6 +471,6 @@ def show_status(args):
     
     print()
     print(color("─" * 60, Colors.DIM))
-    print(color("  Run 'hermes doctor' for detailed diagnostics", Colors.DIM))
-    print(color("  Run 'hermes setup' to configure", Colors.DIM))
+    print(color("  Run 'daclaw doctor' for detailed diagnostics", Colors.DIM))
+    print(color("  Run 'daclaw setup' to configure", Colors.DIM))
     print()

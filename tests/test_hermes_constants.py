@@ -10,7 +10,7 @@ import hermes_constants
 from hermes_constants import get_default_hermes_root, is_container
 
 
-class TestGetDefaultHermesRoot:
+class TestGetDefaultDAClawRoot:
     """Tests for get_default_hermes_root() — Docker/custom deployment awareness."""
 
     def test_no_hermes_home_returns_native(self, tmp_path, monkeypatch):
