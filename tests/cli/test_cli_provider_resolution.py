@@ -577,8 +577,8 @@ def test_model_flow_custom_saves_verified_v1_base_url(monkeypatch, capsys):
 
     # After the probe detects a single model ("llm"), the flow asks
     # "Use this model? [Y/n]:" — confirm with Enter, then context length,
-    # then display name.
-    answers = iter(["http://localhost:8000", "local-key", "", "", ""])
+    # display name, and Azure-compatible custom endpoint prompt.
+    answers = iter(["http://localhost:8000", "local-key", "", "", "", ""])
     monkeypatch.setattr("builtins.input", lambda _prompt="": next(answers))
     monkeypatch.setattr("getpass.getpass", lambda _prompt="": next(answers))
 
@@ -621,8 +621,8 @@ def test_cmd_model_forwards_nous_login_tls_options(monkeypatch):
 
     daclaw_main.cmd_model(
         SimpleNamespace(
-            portal_url="https://portal.nousresearch.com",
-            inference_url="https://inference.nousresearch.com/v1",
+            portal_url="https://portal.DA-Open.com",
+            inference_url="https://inference.DA-Open.com/v1",
             client_id="daclaw-local",
             scope="openid profile",
             no_browser=True,
@@ -633,8 +633,8 @@ def test_cmd_model_forwards_nous_login_tls_options(monkeypatch):
     )
 
     assert captured == {
-        "portal_url": "https://portal.nousresearch.com",
-        "inference_url": "https://inference.nousresearch.com/v1",
+        "portal_url": "https://portal.DA-Open.com",
+        "inference_url": "https://inference.DA-Open.com/v1",
         "client_id": "daclaw-local",
         "scope": "openid profile",
         "no_browser": True,
@@ -685,3 +685,32 @@ def test_save_custom_provider_uses_provided_name(monkeypatch, tmp_path):
     entries = saved.get("custom_providers", [])
     assert len(entries) == 1
     assert entries[0]["name"] == "Ollama"
+
+
+def test_save_custom_provider_persists_azure_options(monkeypatch, tmp_path):
+    """Custom endpoints can save AzureOpenAI-compatible client options."""
+    import yaml
+    from daclaw_cli.main import _save_custom_provider
+
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(yaml.dump({}))
+
+    monkeypatch.setattr(
+        "daclaw_cli.config.load_config", lambda: yaml.safe_load(cfg_path.read_text()) or {},
+    )
+    saved = {}
+    monkeypatch.setattr("daclaw_cli.config.save_config", lambda cfg: saved.update(cfg))
+
+    _save_custom_provider(
+        "https://aidp.example/api/modelhub/online/v2/crawl",
+        model="gpt-5.4-2026-03-05",
+        name="AIDP",
+        api_mode="azure_chat_completions",
+        api_version="2024-02-01",
+        default_headers={"X-TT-LOGID": "logid"},
+    )
+
+    entry = saved["custom_providers"][0]
+    assert entry["api_mode"] == "azure_chat_completions"
+    assert entry["api_version"] == "2024-02-01"
+    assert entry["default_headers"] == {"X-TT-LOGID": "logid"}

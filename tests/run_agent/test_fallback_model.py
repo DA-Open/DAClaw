@@ -315,7 +315,7 @@ class TestTryActivateFallback:
         )
         mock_client = _mock_resolve(
             api_key="nous-agent-key-abc",
-            base_url="https://inference-api.nousresearch.com/v1",
+            base_url="https://inference-api.DA-Open.com/v1",
         )
         with patch(
             "agent.auxiliary_client.resolve_provider_client",

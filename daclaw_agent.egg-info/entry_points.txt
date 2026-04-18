@@ -1,4 +1,0 @@
-[console_scripts]
-daclaw = daclaw_cli.main:main
-daclaw-acp = acp_adapter.entry:main
-daclaw-agent = run_agent:main

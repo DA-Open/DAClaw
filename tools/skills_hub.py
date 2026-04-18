@@ -2157,7 +2157,7 @@ class OptionalSkillSource(SkillSource):
     """
     Fetch skills from the optional-skills/ directory shipped with the repo.
 
-    These skills are official (maintained by Nous Research) but not activated
+    These skills are official (maintained by DA-Open) but not activated
     by default — they don't appear in the system prompt and aren't copied to
     ~/.daclaw/skills/ during setup.  They are discoverable via the Skills Hub
     (search / install / inspect) and labelled "official" with "builtin" trust.
@@ -2705,7 +2705,7 @@ def check_for_skill_updates(
 # DAClaw centralized index source
 # ---------------------------------------------------------------------------
 
-DACLAW_INDEX_URL = "https://daclaw-agent.nousresearch.com/docs/api/skills-index.json"
+DACLAW_INDEX_URL = "https://daclaw-agent.DA-Open.com/docs/api/skills-index.json"
 DACLAW_INDEX_CACHE_FILE = INDEX_CACHE_DIR / "daclaw-index.json"
 DACLAW_INDEX_TTL = 6 * 3600  # 6 hours
 

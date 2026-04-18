@@ -995,7 +995,7 @@ class AIAgent:
                 if "openrouter" in effective_base.lower():
                     headers = dict(client_kwargs.get("default_headers") or {})
                     headers.update({
-                        "HTTP-Referer": "https://daclaw-agent.nousresearch.com",
+                        "HTTP-Referer": "https://daclaw-agent.DA-Open.com",
                         "X-OpenRouter-Title": "DAClaw Agent",
                         "X-OpenRouter-Categories": "productivity,cli-agent",
                     })
@@ -1068,7 +1068,7 @@ class AIAgent:
                         "api_key": os.getenv("OPENROUTER_API_KEY", ""),
                         "base_url": OPENROUTER_BASE_URL,
                         "default_headers": {
-                            "HTTP-Referer": "https://daclaw-agent.nousresearch.com",
+                            "HTTP-Referer": "https://daclaw-agent.DA-Open.com",
                             "X-OpenRouter-Title": "DAClaw Agent",
                             "X-OpenRouter-Categories": "productivity,cli-agent",
                         },
@@ -6669,7 +6669,7 @@ class AIAgent:
             # (the documented max output for qwen3-coder models) so the
             # model has adequate output budget for tool calls.
             api_kwargs.update(self._max_tokens_param(65536))
-        elif (self._is_openrouter_url() or "nousresearch" in self._base_url_lower) and "claude" in (self.model or "").lower():
+        elif (self._is_openrouter_url() or "DA-Open" in self._base_url_lower) and "claude" in (self.model or "").lower():
             # OpenRouter and Nous Portal translate requests to Anthropic's
             # Messages API, which requires max_tokens as a mandatory field.
             # When we omit it, the proxy picks a default that can be too
@@ -6698,7 +6698,7 @@ class AIAgent:
         # for _is_nous when their backend is updated.
         if provider_preferences and _is_openrouter:
             extra_body["provider"] = provider_preferences
-        _is_nous = "nousresearch" in self._base_url_lower
+        _is_nous = "DA-Open" in self._base_url_lower
 
         if self._supports_reasoning_extra_body():
             if _is_github_models:
@@ -6759,7 +6759,7 @@ class AIAgent:
         Some providers/routes reject `reasoning` with 400s, so gate it to
         known reasoning-capable model families and direct Nous Portal.
         """
-        if "nousresearch" in self._base_url_lower:
+        if "DA-Open" in self._base_url_lower:
             return True
         if "ai-gateway.vercel.sh" in self._base_url_lower:
             return True
@@ -8082,7 +8082,7 @@ class AIAgent:
                     api_messages.insert(sys_offset + idx, pfm.copy())
 
             summary_extra_body = {}
-            _is_nous = "nousresearch" in self._base_url_lower
+            _is_nous = "DA-Open" in self._base_url_lower
             if self._supports_reasoning_extra_body():
                 if self.reasoning_config is not None:
                     summary_extra_body["reasoning"] = self.reasoning_config

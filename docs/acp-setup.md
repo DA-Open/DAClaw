@@ -224,5 +224,5 @@ DACLAW_LOG_LEVEL=DEBUG daclaw acp
 ## Further Reading
 
 - [ACP Specification](https://github.com/anysphere/acp)
-- [DAClaw Agent Documentation](https://github.com/NousResearch/daclaw-agent)
+- [DAClaw Agent Documentation](https://github.com/DA-Open/daclaw-agent)
 - Run `daclaw --help` for all CLI options

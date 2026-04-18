@@ -21,7 +21,7 @@ If this is your first time running DAClaw Agent, create a data directory on the 
 mkdir -p ~/.daclaw
 docker run -it --rm \
   -v ~/.daclaw:/opt/data \
-  nousresearch/daclaw-agent setup
+  DA-Open/daclaw-agent setup
 ```
 
 This drops you into the setup wizard, which will prompt you for your API keys and write them to `~/.daclaw/.env`. You only need to do this once. It is highly recommended to set up a chat system for the gateway to work with at this point.
@@ -36,10 +36,10 @@ docker run -d \
   --restart unless-stopped \
   -v ~/.daclaw:/opt/data \
   -p 8642:8642 \
-  nousresearch/daclaw-agent gateway run
+  DA-Open/daclaw-agent gateway run
 ```
 
-Port 8642 exposes the gateway's [OpenAI-compatible API server](./api-server.md) and health endpoint. It's optional if you only use chat platforms (Telegram, Discord, etc.), but required if you want the dashboard or external tools to reach the gateway.
+Port 8642 exposes the gateway's [OpenAI-compatible API server](/docs/user-guide/features/api-server) and health endpoint. It's optional if you only use chat platforms (Telegram, Discord, etc.), but required if you want the dashboard or external tools to reach the gateway.
 
 Opening any port on an internet facing machine is a security risk. You should not do it unless you understand the risks.
 
@@ -56,7 +56,7 @@ docker run -d \
   -v ~/.daclaw:/opt/data \
   -p 9119:9119 \
   -e GATEWAY_HEALTH_URL=http://$HOST_IP:8642 \
-  nousresearch/daclaw-agent dashboard
+  DA-Open/daclaw-agent dashboard
 ```
 
 Replace `$HOST_IP` with the IP address of the machine running the gateway container (e.g. `192.168.1.100`), or use a Docker network hostname if both containers share a network (see the [Compose example](#docker-compose-example) below).
@@ -75,7 +75,7 @@ To open an interactive chat session against a running data directory:
 ```sh
 docker run -it --rm \
   -v ~/.daclaw:/opt/data \
-  nousresearch/daclaw-agent
+  DA-Open/daclaw-agent
 ```
 
 ## Persistent volumes
@@ -108,7 +108,7 @@ docker run -it --rm \
   -v ~/.daclaw:/opt/data \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -e OPENAI_API_KEY="sk-..." \
-  nousresearch/daclaw-agent
+  DA-Open/daclaw-agent
 ```
 
 Direct `-e` flags override values from `.env`. This is useful for CI/CD or secrets-manager integrations where you don't want keys on disk.
@@ -120,7 +120,7 @@ For persistent deployment with both the gateway and dashboard, a `docker-compose
 ```yaml
 services:
   daclaw:
-    image: nousresearch/daclaw-agent:latest
+    image: DA-Open/daclaw-agent:latest
     container_name: daclaw
     restart: unless-stopped
     command: gateway run
@@ -142,7 +142,7 @@ services:
           cpus: "2.0"
 
   dashboard:
-    image: nousresearch/daclaw-agent:latest
+    image: DA-Open/daclaw-agent:latest
     container_name: daclaw-dashboard
     restart: unless-stopped
     command: dashboard --host 0.0.0.0
@@ -189,7 +189,7 @@ docker run -d \
   --restart unless-stopped \
   --memory=4g --cpus=2 \
   -v ~/.daclaw:/opt/data \
-  nousresearch/daclaw-agent gateway run
+  DA-Open/daclaw-agent gateway run
 ```
 
 ## What the Dockerfile does
@@ -215,13 +215,13 @@ The entrypoint script (`docker/entrypoint.sh`) bootstraps the data volume on fir
 Pull the latest image and recreate the container. Your data directory is untouched.
 
 ```sh
-docker pull nousresearch/daclaw-agent:latest
+docker pull DA-Open/daclaw-agent:latest
 docker rm -f daclaw
 docker run -d \
   --name daclaw \
   --restart unless-stopped \
   -v ~/.daclaw:/opt/data \
-  nousresearch/daclaw-agent gateway run
+  DA-Open/daclaw-agent gateway run
 ```
 
 Or with Docker Compose:
@@ -262,7 +262,7 @@ docker run -d \
   --name daclaw \
   --shm-size=1g \
   -v ~/.daclaw:/opt/data \
-  nousresearch/daclaw-agent gateway run
+  DA-Open/daclaw-agent gateway run
 ```
 
 ### Gateway not reconnecting after network issues
@@ -277,6 +277,6 @@ docker restart daclaw
 
 ```sh
 docker logs --tail 50 daclaw          # Recent logs
-docker run -it --rm nousresearch/daclaw-agent:latest version     # Verify version
+docker run -it --rm DA-Open/daclaw-agent:latest version     # Verify version
 docker stats daclaw                    # Resource usage
 ```

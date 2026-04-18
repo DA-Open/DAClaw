@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import uuid
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ from daclaw_cli.auth import (
 )
 from daclaw_cli.config import get_compatible_custom_providers, load_config
 from daclaw_constants import OPENROUTER_BASE_URL
-from agent.endpoint_options import normalize_endpoint_client_options
+from agent.endpoint_options import DEFAULT_ENDPOINT_API_VERSION, normalize_endpoint_client_options
 
 
 def _normalize_custom_provider_name(value: str) -> str:
@@ -140,7 +141,44 @@ _API_MODE_ALIASES = {
 
 def _extract_client_options(entry: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Pull custom endpoint client options from a config/runtime entry."""
-    return normalize_endpoint_client_options(entry)
+    options: Dict[str, Any] = {}
+    if isinstance(entry, dict):
+        nested = normalize_endpoint_client_options(entry.get("client_options"))
+        if nested:
+            options.update(nested)
+    options.update(normalize_endpoint_client_options(entry))
+    return options
+
+
+def _is_aidp_url(base_url: str) -> bool:
+    normalized = (base_url or "").strip().lower()
+    return "aidp." in normalized or "/modelhub/" in normalized
+
+
+def _aidp_client_options(entry: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Return Azure-compatible client options for AIDP runtime calls."""
+    options = _extract_client_options(entry)
+    if "api_version" not in options:
+        options["api_version"] = (
+            os.getenv("AIDP_API_VERSION", "").strip()
+            or DEFAULT_ENDPOINT_API_VERSION
+        )
+
+    headers = dict(options.get("default_headers") or {})
+    if "X-TT-LOGID" not in headers:
+        headers["X-TT-LOGID"] = os.getenv("AIDP_LOGID", "").strip() or uuid.uuid4().hex
+    options["default_headers"] = headers
+    return options
+
+
+def _custom_endpoint_client_options(
+    entry: Optional[Dict[str, Any]],
+    base_url: str,
+) -> Dict[str, Any]:
+    """Return client options for custom endpoints, including AIDP defaults."""
+    if _is_aidp_url(base_url):
+        return _aidp_client_options(entry)
+    return _extract_client_options(entry)
 
 
 def _parse_api_mode(raw: Any) -> Optional[str]:
@@ -161,6 +199,8 @@ def _infer_custom_api_mode(
     configured = _parse_api_mode((entry or {}).get("api_mode") if isinstance(entry, dict) else None)
     if configured:
         return configured
+    if _is_aidp_url(base_url):
+        return "azure_chat_completions"
     options = _extract_client_options(entry)
     if options.get("api_version"):
         return "azure_chat_completions"
@@ -196,6 +236,8 @@ def _resolve_runtime_from_pool_entry(
         base_url = base_url or OPENROUTER_BASE_URL
     elif provider == "nous":
         api_mode = "chat_completions"
+    elif provider == "aidp":
+        api_mode = "azure_chat_completions"
     elif provider == "copilot":
         api_mode = _copilot_runtime_api_mode(model_cfg, getattr(entry, "runtime_api_key", ""))
     else:
@@ -226,7 +268,7 @@ def _resolve_runtime_from_pool_entry(
     if api_mode == "anthropic_messages" and provider in ("opencode-zen", "opencode-go"):
         base_url = re.sub(r"/v1/?$", "", base_url)
 
-    return {
+    result = {
         "provider": provider,
         "api_mode": api_mode,
         "base_url": base_url,
@@ -235,6 +277,9 @@ def _resolve_runtime_from_pool_entry(
         "credential_pool": pool,
         "requested_provider": requested_provider,
     }
+    if provider == "aidp":
+        result["client_options"] = _aidp_client_options(model_cfg)
+    return result
 
 
 def resolve_requested_provider(requested: Optional[str] = None) -> str:
@@ -338,7 +383,7 @@ def _get_named_custom_provider(requested_provider: str) -> Optional[Dict[str, An
                     )
                     if api_mode:
                         result["api_mode"] = api_mode
-                    client_options = _extract_client_options(entry)
+                    client_options = _custom_endpoint_client_options(entry, result["base_url"])
                     if client_options:
                         result["client_options"] = client_options
                     return result
@@ -362,7 +407,7 @@ def _get_named_custom_provider(requested_provider: str) -> Optional[Dict[str, An
                         )
                         if api_mode:
                             result["api_mode"] = api_mode
-                        client_options = _extract_client_options(entry)
+                        client_options = _custom_endpoint_client_options(entry, result["base_url"])
                         if client_options:
                             result["client_options"] = client_options
                         return result
@@ -408,7 +453,7 @@ def _get_named_custom_provider(requested_provider: str) -> Optional[Dict[str, An
         api_mode = _infer_custom_api_mode(entry, base_url)
         if api_mode:
             result["api_mode"] = api_mode
-        client_options = _extract_client_options(entry)
+        client_options = _custom_endpoint_client_options(entry, base_url)
         if client_options:
             result["client_options"] = client_options
         model_name = str(entry.get("model", "") or "").strip()
@@ -444,9 +489,9 @@ def _resolve_named_custom_runtime(
         model_name = custom_provider.get("model")
         if model_name:
             pool_result["model"] = model_name
-        client_options = custom_provider.get("client_options")
-        if isinstance(client_options, dict) and client_options:
-            pool_result["client_options"] = dict(client_options)
+        client_options = _custom_endpoint_client_options(custom_provider, base_url)
+        if client_options:
+            pool_result["client_options"] = client_options
         return pool_result
 
     api_key_candidates = [
@@ -471,9 +516,9 @@ def _resolve_named_custom_runtime(
     # provider name differs from the actual model string the API expects.
     if custom_provider.get("model"):
         result["model"] = custom_provider["model"]
-    client_options = custom_provider.get("client_options")
-    if isinstance(client_options, dict) and client_options:
-        result["client_options"] = dict(client_options)
+    client_options = _custom_endpoint_client_options(custom_provider, base_url)
+    if client_options:
+        result["client_options"] = client_options
     return result
 
 
@@ -560,7 +605,7 @@ def _resolve_openrouter_runtime(
             base_url, effective_provider, custom_api_mode,
         )
         if pool_result:
-            client_options = _extract_client_options(model_cfg)
+            client_options = _custom_endpoint_client_options(model_cfg, base_url)
             if client_options:
                 pool_result["client_options"] = client_options
             return pool_result
@@ -573,7 +618,7 @@ def _resolve_openrouter_runtime(
         "api_mode": custom_api_mode or "chat_completions",
         "base_url": base_url,
         "api_key": api_key,
-        "client_options": _extract_client_options(model_cfg),
+        "client_options": _custom_endpoint_client_options(model_cfg, base_url),
         "source": source,
     }
 
@@ -691,6 +736,8 @@ def _resolve_explicit_runtime(
         api_mode = "chat_completions"
         if provider == "copilot":
             api_mode = _copilot_runtime_api_mode(model_cfg, api_key)
+        elif provider == "aidp":
+            api_mode = "azure_chat_completions"
         else:
             configured_mode = _parse_api_mode(model_cfg.get("api_mode"))
             if configured_mode:
@@ -698,7 +745,7 @@ def _resolve_explicit_runtime(
             elif base_url.rstrip("/").endswith("/anthropic"):
                 api_mode = "anthropic_messages"
 
-        return {
+        result = {
             "provider": provider,
             "api_mode": api_mode,
             "base_url": base_url.rstrip("/"),
@@ -706,6 +753,13 @@ def _resolve_explicit_runtime(
             "source": "explicit",
             "requested_provider": requested_provider,
         }
+        if provider == "aidp":
+            result["client_options"] = _aidp_client_options(model_cfg)
+        else:
+            client_options = _extract_client_options(model_cfg)
+            if client_options:
+                result["client_options"] = client_options
+        return result
 
     return None
 
@@ -987,6 +1041,8 @@ def resolve_runtime_provider(
         api_mode = "chat_completions"
         if provider == "copilot":
             api_mode = _copilot_runtime_api_mode(model_cfg, creds.get("api_key", ""))
+        elif provider == "aidp":
+            api_mode = "azure_chat_completions"
         else:
             configured_provider = str(model_cfg.get("provider") or "").strip().lower()
             # Only honor persisted api_mode when it belongs to the same provider family.
@@ -1003,7 +1059,7 @@ def resolve_runtime_provider(
         # Strip trailing /v1 for OpenCode Anthropic models (see comment above).
         if api_mode == "anthropic_messages" and provider in ("opencode-zen", "opencode-go"):
             base_url = re.sub(r"/v1/?$", "", base_url)
-        return {
+        result = {
             "provider": provider,
             "api_mode": api_mode,
             "base_url": base_url,
@@ -1011,6 +1067,13 @@ def resolve_runtime_provider(
             "source": creds.get("source", "env"),
             "requested_provider": requested_provider,
         }
+        if provider == "aidp":
+            result["client_options"] = _aidp_client_options(model_cfg)
+        else:
+            client_options = _extract_client_options(model_cfg)
+            if client_options:
+                result["client_options"] = client_options
+        return result
 
     runtime = _resolve_openrouter_runtime(
         requested_provider=requested_provider,

@@ -62,9 +62,9 @@ def test_build_welcome_banner_uses_normalized_toolset_names():
         )
 
     output = console.export_text()
-    assert "homeassistant:" in output
-    assert "honcho:" in output
-    assert "web:" in output
-    assert "homeassistant_tools:" not in output
-    assert "honcho_tools:" not in output
-    assert "web_tools:" not in output
+    assert "Mission Control" in output
+    assert "tools" in output
+    assert "systems" in output
+    assert "homeassistant_tools" not in output
+    assert "honcho_tools" not in output
+    assert "web_tools" not in output

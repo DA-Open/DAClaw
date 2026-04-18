@@ -7,11 +7,11 @@ const config: Config = {
   tagline: 'The self-improving AI agent',
   favicon: 'img/favicon.ico',
 
-  url: 'https://daclaw-agent.nousresearch.com',
-  baseUrl: '/docs/',
+  url: 'https://da-open.github.io',
+  baseUrl: '/',
 
-  organizationName: 'NousResearch',
-  projectName: 'daclaw-agent',
+  organizationName: 'DA-Open',
+  projectName: 'DAClaw',
 
   onBrokenLinks: 'warn',
 
@@ -36,7 +36,7 @@ const config: Config = {
         hashed: true,
         language: ['en'],
         indexBlog: false,
-        docsRouteBasePath: '/',
+        docsRouteBasePath: '/docs',
         highlightSearchTermsOnTargetPage: true,
       }),
     ],
@@ -47,9 +47,9 @@ const config: Config = {
       'classic',
       {
         docs: {
-          routeBasePath: '/',  // Docs at the root of /docs/
+          routeBasePath: 'docs',
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/NousResearch/daclaw-agent/edit/main/website/',
+          editUrl: 'https://github.com/DA-Open/DAClaw/edit/main/website/',
         },
         blog: false,
         theme: {
@@ -90,18 +90,18 @@ const config: Config = {
           position: 'left',
         },
         {
-          href: 'https://daclaw-agent.nousresearch.com',
+          to: '/',
           label: 'Home',
           position: 'right',
         },
         {
-          href: 'https://github.com/NousResearch/daclaw-agent',
+          href: 'https://github.com/DA-Open/DAClaw',
           label: 'GitHub',
           position: 'right',
         },
         {
-          href: 'https://discord.gg/NousResearch',
-          label: 'Discord',
+          href: 'https://github.com/DA-Open/DAClaw/issues',
+          label: 'Issues',
           position: 'right',
         },
       ],
@@ -112,29 +112,29 @@ const config: Config = {
         {
           title: 'Docs',
           items: [
-            { label: 'Getting Started', to: '/getting-started/quickstart' },
-            { label: 'User Guide', to: '/user-guide/cli' },
-            { label: 'Developer Guide', to: '/developer-guide/architecture' },
-            { label: 'Reference', to: '/reference/cli-commands' },
+            { label: 'Getting Started', to: '/docs/getting-started/quickstart' },
+            { label: 'User Guide', to: '/docs/user-guide/cli' },
+            { label: 'Developer Guide', to: '/docs/developer-guide/architecture' },
+            { label: 'Reference', to: '/docs/reference/cli-commands' },
           ],
         },
         {
           title: 'Community',
           items: [
-            { label: 'Discord', href: 'https://discord.gg/NousResearch' },
-            { label: 'GitHub Discussions', href: 'https://github.com/NousResearch/daclaw-agent/discussions' },
+            { label: 'GitHub Issues', href: 'https://github.com/DA-Open/DAClaw/issues' },
+            { label: 'GitHub Discussions', href: 'https://github.com/DA-Open/DAClaw/discussions' },
             { label: 'Skills Hub', href: 'https://agentskills.io' },
           ],
         },
         {
           title: 'More',
           items: [
-            { label: 'GitHub', href: 'https://github.com/NousResearch/daclaw-agent' },
-            { label: 'Nous Research', href: 'https://nousresearch.com' },
+            { label: 'GitHub', href: 'https://github.com/DA-Open/DAClaw' },
+            { label: 'DA-Open', href: 'https://github.com/DA-Open' },
           ],
         },
       ],
-      copyright: `Built by <a href="https://nousresearch.com">Nous Research</a> · MIT License · ${new Date().getFullYear()}`,
+      copyright: `Built by DA-Open · MIT License · ${new Date().getFullYear()}`,
     },
     prism: {
       theme: prismThemes.github,

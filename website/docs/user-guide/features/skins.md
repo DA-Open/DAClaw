@@ -51,18 +51,18 @@ Controls all color values throughout the CLI. Values are hex color strings.
 | Key | Description | Default (`default` skin) |
 |-----|-------------|--------------------------|
 | `banner_border` | Panel border around the startup banner | `#CD7F32` (bronze) |
-| `banner_title` | Title text color in the banner | `#FFD700` (gold) |
-| `banner_accent` | Section headers in the banner (Available Tools, etc.) | `#FFBF00` (amber) |
+| `banner_title` | Title text color in the banner | `#2DD4BF` (gold) |
+| `banner_accent` | Section headers in the banner (Available Tools, etc.) | `#F4B860` (amber) |
 | `banner_dim` | Muted text in the banner (separators, secondary labels) | `#B8860B` (dark goldenrod) |
 | `banner_text` | Body text in the banner (tool names, skill names) | `#FFF8DC` (cornsilk) |
-| `ui_accent` | General UI accent color (highlights, active elements) | `#FFBF00` |
+| `ui_accent` | General UI accent color (highlights, active elements) | `#F4B860` |
 | `ui_label` | UI labels and tags | `#4dd0e1` (teal) |
 | `ui_ok` | Success indicators (checkmarks, completion) | `#4caf50` (green) |
 | `ui_error` | Error indicators (failures, blocked) | `#ef5350` (red) |
 | `ui_warn` | Warning indicators (caution, approval prompts) | `#ffa726` (orange) |
 | `prompt` | Interactive prompt text color | `#FFF8DC` |
 | `input_rule` | Horizontal rule above the input area | `#CD7F32` |
-| `response_border` | Border around the agent's response box (ANSI escape) | `#FFD700` |
+| `response_border` | Border around the agent's response box (ANSI escape) | `#2DD4BF` |
 | `session_label` | Session label color | `#DAA520` |
 | `session_border` | Session ID dim border color | `#8B8682` |
 | `status_bar_bg` | Background color for the TUI status / usage bar | `#1a1a2e` |
@@ -123,18 +123,18 @@ description: My custom theme
 
 colors:
   banner_border: "#CD7F32"
-  banner_title: "#FFD700"
-  banner_accent: "#FFBF00"
+  banner_title: "#2DD4BF"
+  banner_accent: "#F4B860"
   banner_dim: "#B8860B"
   banner_text: "#FFF8DC"
-  ui_accent: "#FFBF00"
+  ui_accent: "#F4B860"
   ui_label: "#4dd0e1"
   ui_ok: "#4caf50"
   ui_error: "#ef5350"
   ui_warn: "#ffa726"
   prompt: "#FFF8DC"
   input_rule: "#CD7F32"
-  response_border: "#FFD700"
+  response_border: "#2DD4BF"
   session_label: "#DAA520"
   session_border: "#8B8682"
   status_bar_bg: "#1a1a2e"
@@ -180,9 +180,9 @@ tool_emojis:
 
 # Custom ASCII art banners (optional, Rich markup supported)
 # banner_logo: |
-#   [bold #FFD700] MY AGENT [/]
+#   [bold #2DD4BF] MY AGENT [/]
 # banner_hero: |
-#   [#FFD700]  Custom art here  [/]
+#   [#2DD4BF]  Custom art here  [/]
 ```
 
 ### Minimal custom skin example

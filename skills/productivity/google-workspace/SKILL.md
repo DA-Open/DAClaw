@@ -2,12 +2,12 @@
 name: google-workspace
 description: Gmail, Calendar, Drive, Contacts, Sheets, and Docs integration for DAClaw. Uses DAClaw-managed OAuth2 setup, prefers the Google Workspace CLI (`gws`) when available for broader API coverage, and falls back to the Python client libraries otherwise.
 version: 1.0.0
-author: Nous Research
+author: DA-Open
 license: MIT
 metadata:
   daclaw:
     tags: [Google, Gmail, Calendar, Drive, Sheets, Docs, Contacts, Email, OAuth]
-    homepage: https://github.com/NousResearch/daclaw-agent
+    homepage: https://github.com/DA-Open/daclaw-agent
     related_skills: [himalaya]
 ---
 

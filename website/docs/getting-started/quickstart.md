@@ -14,7 +14,7 @@ Run the one-line installer:
 
 ```bash
 # Linux / macOS / WSL2 / Android (Termux)
-curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DA-Open/DAClaw/main/scripts/install.sh | bash
 ```
 
 :::tip Android / Termux

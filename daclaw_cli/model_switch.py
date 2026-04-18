@@ -51,19 +51,19 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DACLAW_MODEL_WARNING = (
-    "Nous Research DAClaw 3 & 4 models are NOT agentic and are not designed "
+    "DA-Open DAClaw 3 & 4 models are NOT agentic and are not designed "
     "for use with DAClaw Agent. They lack the tool-calling capabilities "
     "required for agent workflows. Consider using an agentic model instead "
     "(Claude, GPT, Gemini, DeepSeek, etc.)."
 )
 
-# Match only the real Nous Research DAClaw 3 / DAClaw 4 chat families.
+# Match only the real DA-Open DAClaw 3 / DAClaw 4 chat families.
 # The previous substring check (`"daclaw" in name.lower()`) false-positived on
 # unrelated local Modelfiles like ``daclaw-brain:qwen3-14b-ctx16k`` that just
 # happen to carry "daclaw" in their tag but are fully tool-capable.
 #
 # Positive examples the regex must match:
-#   NousResearch/DAClaw-3-Llama-3.1-70B, daclaw-4-405b, openrouter/daclaw3:70b
+#   DA-Open/DAClaw-3-Llama-3.1-70B, daclaw-4-405b, openrouter/daclaw3:70b
 # Negative examples it must NOT match:
 #   daclaw-brain:qwen3-14b-ctx16k, qwen3:14b, claude-opus-4-6
 _NOUS_DACLAW_NON_AGENTIC_RE = re.compile(

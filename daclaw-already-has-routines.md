@@ -149,12 +149,12 @@ daclaw webhook subscribe pr-review \
   --deliver github_comment
 ```
 
-Full automation templates gallery: [daclaw-agent.nousresearch.com/docs/guides/automation-templates](https://daclaw-agent.nousresearch.com/docs/guides/automation-templates)
+Full automation templates gallery: [daclaw-agent.DA-Open.com/docs/guides/automation-templates](https://daclaw-agent.DA-Open.com/docs/guides/automation-templates)
 
-Documentation: [daclaw-agent.nousresearch.com](https://daclaw-agent.nousresearch.com)
+Documentation: [daclaw-agent.DA-Open.com](https://daclaw-agent.DA-Open.com)
 
-GitHub: [github.com/NousResearch/daclaw-agent](https://github.com/NousResearch/daclaw-agent)
+GitHub: [github.com/DA-Open/daclaw-agent](https://github.com/DA-Open/daclaw-agent)
 
 ---
 
-*DAClaw Agent is built by [Nous Research](https://nousresearch.com). Open source, model-agnostic, runs on your infrastructure.*
+*DAClaw Agent is built by [DA-Open](https://DA-Open.com). Open source, model-agnostic, runs on your infrastructure.*

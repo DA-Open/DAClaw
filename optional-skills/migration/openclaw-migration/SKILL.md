@@ -2,7 +2,7 @@
 name: openclaw-migration
 description: Migrate a user's OpenClaw customization footprint into DAClaw Agent. Imports DAClaw-compatible memories, SOUL.md, command allowlists, user skills, and selected workspace assets from ~/.openclaw, then reports exactly what could not be migrated and why.
 version: 1.0.0
-author: DAClaw Agent (Nous Research)
+author: DAClaw Agent (DA-Open)
 license: MIT
 metadata:
   daclaw:

@@ -35,11 +35,11 @@ No clone needed. Nix fetches, builds, and runs everything:
 
 ```bash
 # Run directly (builds on first use, cached after)
-nix run github:NousResearch/daclaw-agent -- setup
-nix run github:NousResearch/daclaw-agent -- chat
+nix run github:DA-Open/DAClaw -- setup
+nix run github:DA-Open/DAClaw -- chat
 
 # Or install persistently
-nix profile install github:NousResearch/daclaw-agent
+nix profile install github:DA-Open/DAClaw
 daclaw setup
 daclaw chat
 ```
@@ -50,7 +50,7 @@ After `nix profile install`, `daclaw`, `daclaw-agent`, and `daclaw-acp` are on y
 <summary><strong>Building from a local clone</strong></summary>
 
 ```bash
-git clone https://github.com/NousResearch/daclaw-agent.git
+git clone https://github.com/DA-Open/DAClaw.git
 cd daclaw-agent
 nix build
 ./result/bin/daclaw setup
@@ -75,7 +75,7 @@ This module requires NixOS. For non-NixOS systems (macOS, other Linux distros), 
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    daclaw-agent.url = "github:NousResearch/daclaw-agent";
+    daclaw-agent.url = "github:DA-Open/DAClaw";
   };
 
   outputs = { nixpkgs, daclaw-agent, ... }: {
@@ -858,5 +858,5 @@ nix-store --query --roots $(docker exec daclaw-agent readlink /data/current-pack
 | `daclaw version` shows old version | Container not restarted | `systemctl restart daclaw-agent` |
 | Permission denied on `/var/lib/daclaw` | State dir is `0750 daclaw:daclaw` | Use `docker exec` or `sudo -u daclaw` |
 | `nix-collect-garbage` removed daclaw | GC root missing | Restart the service (preStart recreates the GC root) |
-| `no container with name or ID "daclaw-agent"` (Podman) | Podman rootful container not visible to regular user | Add passwordless sudo for podman (see [Container-aware CLI](#container-aware-cli) section) |
+| `no container with name or ID "daclaw-agent"` (Podman) | Podman rootful container not visible to regular user | Add passwordless sudo for podman (see [Container-aware CLI](#container-mode) section) |
 | `unable to find user daclaw` | Container still starting (entrypoint hasn't created user yet) | Wait a few seconds and retry — the CLI retries automatically |

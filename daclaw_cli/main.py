@@ -44,6 +44,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -1070,6 +1071,8 @@ def select_provider_and_model(args=None):
                 "key_env": entry.get("key_env", ""),
                 "model": entry.get("model", ""),
                 "api_mode": entry.get("api_mode", ""),
+                "api_version": entry.get("api_version", ""),
+                "default_headers": entry.get("default_headers", {}),
                 "provider_key": provider_key,
             }
         return custom_provider_map
@@ -1141,7 +1144,7 @@ def select_provider_and_model(args=None):
         _model_flow_kimi(config, current_model)
     elif selected_provider == "bedrock":
         _model_flow_bedrock(config, current_model)
-    elif selected_provider in ("gemini", "deepseek", "xai", "zai", "kimi-coding-cn", "minimax", "minimax-cn", "kilocode", "opencode-zen", "opencode-go", "ai-gateway", "alibaba", "huggingface", "xiaomi", "arcee"):
+    elif selected_provider in ("gemini", "aidp", "deepseek", "xai", "zai", "kimi-coding-cn", "minimax", "minimax-cn", "kilocode", "opencode-zen", "opencode-go", "ai-gateway", "alibaba", "huggingface", "xiaomi", "arcee"):
         _model_flow_api_key_provider(config, selected_provider, current_model)
 
     # ── Post-switch cleanup: clear stale OPENAI_BASE_URL ──────────────
@@ -1638,6 +1641,8 @@ def _model_flow_custom(config):
             print(f"Invalid context length: {context_length_str} — will auto-detect.")
             context_length = None
 
+    endpoint_options = _prompt_custom_endpoint_client_options(effective_url)
+
     if model_name:
         _save_model_choice(model_name)
 
@@ -1651,7 +1656,18 @@ def _model_flow_custom(config):
         model["base_url"] = effective_url
         if effective_key:
             model["api_key"] = effective_key
-        model.pop("api_mode", None)  # let runtime auto-detect from URL
+        if endpoint_options.get("api_mode"):
+            model["api_mode"] = endpoint_options["api_mode"]
+        else:
+            model.pop("api_mode", None)  # let runtime auto-detect from URL
+        if endpoint_options.get("api_version"):
+            model["api_version"] = endpoint_options["api_version"]
+        else:
+            model.pop("api_version", None)
+        if endpoint_options.get("default_headers"):
+            model["default_headers"] = endpoint_options["default_headers"]
+        else:
+            model.pop("default_headers", None)
         save_config(cfg)
         deactivate_provider()
 
@@ -1674,13 +1690,83 @@ def _model_flow_custom(config):
         _caller_model["base_url"] = effective_url
         if effective_key:
             _caller_model["api_key"] = effective_key
-        _caller_model.pop("api_mode", None)
+        if endpoint_options.get("api_mode"):
+            _caller_model["api_mode"] = endpoint_options["api_mode"]
+        else:
+            _caller_model.pop("api_mode", None)
+        if endpoint_options.get("api_version"):
+            _caller_model["api_version"] = endpoint_options["api_version"]
+        else:
+            _caller_model.pop("api_version", None)
+        if endpoint_options.get("default_headers"):
+            _caller_model["default_headers"] = endpoint_options["default_headers"]
+        else:
+            _caller_model.pop("default_headers", None)
         config["model"] = _caller_model
         print("Endpoint saved. Use `/model` in chat or `daclaw model` to set a model.")
 
     # Auto-save to custom_providers so it appears in the menu next time
     _save_custom_provider(effective_url, effective_key, model_name or "",
-                          context_length=context_length, name=display_name)
+                          context_length=context_length, name=display_name,
+                          api_mode=endpoint_options.get("api_mode", ""),
+                          api_version=endpoint_options.get("api_version", ""),
+                          default_headers=endpoint_options.get("default_headers"))
+
+
+def _prompt_custom_endpoint_client_options(base_url: str) -> dict:
+    """Prompt for optional Azure-compatible settings for a custom endpoint."""
+    url_lower = (base_url or "").lower()
+    default_azure = "aidp." in url_lower or "/modelhub/" in url_lower
+    prompt_default = "Y/n" if default_azure else "y/N"
+    try:
+        raw = input(f"Use AzureOpenAI-compatible client? [{prompt_default}]: ").strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        print()
+        raw = ""
+
+    use_azure = default_azure if not raw else raw in ("y", "yes")
+    if not use_azure:
+        return {}
+
+    from agent.endpoint_options import DEFAULT_ENDPOINT_API_VERSION
+
+    try:
+        api_version = input(f"API version [{DEFAULT_ENDPOINT_API_VERSION}]: ").strip() or DEFAULT_ENDPOINT_API_VERSION
+    except (KeyboardInterrupt, EOFError):
+        print()
+        api_version = DEFAULT_ENDPOINT_API_VERSION
+
+    headers = {}
+    try:
+        logid = input("X-TT-LOGID [auto-generate at runtime]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print()
+        logid = ""
+    if logid:
+        headers["X-TT-LOGID"] = logid
+
+    try:
+        raw_headers = input("Additional default_headers as JSON [blank for none]: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        print()
+        raw_headers = ""
+    if raw_headers:
+        try:
+            parsed = json.loads(raw_headers)
+            if isinstance(parsed, dict):
+                headers.update({str(k): str(v) for k, v in parsed.items() if str(k).strip() and v is not None})
+            else:
+                print("  default_headers JSON must be an object; ignoring.")
+        except Exception as exc:
+            print(f"  Could not parse default_headers JSON: {exc}; ignoring.")
+
+    result = {
+        "api_mode": "azure_chat_completions",
+        "api_version": api_version,
+    }
+    if headers:
+        result["default_headers"] = headers
+    return result
 
 
 def _auto_provider_name(base_url: str) -> str:
@@ -1704,7 +1790,8 @@ def _auto_provider_name(base_url: str) -> str:
 
 
 def _save_custom_provider(base_url, api_key="", model="", context_length=None,
-                          name=None):
+                          name=None, api_mode="", api_version="",
+                          default_headers=None):
     """Save a custom endpoint to custom_providers in config.yaml.
 
     Deduplicates by base_url — if the URL already exists, updates the
@@ -1732,6 +1819,15 @@ def _save_custom_provider(base_url, api_key="", model="", context_length=None,
                 models_cfg[model] = {"context_length": context_length}
                 entry["models"] = models_cfg
                 changed = True
+            if api_mode and entry.get("api_mode") != api_mode:
+                entry["api_mode"] = api_mode
+                changed = True
+            if api_version and entry.get("api_version") != api_version:
+                entry["api_version"] = api_version
+                changed = True
+            if isinstance(default_headers, dict) and default_headers and entry.get("default_headers") != default_headers:
+                entry["default_headers"] = dict(default_headers)
+                changed = True
             if changed:
                 cfg["custom_providers"] = providers
                 save_config(cfg)
@@ -1748,6 +1844,12 @@ def _save_custom_provider(base_url, api_key="", model="", context_length=None,
         entry["model"] = model
     if model and context_length:
         entry["models"] = {model: {"context_length": context_length}}
+    if api_mode:
+        entry["api_mode"] = api_mode
+    if api_version:
+        entry["api_version"] = api_version
+    if isinstance(default_headers, dict) and default_headers:
+        entry["default_headers"] = dict(default_headers)
 
     providers.append(entry)
     cfg["custom_providers"] = providers
@@ -1829,6 +1931,8 @@ def _model_flow_named_custom(config, provider_info):
     key_env = provider_info.get("key_env", "")
     saved_model = provider_info.get("model", "")
     provider_key = (provider_info.get("provider_key") or "").strip()
+    api_version = (provider_info.get("api_version") or "").strip()
+    default_headers = provider_info.get("default_headers")
 
     print(f"  Provider: {name}")
     print(f"  URL:      {base_url}")
@@ -1926,6 +2030,14 @@ def _model_flow_named_custom(config, provider_info):
         model["api_mode"] = custom_api_mode
     else:
         model.pop("api_mode", None)  # let runtime auto-detect from URL
+    if api_version:
+        model["api_version"] = api_version
+    else:
+        model.pop("api_version", None)
+    if isinstance(default_headers, dict) and default_headers:
+        model["default_headers"] = dict(default_headers)
+    else:
+        model.pop("default_headers", None)
     save_config(cfg)
     deactivate_provider()
 
@@ -2681,6 +2793,7 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
     )
     from daclaw_cli.config import get_env_value, save_env_value, load_config, save_config
     from daclaw_cli.models import fetch_api_models, opencode_model_api_mode, normalize_opencode_model_id
+    from agent.endpoint_options import DEFAULT_ENDPOINT_API_VERSION
 
     pconfig = PROVIDER_REGISTRY[provider_id]
     key_env = pconfig.api_key_env_vars[0] if pconfig.api_key_env_vars else ""
@@ -2729,6 +2842,25 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
         else:
             save_env_value(base_url_env, override)
             effective_base = override
+
+    if provider_id == "aidp":
+        current_version = get_env_value("AIDP_API_VERSION") or os.getenv("AIDP_API_VERSION", "") or DEFAULT_ENDPOINT_API_VERSION
+        try:
+            api_version = input(f"API version [{current_version}]: ").strip() or current_version
+        except (KeyboardInterrupt, EOFError):
+            print()
+            api_version = current_version
+
+        current_logid = get_env_value("AIDP_LOGID") or os.getenv("AIDP_LOGID", "")
+        try:
+            logid = input(f"X-TT-LOGID [{current_logid or 'auto-generate'}]: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            logid = ""
+        if api_version and api_version != get_env_value("AIDP_API_VERSION"):
+            save_env_value("AIDP_API_VERSION", api_version)
+        if logid:
+            save_env_value("AIDP_LOGID", logid)
 
     # Model selection — resolution order:
     #   1. models.dev registry (cached, filtered for agentic/tool-capable models)
@@ -2790,10 +2922,19 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
             cfg["model"] = model
         model["provider"] = provider_id
         model["base_url"] = effective_base
-        if provider_id in {"opencode-zen", "opencode-go"}:
+        if provider_id == "aidp":
+            model["api_mode"] = "azure_chat_completions"
+            model["api_version"] = api_version or DEFAULT_ENDPOINT_API_VERSION
+            if logid or current_logid:
+                model["default_headers"] = {"X-TT-LOGID": logid or current_logid}
+            else:
+                model.pop("default_headers", None)
+        elif provider_id in {"opencode-zen", "opencode-go"}:
             model["api_mode"] = opencode_model_api_mode(provider_id, selected)
         else:
             model.pop("api_mode", None)
+            model.pop("api_version", None)
+            model.pop("default_headers", None)
         save_config(cfg)
         deactivate_provider()
 
@@ -3254,7 +3395,7 @@ def _update_via_zip(args):
     from urllib.request import urlretrieve
     
     branch = "main"
-    zip_url = f"https://github.com/NousResearch/daclaw-agent/archive/refs/heads/{branch}.zip"
+    zip_url = f"https://github.com/DA-Open/daclaw-agent/archive/refs/heads/{branch}.zip"
     
     print("→ Downloading latest version...")
     try:
@@ -3535,12 +3676,12 @@ def _restore_stashed_changes(
 # =========================================================================
 
 OFFICIAL_REPO_URLS = {
-    "https://github.com/NousResearch/daclaw-agent.git",
-    "git@github.com:NousResearch/daclaw-agent.git",
-    "https://github.com/NousResearch/daclaw-agent",
-    "git@github.com:NousResearch/daclaw-agent",
+    "https://github.com/DA-Open/daclaw-agent.git",
+    "git@github.com:DA-Open/daclaw-agent.git",
+    "https://github.com/DA-Open/daclaw-agent",
+    "git@github.com:DA-Open/daclaw-agent",
 }
-OFFICIAL_REPO_URL = "https://github.com/NousResearch/daclaw-agent.git"
+OFFICIAL_REPO_URL = "https://github.com/DA-Open/daclaw-agent.git"
 SKIP_UPSTREAM_PROMPT_FILE = ".skip_upstream_prompt"
 
 
@@ -3672,7 +3813,7 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
         # Ask user if they want to add upstream
         print()
         print("ℹ Your fork is not tracking the official DAClaw repository.")
-        print("  This means you may miss updates from NousResearch/daclaw-agent.")
+        print("  This means you may miss updates from DA-Open/daclaw-agent.")
         print()
         try:
             response = input("Add official repo as 'upstream' remote? [Y/n]: ").strip().lower()
@@ -3683,13 +3824,13 @@ def _sync_with_upstream_if_needed(git_cmd: list[str], cwd: Path) -> None:
         if response in ("", "y", "yes"):
             print("→ Adding upstream remote...")
             if _add_upstream_remote(git_cmd, cwd):
-                print("  ✓ Added upstream: https://github.com/NousResearch/daclaw-agent.git")
+                print("  ✓ Added upstream: https://github.com/DA-Open/daclaw-agent.git")
                 has_upstream = True
             else:
                 print("  ✗ Failed to add upstream remote. Skipping upstream sync.")
                 return
         else:
-            print("  Skipped. Run 'git remote add upstream https://github.com/NousResearch/daclaw-agent.git' to add later.")
+            print("  Skipped. Run 'git remote add upstream https://github.com/DA-Open/daclaw-agent.git' to add later.")
             _mark_skip_upstream_prompt()
             return
 
@@ -3885,7 +4026,7 @@ def cmd_update(args):
             use_zip_update = True
         else:
             print("✗ Not a git repository. Please reinstall:")
-            print("  curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash")
+            print("  curl -fsSL https://raw.githubusercontent.com/DA-Open/daclaw-agent/main/scripts/install.sh | bash")
             sys.exit(1)
     
     # On Windows, git can fail with "unable to write loose object file: Invalid argument"
@@ -4860,7 +5001,7 @@ For more help on a command:
     )
     chat_parser.add_argument(
         "--provider",
-        choices=["auto", "openrouter", "nous", "openai-codex", "copilot-acp", "copilot", "anthropic", "gemini", "huggingface", "zai", "kimi-coding", "kimi-coding-cn", "minimax", "minimax-cn", "kilocode", "xiaomi", "arcee"],
+        choices=["auto", "openrouter", "nous", "openai-codex", "copilot-acp", "copilot", "anthropic", "aidp", "gemini", "huggingface", "zai", "kimi-coding", "kimi-coding-cn", "minimax", "minimax-cn", "kilocode", "xiaomi", "arcee"],
         default=None,
         help="Inference provider (default: auto)"
     )

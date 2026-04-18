@@ -412,7 +412,7 @@ class TrajectoryCompressor:
         url = (self.config.base_url or "").lower()
         if "openrouter" in url:
             return "openrouter"
-        if "nousresearch.com" in url:
+        if "DA-Open.com" in url:
             return "nous"
         if "chatgpt.com/backend-api/codex" in url:
             return "codex"

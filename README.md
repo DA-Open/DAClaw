@@ -5,15 +5,15 @@
 # DAClaw Agent ☤
 
 <p align="center">
-  <a href="https://daclaw-agent.nousresearch.com/docs/"><img src="https://img.shields.io/badge/Docs-daclaw--agent.nousresearch.com-FFD700?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://discord.gg/NousResearch"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
-  <a href="https://github.com/NousResearch/daclaw-agent/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
-  <a href="https://nousresearch.com"><img src="https://img.shields.io/badge/Built%20by-Nous%20Research-blueviolet?style=for-the-badge" alt="Built by Nous Research"></a>
+  <a href="https://da-open.github.io/docs/"><img src="https://img.shields.io/badge/Docs-da--open.github.io-2DD4BF?style=for-the-badge" alt="Documentation"></a>
+  <a href="https://github.com/DA-Open/DAClaw/issues"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://github.com/DA-Open/DAClaw/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
+  <a href="https://github.com/DA-Open"><img src="https://img.shields.io/badge/Built%20by-DA--Open-blueviolet?style=for-the-badge" alt="Built by DA-Open"></a>
 </p>
 
-**The self-improving AI agent built by [Nous Research](https://nousresearch.com).** It's the only agent with a built-in learning loop — it creates skills from experience, improves them during use, nudges itself to persist knowledge, searches its own past conversations, and builds a deepening model of who you are across sessions. Run it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle. It's not tied to your laptop — talk to it from Telegram while it works on a cloud VM.
+**The self-improving AI agent built by [DA-Open](https://github.com/DA-Open).** It's the only agent with a built-in learning loop — it creates skills from experience, improves them during use, nudges itself to persist knowledge, searches its own past conversations, and builds a deepening model of who you are across sessions. Run it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle. It's not tied to your laptop — talk to it from Telegram while it works on a cloud VM.
 
-Use any model you want — [Nous Portal](https://portal.nousresearch.com), [OpenRouter](https://openrouter.ai) (200+ models), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI, or your own endpoint. Switch with `daclaw model` — no code changes, no lock-in.
+Use any model you want — DA-Open ModelHub, [OpenRouter](https://openrouter.ai) (200+ models), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI, or your own endpoint. Switch with `daclaw model` — no code changes, no lock-in.
 
 <table>
 <tr><td><b>A real terminal interface</b></td><td>Full TUI with multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output.</td></tr>
@@ -30,12 +30,12 @@ Use any model you want — [Nous Portal](https://portal.nousresearch.com), [Open
 ## Quick Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DA-Open/DAClaw/main/scripts/install.sh | bash
 ```
 
 Works on Linux, macOS, WSL2, and Android via Termux. The installer handles the platform-specific setup for you.
 
-> **Android / Termux:** The tested manual path is documented in the [Termux guide](https://daclaw-agent.nousresearch.com/docs/getting-started/termux). On Termux, DAClaw installs a curated `.[termux]` extra because the full `.[all]` extra currently pulls Android-incompatible voice dependencies.
+> **Android / Termux:** The tested manual path is documented in the [Termux guide](https://da-open.github.io/docs/getting-started/termux). On Termux, DAClaw installs a curated `.[termux]` extra because the full `.[all]` extra currently pulls Android-incompatible voice dependencies.
 >
 > **Windows:** Native Windows is not supported. Please install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and run the command above.
 
@@ -62,7 +62,7 @@ daclaw update       # Update to the latest version
 daclaw doctor       # Diagnose any issues
 ```
 
-📖 **[Full documentation →](https://daclaw-agent.nousresearch.com/docs/)**
+📖 **[Full documentation →](https://da-open.github.io/docs/)**
 
 ## CLI vs Messaging Quick Reference
 
@@ -80,31 +80,31 @@ DAClaw has two entry points: start the terminal UI with `daclaw`, or run the gat
 | Interrupt current work | `Ctrl+C` or send a new message | `/stop` or send a new message |
 | Platform-specific status | `/platforms` | `/status`, `/sethome` |
 
-For the full command lists, see the [CLI guide](https://daclaw-agent.nousresearch.com/docs/user-guide/cli) and the [Messaging Gateway guide](https://daclaw-agent.nousresearch.com/docs/user-guide/messaging).
+For the full command lists, see the [CLI guide](https://da-open.github.io/docs/user-guide/cli) and the [Messaging Gateway guide](https://da-open.github.io/docs/user-guide/messaging).
 
 ---
 
 ## Documentation
 
-All documentation lives at **[daclaw-agent.nousresearch.com/docs](https://daclaw-agent.nousresearch.com/docs/)**:
+All documentation lives at **[da-open.github.io/docs](https://da-open.github.io/docs/)**:
 
 | Section | What's Covered |
 |---------|---------------|
-| [Quickstart](https://daclaw-agent.nousresearch.com/docs/getting-started/quickstart) | Install → setup → first conversation in 2 minutes |
-| [CLI Usage](https://daclaw-agent.nousresearch.com/docs/user-guide/cli) | Commands, keybindings, personalities, sessions |
-| [Configuration](https://daclaw-agent.nousresearch.com/docs/user-guide/configuration) | Config file, providers, models, all options |
-| [Messaging Gateway](https://daclaw-agent.nousresearch.com/docs/user-guide/messaging) | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant |
-| [Security](https://daclaw-agent.nousresearch.com/docs/user-guide/security) | Command approval, DM pairing, container isolation |
-| [Tools & Toolsets](https://daclaw-agent.nousresearch.com/docs/user-guide/features/tools) | 40+ tools, toolset system, terminal backends |
-| [Skills System](https://daclaw-agent.nousresearch.com/docs/user-guide/features/skills) | Procedural memory, Skills Hub, creating skills |
-| [Memory](https://daclaw-agent.nousresearch.com/docs/user-guide/features/memory) | Persistent memory, user profiles, best practices |
-| [MCP Integration](https://daclaw-agent.nousresearch.com/docs/user-guide/features/mcp) | Connect any MCP server for extended capabilities |
-| [Cron Scheduling](https://daclaw-agent.nousresearch.com/docs/user-guide/features/cron) | Scheduled tasks with platform delivery |
-| [Context Files](https://daclaw-agent.nousresearch.com/docs/user-guide/features/context-files) | Project context that shapes every conversation |
-| [Architecture](https://daclaw-agent.nousresearch.com/docs/developer-guide/architecture) | Project structure, agent loop, key classes |
-| [Contributing](https://daclaw-agent.nousresearch.com/docs/developer-guide/contributing) | Development setup, PR process, code style |
-| [CLI Reference](https://daclaw-agent.nousresearch.com/docs/reference/cli-commands) | All commands and flags |
-| [Environment Variables](https://daclaw-agent.nousresearch.com/docs/reference/environment-variables) | Complete env var reference |
+| [Quickstart](https://da-open.github.io/docs/getting-started/quickstart) | Install → setup → first conversation in 2 minutes |
+| [CLI Usage](https://da-open.github.io/docs/user-guide/cli) | Commands, keybindings, personalities, sessions |
+| [Configuration](https://da-open.github.io/docs/user-guide/configuration) | Config file, providers, models, all options |
+| [Messaging Gateway](https://da-open.github.io/docs/user-guide/messaging) | Telegram, Discord, Slack, WhatsApp, Signal, Home Assistant |
+| [Security](https://da-open.github.io/docs/user-guide/security) | Command approval, DM pairing, container isolation |
+| [Tools & Toolsets](https://da-open.github.io/docs/user-guide/features/tools) | 40+ tools, toolset system, terminal backends |
+| [Skills System](https://da-open.github.io/docs/user-guide/features/skills) | Procedural memory, Skills Hub, creating skills |
+| [Memory](https://da-open.github.io/docs/user-guide/features/memory) | Persistent memory, user profiles, best practices |
+| [MCP Integration](https://da-open.github.io/docs/user-guide/features/mcp) | Connect any MCP server for extended capabilities |
+| [Cron Scheduling](https://da-open.github.io/docs/user-guide/features/cron) | Scheduled tasks with platform delivery |
+| [Context Files](https://da-open.github.io/docs/user-guide/features/context-files) | Project context that shapes every conversation |
+| [Architecture](https://da-open.github.io/docs/developer-guide/architecture) | Project structure, agent loop, key classes |
+| [Contributing](https://da-open.github.io/docs/developer-guide/contributing) | Development setup, PR process, code style |
+| [CLI Reference](https://da-open.github.io/docs/reference/cli-commands) | All commands and flags |
+| [Environment Variables](https://da-open.github.io/docs/reference/environment-variables) | Complete env var reference |
 
 ---
 
@@ -139,12 +139,12 @@ See `daclaw claw migrate --help` for all options, or use the `openclaw-migration
 
 ## Contributing
 
-We welcome contributions! See the [Contributing Guide](https://daclaw-agent.nousresearch.com/docs/developer-guide/contributing) for development setup, code style, and PR process.
+We welcome contributions! See the [Contributing Guide](https://da-open.github.io/docs/developer-guide/contributing) for development setup, code style, and PR process.
 
 Quick start for contributors:
 
 ```bash
-git clone https://github.com/NousResearch/daclaw-agent.git
+git clone https://github.com/DA-Open/DAClaw.git
 cd daclaw-agent
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv venv --python 3.11
@@ -163,10 +163,10 @@ python -m pytest tests/ -q
 
 ## Community
 
-- 💬 [Discord](https://discord.gg/NousResearch)
+- 💬 [Discord](https://github.com/DA-Open/DAClaw/issues)
 - 📚 [Skills Hub](https://agentskills.io)
-- 🐛 [Issues](https://github.com/NousResearch/daclaw-agent/issues)
-- 💡 [Discussions](https://github.com/NousResearch/daclaw-agent/discussions)
+- 🐛 [Issues](https://github.com/DA-Open/DAClaw/issues)
+- 💡 [Discussions](https://github.com/DA-Open/DAClaw/discussions)
 - 🔌 [DAClaw](https://github.com/AaronWong1999/daclawclaw) — Community WeChat bridge: Run DAClaw Agent and OpenClaw on the same WeChat account.
 
 ---
@@ -175,4 +175,4 @@ python -m pytest tests/ -q
 
 MIT — see [LICENSE](LICENSE).
 
-Built by [Nous Research](https://nousresearch.com).
+Built by [DA-Open](https://github.com/DA-Open).

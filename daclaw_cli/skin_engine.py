@@ -155,36 +155,66 @@ class SkinConfig:
 _BUILTIN_SKINS: Dict[str, Dict[str, Any]] = {
     "default": {
         "name": "default",
-        "description": "Classic DAClaw — gold and kawaii",
+        "description": "Nocturne control surface — teal, ivory, and graphite",
         "colors": {
-            "banner_border": "#CD7F32",
-            "banner_title": "#FFD700",
-            "banner_accent": "#FFBF00",
-            "banner_dim": "#B8860B",
-            "banner_text": "#FFF8DC",
-            "ui_accent": "#FFBF00",
-            "ui_label": "#4dd0e1",
-            "ui_ok": "#4caf50",
-            "ui_error": "#ef5350",
-            "ui_warn": "#ffa726",
-            "prompt": "#FFF8DC",
-            "input_rule": "#CD7F32",
-            "response_border": "#FFD700",
-            "session_label": "#DAA520",
-            "session_border": "#8B8682",
+            "banner_border": "#2DD4BF",
+            "banner_title": "#F8FAFC",
+            "banner_accent": "#5EEAD4",
+            "banner_dim": "#64748B",
+            "banner_text": "#E2E8F0",
+            "ui_accent": "#5EEAD4",
+            "ui_label": "#93C5FD",
+            "ui_ok": "#34D399",
+            "ui_error": "#FB7185",
+            "ui_warn": "#FBBF24",
+            "prompt": "#E2E8F0",
+            "input_rule": "#164E63",
+            "response_border": "#2DD4BF",
+            "session_label": "#A7F3D0",
+            "session_border": "#38BDF8",
         },
         "spinner": {
-            # Empty = use hardcoded defaults in display.py
+            "waiting_faces": ["(◐)", "(◓)", "(◑)", "(◒)", "(◆)"],
+            "thinking_faces": ["(◆)", "(◇)", "(◈)", "(✦)", "(⌁)"],
+            "thinking_verbs": [
+                "mapping context", "checking routes", "reading signals",
+                "aligning tools", "building plan", "tracing state",
+                "indexing memory", "holding context",
+            ],
+            "wings": [
+                ["⟦◆", "◆⟧"],
+                ["⟦◇", "◇⟧"],
+                ["⟦✦", "✦⟧"],
+                ["⟦⌁", "⌁⟧"],
+            ],
         },
         "branding": {
             "agent_name": "DAClaw Agent",
             "welcome": "Welcome to DAClaw Agent! Type your message or /help for commands.",
-            "goodbye": "Goodbye! ⚕",
-            "response_label": " ⚕ DAClaw ",
-            "prompt_symbol": "❯ ",
-            "help_header": "(^_^)? Available Commands",
+            "goodbye": "Session closed.",
+            "response_label": " ◆ DAClaw ",
+            "prompt_symbol": "◆ ",
+            "help_header": "◆ Available Commands",
         },
-        "tool_prefix": "┊",
+        "tool_prefix": "▏",
+        "banner_logo": """[bold #F8FAFC]██████╗  █████╗  ██████╗██╗      █████╗ ██╗    ██╗       █████╗  ██████╗ ███████╗███╗   ██╗████████╗[/]
+[bold #CCFBF1]██╔══██╗██╔══██╗██╔════╝██║     ██╔══██╗██║    ██║      ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝[/]
+[#5EEAD4]██║  ██║███████║██║     ██║     ███████║██║ █╗ ██║█████╗███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║[/]
+[#38BDF8]██║  ██║██╔══██║██║     ██║     ██╔══██║██║███╗██║╚════╝██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║[/]
+[#2DD4BF]██████╔╝██║  ██║╚██████╗███████╗██║  ██║╚███╔███╔╝      ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║[/]
+[#0F766E]╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝       ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝[/]""",
+        "banner_hero": """[#5EEAD4]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣤⣤⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#2DD4BF]⠀⠀⠀⠀⠀⠀⠀⠀⢀⣴⡿⠛⠉⠉⠛⢿⣦⡀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#38BDF8]⠀⠀⠀⠀⠀⠀⠀⣠⣿⠋⠀⢀⣀⣀⡀⠀⠙⣿⣄⠀⠀⠀⠀⠀⠀⠀[/]
+[#93C5FD]⠀⠀⠀⠀⠀⠀⣰⣿⠁⠀⣴⡿⠛⠛⢿⣦⠀⠈⣿⣆⠀⠀⠀⠀⠀⠀[/]
+[#CCFBF1]⠀⠀⠀⠀⠀⢰⣿⠃⠀⣼⡟⠀◆⠀⢻⣧⠀⠘⣿⡆⠀⠀⠀⠀⠀[/]
+[#5EEAD4]⠀⠀⠀⠀⠀⢸⣿⠀⠀⢿⣧⡀⠀⢀⣼⡿⠀⠀⣿⡇⠀⠀⠀⠀⠀[/]
+[#2DD4BF]⠀⠀⠀⠀⠀⠘⣿⣆⠀⠀⠙⠿⠿⠿⠋⠀⠀⣰⣿⠃⠀⠀⠀⠀⠀[/]
+[#38BDF8]⠀⠀⠀⠀⠀⠀⠈⠻⣷⣤⣀⠀⠀⠀⣀⣤⣾⠟⠁⠀⠀⠀⠀⠀⠀[/]
+[#64748B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠛⠛⠛⠋⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#5EEAD4]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣠⣶⠿⠿⣶⣄⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[#2DD4BF]⠀⠀⠀⠀⠀⠀⠀⠀⠀⢰⣿⠁⠀⠀⠈⣿⡆⠀⠀⠀⠀⠀⠀⠀⠀[/]
+[dim #64748B]⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀signal online⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀[/]""",
     },
     "ares": {
         "name": "ares",

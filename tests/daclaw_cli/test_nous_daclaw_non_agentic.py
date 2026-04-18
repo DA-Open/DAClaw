@@ -5,7 +5,7 @@ Prior to this check, the warning fired on any model whose name contained
 local Modelfiles such as ``daclaw-brain:qwen3-14b-ctx16k`` — a tool-capable
 Qwen3 wrapper that happens to live under the "daclaw" tag namespace.
 
-``is_nous_daclaw_non_agentic`` should only match the actual Nous Research
+``is_nous_daclaw_non_agentic`` should only match the actual DA-Open
 DAClaw-3 / DAClaw-4 chat family.
 """
 
@@ -23,16 +23,16 @@ from daclaw_cli.model_switch import (
 @pytest.mark.parametrize(
     "model_name",
     [
-        "NousResearch/DAClaw-3-Llama-3.1-70B",
-        "NousResearch/DAClaw-3-Llama-3.1-405B",
+        "DA-Open/DAClaw-3-Llama-3.1-70B",
+        "DA-Open/DAClaw-3-Llama-3.1-405B",
         "daclaw-3",
         "DAClaw-3",
         "daclaw-4",
         "daclaw-4-405b",
         "daclaw_4_70b",
         "openrouter/daclaw3:70b",
-        "openrouter/nousresearch/daclaw-4-405b",
-        "NousResearch/DAClaw3",
+        "openrouter/DA-Open/daclaw-4-405b",
+        "DA-Open/DAClaw3",
         "daclaw-3.1",
     ],
 )

@@ -50,7 +50,7 @@ export const zh: Translations = {
     webUi: "管理面板",
     footer: {
       name: "DAClaw Agent",
-      org: "Nous Research",
+      org: "DA-Open",
     },
     nav: {
       status: "状态",

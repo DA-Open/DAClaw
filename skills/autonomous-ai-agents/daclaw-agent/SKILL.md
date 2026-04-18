@@ -7,13 +7,13 @@ license: MIT
 metadata:
   daclaw:
     tags: [daclaw, setup, configuration, multi-agent, spawning, cli, gateway, development]
-    homepage: https://github.com/NousResearch/daclaw-agent
+    homepage: https://github.com/DA-Open/daclaw-agent
     related_skills: [claude-code, codex, opencode]
 ---
 
 # DAClaw Agent
 
-DAClaw Agent is an open-source AI agent framework by Nous Research that runs in your terminal, messaging platforms, and IDEs. It belongs to the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. DAClaw works with any LLM provider (OpenRouter, Anthropic, OpenAI, DeepSeek, local models, and 15+ others) and runs on Linux, macOS, and WSL.
+DAClaw Agent is an open-source AI agent framework by DA-Open that runs in your terminal, messaging platforms, and IDEs. It belongs to the same category as Claude Code (Anthropic), Codex (OpenAI), and OpenClaw — autonomous coding and task-execution agents that use tool calling to interact with your system. DAClaw works with any LLM provider (OpenRouter, Anthropic, OpenAI, DeepSeek, local models, and 15+ others) and runs on Linux, macOS, and WSL.
 
 What makes DAClaw different:
 
@@ -28,13 +28,13 @@ People use DAClaw for software development, research, system administration, dat
 
 **This skill helps you work with DAClaw Agent effectively** — setting it up, configuring features, spawning additional agent instances, troubleshooting issues, finding the right commands and settings, and understanding how the system works when you need to extend or contribute to it.
 
-**Docs:** https://daclaw-agent.nousresearch.com/docs/
+**Docs:** https://daclaw-agent.DA-Open.com/docs/
 
 ## Quick Start
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DA-Open/daclaw-agent/main/scripts/install.sh | bash
 
 # Interactive chat (default)
 daclaw
@@ -150,7 +150,7 @@ daclaw gateway setup        Configure platforms
 
 Supported platforms: Telegram, Discord, Slack, WhatsApp, Signal, Email, SMS, Matrix, Mattermost, Home Assistant, DingTalk, Feishu, WeCom, BlueBubbles (iMessage), Weixin (WeChat), API Server, Webhooks. Open WebUI connects via the API Server adapter.
 
-Platform docs: https://daclaw-agent.nousresearch.com/docs/user-guide/messaging/
+Platform docs: https://daclaw-agent.DA-Open.com/docs/user-guide/messaging/
 
 ### Sessions
 
@@ -341,7 +341,7 @@ Edit with `daclaw config edit` or `daclaw config set section.key value`.
 | `smart_model_routing` | `enabled`, `cheap_model` |
 | `checkpoints` | `enabled`, `max_snapshots` (50) |
 
-Full config reference: https://daclaw-agent.nousresearch.com/docs/user-guide/configuration
+Full config reference: https://daclaw-agent.DA-Open.com/docs/user-guide/configuration
 
 ### Providers
 
@@ -372,7 +372,7 @@ Full config reference: https://daclaw-agent.nousresearch.com/docs/user-guide/con
 | Custom endpoint | Config | `model.base_url` + `model.api_key` in config.yaml |
 | GitHub Copilot ACP | External | `COPILOT_CLI_PATH` or Copilot CLI |
 
-Full provider docs: https://daclaw-agent.nousresearch.com/docs/integrations/providers
+Full provider docs: https://daclaw-agent.DA-Open.com/docs/integrations/providers
 
 ### Toolsets
 
@@ -579,18 +579,18 @@ daclaw config set auxiliary.vision.model <model_name>
 
 | Looking for... | Location |
 |----------------|----------|
-| Config options | `daclaw config edit` or [Configuration docs](https://daclaw-agent.nousresearch.com/docs/user-guide/configuration) |
-| Available tools | `daclaw tools list` or [Tools reference](https://daclaw-agent.nousresearch.com/docs/reference/tools-reference) |
-| Slash commands | `/help` in session or [Slash commands reference](https://daclaw-agent.nousresearch.com/docs/reference/slash-commands) |
-| Skills catalog | `daclaw skills browse` or [Skills catalog](https://daclaw-agent.nousresearch.com/docs/reference/skills-catalog) |
-| Provider setup | `daclaw model` or [Providers guide](https://daclaw-agent.nousresearch.com/docs/integrations/providers) |
-| Platform setup | `daclaw gateway setup` or [Messaging docs](https://daclaw-agent.nousresearch.com/docs/user-guide/messaging/) |
-| MCP servers | `daclaw mcp list` or [MCP guide](https://daclaw-agent.nousresearch.com/docs/user-guide/features/mcp) |
-| Profiles | `daclaw profile list` or [Profiles docs](https://daclaw-agent.nousresearch.com/docs/user-guide/profiles) |
-| Cron jobs | `daclaw cron list` or [Cron docs](https://daclaw-agent.nousresearch.com/docs/user-guide/features/cron) |
-| Memory | `daclaw memory status` or [Memory docs](https://daclaw-agent.nousresearch.com/docs/user-guide/features/memory) |
-| Env variables | `daclaw config env-path` or [Env vars reference](https://daclaw-agent.nousresearch.com/docs/reference/environment-variables) |
-| CLI commands | `daclaw --help` or [CLI reference](https://daclaw-agent.nousresearch.com/docs/reference/cli-commands) |
+| Config options | `daclaw config edit` or [Configuration docs](https://daclaw-agent.DA-Open.com/docs/user-guide/configuration) |
+| Available tools | `daclaw tools list` or [Tools reference](https://daclaw-agent.DA-Open.com/docs/reference/tools-reference) |
+| Slash commands | `/help` in session or [Slash commands reference](https://daclaw-agent.DA-Open.com/docs/reference/slash-commands) |
+| Skills catalog | `daclaw skills browse` or [Skills catalog](https://daclaw-agent.DA-Open.com/docs/reference/skills-catalog) |
+| Provider setup | `daclaw model` or [Providers guide](https://daclaw-agent.DA-Open.com/docs/integrations/providers) |
+| Platform setup | `daclaw gateway setup` or [Messaging docs](https://daclaw-agent.DA-Open.com/docs/user-guide/messaging/) |
+| MCP servers | `daclaw mcp list` or [MCP guide](https://daclaw-agent.DA-Open.com/docs/user-guide/features/mcp) |
+| Profiles | `daclaw profile list` or [Profiles docs](https://daclaw-agent.DA-Open.com/docs/user-guide/profiles) |
+| Cron jobs | `daclaw cron list` or [Cron docs](https://daclaw-agent.DA-Open.com/docs/user-guide/features/cron) |
+| Memory | `daclaw memory status` or [Memory docs](https://daclaw-agent.DA-Open.com/docs/user-guide/features/memory) |
+| Env variables | `daclaw config env-path` or [Env vars reference](https://daclaw-agent.DA-Open.com/docs/reference/environment-variables) |
+| CLI commands | `daclaw --help` or [CLI reference](https://daclaw-agent.DA-Open.com/docs/reference/cli-commands) |
 | Gateway logs | `~/.daclaw/logs/gateway.log` |
 | Session files | `~/.daclaw/sessions/` or `daclaw sessions browse` |
 | Source code | `~/.daclaw/daclaw-agent/` |
@@ -599,7 +599,7 @@ daclaw config set auxiliary.vision.model <model_name>
 
 ## Contributor Quick Reference
 
-For occasional contributors and PR authors. Full developer docs: https://daclaw-agent.nousresearch.com/docs/developer-guide/
+For occasional contributors and PR authors. Full developer docs: https://daclaw-agent.DA-Open.com/docs/developer-guide/
 
 ### Project Layout
 

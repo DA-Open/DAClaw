@@ -1444,7 +1444,7 @@ def _build_compact_banner() -> str:
 
     w = min(shutil.get_terminal_size().columns - 2, 88)
     if w < 30:
-        return f"\n[{title_color}]{tiny_line}[/] [dim {dim_color}]- Nous Research[/]\n"
+        return f"\n[{title_color}]{tiny_line}[/] [dim {dim_color}]- DA-Open[/]\n"
 
     inner = w - 2  # inside the box border
     bar = "═" * w
@@ -3039,7 +3039,7 @@ class DAClawCLI:
         if is_nous_daclaw_non_agentic(model_name):
             self.console.print()
             self.console.print(
-                "[bold yellow]⚠  Nous Research DAClaw 3 & 4 models are NOT agentic and are not "
+                "[bold yellow]⚠  DA-Open DAClaw 3 & 4 models are NOT agentic and are not "
                 "designed for use with DAClaw Agent.[/]"
             )
             self.console.print(

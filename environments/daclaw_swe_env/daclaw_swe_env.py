@@ -102,7 +102,7 @@ class DAClawSweEnv(DAClawAgentBaseEnv):
             prompt_field="prompt",
             # Atropos settings
             group_size=4,
-            tokenizer_name="NousResearch/DeepDAClaw-3-Llama-3-3B-Preview",
+            tokenizer_name="DA-Open/DeepDAClaw-3-Llama-3-3B-Preview",
             tool_call_parser="daclaw",
             steps_per_eval=50,
             total_steps=500,
@@ -113,7 +113,7 @@ class DAClawSweEnv(DAClawAgentBaseEnv):
         server_configs = [
             APIServerConfig(
                 base_url="http://localhost:8000/v1",
-                model_name="NousResearch/DeepDAClaw-3-Llama-3-3B-Preview",
+                model_name="DA-Open/DeepDAClaw-3-Llama-3-3B-Preview",
                 server_type="openai",  # Phase 1; switch to "vllm" for Phase 2
                 api_key="",
             )

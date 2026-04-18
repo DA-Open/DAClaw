@@ -51,7 +51,7 @@ DACLAW_OVERLAYS: Dict[str, DAClawOverlay] = {
     "nous": DAClawOverlay(
         transport="openai_chat",
         auth_type="oauth_device_code",
-        base_url_override="https://inference-api.nousresearch.com/v1",
+        base_url_override="https://inference-api.DA-Open.com/v1",
     ),
     "openai-codex": DAClawOverlay(
         transport="codex_responses",
@@ -140,6 +140,11 @@ DACLAW_OVERLAYS: Dict[str, DAClawOverlay] = {
         transport="openai_chat",
         base_url_override="https://api.arcee.ai/api/v1",
         base_url_env_var="ARCEE_BASE_URL",
+    ),
+    "aidp": DAClawOverlay(
+        transport="azure_chat",
+        base_url_override="https://aidp.bytedance.net/api/modelhub/online/v2/crawl",
+        base_url_env_var="AIDP_BASE_URL",
     ),
 }
 
@@ -246,6 +251,10 @@ ALIASES: Dict[str, str] = {
     "arcee-ai": "arcee",
     "arceeai": "arcee",
 
+    # AIDP
+    "modelhub": "aidp",
+    "model-hub": "aidp",
+
     # Local server aliases → virtual "local" concept (resolved via user config)
     "lmstudio": "lmstudio",
     "lm-studio": "lmstudio",
@@ -278,6 +287,7 @@ TRANSPORT_TO_API_MODE: Dict[str, str] = {
     "openai_chat": "chat_completions",
     "anthropic_messages": "anthropic_messages",
     "codex_responses": "codex_responses",
+    "azure_chat": "azure_chat_completions",
     "bedrock_converse": "bedrock_converse",
 }
 

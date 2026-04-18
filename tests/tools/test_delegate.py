@@ -661,7 +661,7 @@ class TestDelegationCredentialResolution(unittest.TestCase):
         """Nous provider resolves Nous Portal base_url and api_key."""
         mock_resolve.return_value = {
             "provider": "nous",
-            "base_url": "https://inference-api.nousresearch.com/v1",
+            "base_url": "https://inference-api.DA-Open.com/v1",
             "api_key": "nous-agent-key-xyz",
             "api_mode": "chat_completions",
         }
@@ -669,7 +669,7 @@ class TestDelegationCredentialResolution(unittest.TestCase):
         cfg = {"model": "daclaw-3-llama-3.1-8b", "provider": "nous"}
         creds = _resolve_delegation_credentials(cfg, parent)
         self.assertEqual(creds["provider"], "nous")
-        self.assertEqual(creds["base_url"], "https://inference-api.nousresearch.com/v1")
+        self.assertEqual(creds["base_url"], "https://inference-api.DA-Open.com/v1")
         self.assertEqual(creds["api_key"], "nous-agent-key-xyz")
         mock_resolve.assert_called_once_with(requested="nous")
 
@@ -763,7 +763,7 @@ class TestDelegationProviderIntegration(unittest.TestCase):
         }
         parent = _make_mock_parent(depth=0)
         parent.provider = "nous"
-        parent.base_url = "https://inference-api.nousresearch.com/v1"
+        parent.base_url = "https://inference-api.DA-Open.com/v1"
         parent.api_key = "nous-key-abc"
 
         with patch("run_agent.AIAgent") as MockAgent:

@@ -8,13 +8,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NousResearch/DAClaw-Agent.git"
+    "url": "git+https://github.com/DA-Open/DAClaw-Agent.git"
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/NousResearch/DAClaw-Agent/issues"
+    "url": "https://github.com/DA-Open/DAClaw-Agent/issues"
   },
-  "homepage": "https://github.com/NousResearch/DAClaw-Agent#readme",
+  "homepage": "https://github.com/DA-Open/DAClaw-Agent#readme",
   "dependencies": {
     "agent-browser": "^0.13.0",
     "@askjo/camofox-browser": "^1.5.2"

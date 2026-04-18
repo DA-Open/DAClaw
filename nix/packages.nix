@@ -44,7 +44,7 @@
 
         meta = with pkgs.lib; {
           description = "AI agent with advanced tool-calling capabilities";
-          homepage = "https://github.com/NousResearch/daclaw-agent";
+          homepage = "https://github.com/DA-Open/daclaw-agent";
           mainProgram = "daclaw";
           license = licenses.mit;
           platforms = platforms.unix;

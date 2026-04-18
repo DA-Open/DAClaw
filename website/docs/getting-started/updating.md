@@ -65,7 +65,7 @@ If `git status --short` shows unexpected changes after `daclaw update`, stop and
 daclaw version
 ```
 
-Compare against the latest release at the [GitHub releases page](https://github.com/NousResearch/daclaw-agent/releases) or check for available updates:
+Compare against the latest release at the [GitHub releases page](https://github.com/DA-Open/DAClaw/releases) or check for available updates:
 
 ```bash
 daclaw update --check

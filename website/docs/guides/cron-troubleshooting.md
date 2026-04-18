@@ -214,7 +214,7 @@ If you've worked through this guide and the issue persists:
 
 1. Run the job with `daclaw cron run <job_id>` (fires on next gateway tick) and watch for errors in the chat output
 2. Check `~/.daclaw/logs/agent.log` for scheduler messages and `~/.daclaw/logs/errors.log` for warnings
-3. Open an issue at [github.com/NousResearch/daclaw-agent](https://github.com/NousResearch/daclaw-agent) with:
+3. Open an issue at [github.com/DA-Open/DAClaw](https://github.com/DA-Open/DAClaw) with:
    - The job ID and schedule
    - The delivery target
    - What you expected vs. what happened

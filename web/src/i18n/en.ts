@@ -50,7 +50,7 @@ export const en: Translations = {
     webUi: "Web UI",
     footer: {
       name: "DAClaw Agent",
-      org: "Nous Research",
+      org: "DA-Open",
     },
     nav: {
       status: "Status",

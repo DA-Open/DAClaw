@@ -10,7 +10,7 @@ This is an eval-only environment (not a training environment). It is designed to
 be run via the `evaluate` subcommand:
 
     python environments/terminalbench2_env.py evaluate \\
-        --env.dataset_name NousResearch/terminal-bench-2
+        --env.dataset_name DA-Open/terminal-bench-2
 
 The evaluate flow:
     1. setup()     -- Loads the TB2 dataset from HuggingFace
@@ -83,7 +83,7 @@ class TerminalBench2EvalConfig(DAClawAgentEnvConfig):
 
     # --- Dataset ---
     dataset_name: str = Field(
-        default="NousResearch/terminal-bench-2",
+        default="DA-Open/terminal-bench-2",
         description="HuggingFace dataset containing TB2 tasks.",
     )
 
@@ -289,7 +289,7 @@ class TerminalBench2EvalEnv(DAClawAgentBaseEnv):
             steps_per_eval=1,
             total_steps=1,
 
-            tokenizer_name="NousResearch/DAClaw-3-Llama-3.1-8B",
+            tokenizer_name="DA-Open/DAClaw-3-Llama-3.1-8B",
             use_wandb=True,
             wandb_name="terminal-bench-2",
             ensure_scores_are_not_same=False,  # Binary rewards may all be 0 or 1

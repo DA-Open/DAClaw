@@ -11,5 +11,5 @@ Provides subcommands for:
 - daclaw cron          - Manage cron jobs
 """
 
-__version__ = "0.9.0"
-__release_date__ = "2026.4.13"
+__version__ = "0.0.1"
+__release_date__ = "2026.4.25"

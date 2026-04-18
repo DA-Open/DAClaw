@@ -1,6 +1,6 @@
 # Container-Aware CLI Review Fixes Spec
 
-**PR:** NousResearch/daclaw-agent#7543
+**PR:** DA-Open/daclaw-agent#7543
 **Review:** cursor[bot] bugbot review (4094049442) + two prior rounds
 **Date:** 2026-04-12
 **Branch:** `feat/container-aware-cli-clean`

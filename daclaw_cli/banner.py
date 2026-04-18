@@ -5,7 +5,6 @@ Pure display functions with no DAClawCLI state dependency.
 
 import json
 import logging
-import shutil
 import subprocess
 import threading
 import time
@@ -243,20 +242,7 @@ def get_git_banner_state(repo_dir: Optional[Path] = None) -> Optional[dict]:
 
 def format_banner_version_label() -> str:
     """Return the version label shown in the startup banner title."""
-    base = f"DAClaw Agent v{VERSION} ({RELEASE_DATE})"
-    state = get_git_banner_state()
-    if not state:
-        return base
-
-    upstream = state["upstream"]
-    local = state["local"]
-    ahead = int(state.get("ahead") or 0)
-
-    if ahead <= 0 or upstream == local:
-        return f"{base} · upstream {upstream}"
-
-    carried_word = "commit" if ahead == 1 else "commits"
-    return f"{base} · upstream {upstream} · local {local} (+{ahead} carried {carried_word})"
+    return f"DAClaw Agent v{VERSION} ({RELEASE_DATE})"
 
 
 # =========================================================================
@@ -376,7 +362,7 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
 
     layout_table = Table.grid(padding=(0, 3))
     layout_table.add_column("left", justify="left", ratio=1)
-    layout_table.add_column("right", justify="left", ratio=2)
+    layout_table.add_column("right", justify="left", ratio=3)
 
     # Resolve skin colors once for the entire banner
     accent = _skin_color("banner_accent", "#FFBF00")
@@ -384,28 +370,21 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
     text = _skin_color("banner_text", "#FFF8DC")
     session_color = _skin_color("session_border", "#8B8682")
 
-    # Use skin's custom caduceus art if provided
+    # Use skin's custom logo/art if provided.
     try:
         from daclaw_cli.skin_engine import get_active_skin
         _bskin = get_active_skin()
-        _hero = _bskin.banner_hero if hasattr(_bskin, 'banner_hero') and _bskin.banner_hero else DACLAW_CADUCEUS
+        _logo = _bskin.banner_logo if hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else DACLAW_AGENT_LOGO
     except Exception:
         _bskin = None
-        _hero = DACLAW_CADUCEUS
-    left_lines = [_hero, ""]
+        _logo = DACLAW_AGENT_LOGO
+
     model_short = model.split("/")[-1] if "/" in model else model
     if model_short.endswith(".gguf"):
         model_short = model_short[:-5]
     if len(model_short) > 28:
         model_short = model_short[:25] + "..."
     ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
-    left_lines.append(f"[bold {accent}]Runtime[/]")
-    left_lines.append(f"[dim {dim}]model[/]   [{text}]{model_short}[/]{ctx_str}")
-    left_lines.append(f"[dim {dim}]engine[/]  [{text}]DAClaw Runtime[/]")
-    left_lines.append(f"[dim {dim}]cwd[/]     [{text}]{_clip_banner_text(cwd, 44)}[/]")
-    if session_id:
-        left_lines.append(f"[dim {dim}]session[/] [{session_color}]{session_id}[/]")
-    left_content = "\n".join(left_lines)
     toolsets_dict: Dict[str, list] = {}
 
     for tool in tools:
@@ -437,76 +416,48 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
         toolsets_dict.items(),
         key=lambda item: (-len(item[1]), item[0]),
     )
-    featured_toolsets = sorted_toolsets[:6]
-    remaining_toolsets = max(0, len(sorted_toolsets) - len(featured_toolsets))
 
     sorted_skill_categories = sorted(
         skills_by_category.items(),
         key=lambda item: (-len(item[1]), item[0]),
     )
-    featured_skill_categories = sorted_skill_categories[:6]
-    remaining_skill_categories = max(0, len(sorted_skill_categories) - len(featured_skill_categories))
 
-    right_lines = [
-        f"[bold {accent}]Command Deck[/]",
+    lazy_count = sum(1 for name in lazy_tools if name)
+    disabled_count = sum(1 for name in disabled_tools if name)
+
+    left_lines = [
+        f"[bold {accent}]Mission Control[/]",
         (
             f"[dim {dim}]tools[/]  [{text}]{len(tools)} available[/]"
             f" [dim {dim}]·[/] [{text}]{len(sorted_toolsets)} systems[/]"
             + (f" [dim {dim}]·[/] [{text}]{mcp_connected} MCP[/]" if mcp_connected else "")
         ),
         f"[dim {dim}]skills[/] [{text}]{total_skills} loaded[/] [dim {dim}]·[/] [{text}]{len(sorted_skill_categories)} domains[/]",
-        f"[dim {dim}]quick[/]  [{text}]/help[/] [dim {dim}]·[/] [{text}]/model[/] [dim {dim}]·[/] [{text}]/tools[/] [dim {dim}]·[/] [{text}]/skills[/]",
+        (
+            f"[dim {dim}]health[/] [{text}]{lazy_count} lazy[/]"
+            f" [dim {dim}]·[/] [{text}]{disabled_count} off[/]"
+        ),
+        f"[dim {dim}]quick[/]  [{text}]/help[/] [dim {dim}]·[/] [{text}]/model[/] [dim {dim}]·[/] [{text}]/tools[/]",
         "",
-        f"[bold {accent}]Tool Systems[/]",
+        f"[bold {accent}]Runtime Signal[/]",
+        f"[dim {dim}]model[/]   [{text}]{model_short}[/]{ctx_str}",
+        f"[dim {dim}]engine[/]  [{text}]DAClaw Core[/]",
+        f"[dim {dim}]cwd[/]     [{text}]{_clip_banner_text(cwd, 46)}[/]",
     ]
-
-    if featured_toolsets:
-        for toolset, tool_names in featured_toolsets:
-            sorted_names = sorted(tool_names)
-            disabled_count = sum(1 for name in sorted_names if name in disabled_tools)
-            lazy_count = sum(1 for name in sorted_names if name in lazy_tools)
-            status = ""
-            if disabled_count:
-                status = f" [red]({disabled_count} off)[/]"
-            elif lazy_count:
-                status = f" [yellow]({lazy_count} lazy)[/]"
-            preview = _format_banner_items(sorted_names, limit=3, width=42)
-            toolset_label = _clip_banner_text(toolset, 16)
-            right_lines.append(
-                f"[dim {dim}]{toolset_label:<16}[/] [{accent}]{len(sorted_names):>2}[/]{status} [{text}]{preview}[/]"
-            )
-        if remaining_toolsets:
-            right_lines.append(f"[dim {dim}]plus {remaining_toolsets} more tool systems[/]")
-    else:
-        right_lines.append(f"[dim {dim}]No tools enabled[/]")
-
-    right_lines.append("")
-    right_lines.append(f"[bold {accent}]Skill Domains[/]")
-    if featured_skill_categories:
-        for category, skill_names in featured_skill_categories:
-            sorted_names = sorted(skill_names)
-            preview = _format_banner_items(sorted_names, limit=3, width=42)
-            category_label = _clip_banner_text(category, 16)
-            right_lines.append(
-                f"[dim {dim}]{category_label:<16}[/] [{accent}]{len(sorted_names):>2}[/] [{text}]{preview}[/]"
-            )
-        if remaining_skill_categories:
-            right_lines.append(f"[dim {dim}]plus {remaining_skill_categories} more skill domains[/]")
-    else:
-        right_lines.append(f"[dim {dim}]No skills installed[/]")
+    if session_id:
+        left_lines.append(f"[dim {dim}]session[/] [{session_color}]{session_id}[/]")
 
     # Show active profile name when not 'default'
     try:
         from daclaw_cli.profiles import get_active_profile_name
         _profile_name = get_active_profile_name()
         if _profile_name and _profile_name != "default":
-            right_lines.append("")
-            right_lines.append(f"[bold {accent}]Profile:[/] [{text}]{_profile_name}[/]")
+            left_lines.append(f"[dim {dim}]profile[/] [{text}]{_profile_name}[/]")
     except Exception:
         pass  # Never break the banner over a profiles.py bug
 
-    right_lines.append("")
-    right_lines.append(f"[dim {dim}]Ready for work · /help for commands[/]")
+    left_lines.append("")
+    left_lines.append(f"[dim {dim}]Standing by · /help for commands[/]")
 
     # Update check — use prefetched result if available
     try:
@@ -514,14 +465,18 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
         if behind and behind > 0:
             from daclaw_cli.config import recommended_update_command
             commits_word = "commit" if behind == 1 else "commits"
-            right_lines.append(
+            left_lines.append(
                 f"[bold yellow]⚠ {behind} {commits_word} behind[/]"
                 f"[dim yellow] — run [bold]{recommended_update_command()}[/bold] to update[/]"
             )
     except Exception:
         pass  # Never break the banner over an update check
 
-    right_content = "\n".join(right_lines)
+    left_height = len(left_lines)
+    logo_lines = str(_logo).splitlines()
+    top_pad = max(0, (left_height - len(logo_lines)) // 2)
+    left_content = "\n".join(left_lines)
+    right_content = ("\n" * top_pad) + _logo
     layout_table.add_row(left_content, right_content)
 
     agent_name = _skin_branding("agent_name", "DAClaw Agent")
@@ -535,9 +490,4 @@ def build_welcome_banner(console: Console, model: str, cwd: str,
     )
 
     console.print()
-    term_width = shutil.get_terminal_size().columns
-    if term_width >= 95:
-        _logo = _bskin.banner_logo if _bskin and hasattr(_bskin, 'banner_logo') and _bskin.banner_logo else DACLAW_AGENT_LOGO
-        console.print(_logo)
-        console.print()
     console.print(outer_panel)

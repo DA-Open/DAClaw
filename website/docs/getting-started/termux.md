@@ -46,7 +46,7 @@ That does not stop DAClaw from working well as a phone-native CLI agent — it j
 DAClaw now ships a Termux-aware installer path:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/NousResearch/daclaw-agent/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DA-Open/DAClaw/main/scripts/install.sh | bash
 ```
 
 On Termux, the installer automatically:
@@ -80,7 +80,7 @@ Why these packages?
 ### 2. Clone DAClaw
 
 ```bash
-git clone --recurse-submodules https://github.com/NousResearch/daclaw-agent.git
+git clone --recurse-submodules https://github.com/DA-Open/DAClaw.git
 cd daclaw-agent
 ```
 
