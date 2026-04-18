@@ -40,7 +40,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from daclaw_constants import get_daclaw_home, display_daclaw_home
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,7 @@ def _security_scan_skill(skill_dir: Path) -> Optional[str]:
     return None
 
 import yaml
+from agent.skill_utils import parse_frontmatter
 
 
 # All skills live in ~/.daclaw/skills/ (single source of truth)
@@ -96,12 +97,276 @@ def _is_local_skill(skill_path: Path) -> bool:
         return False
 MAX_SKILL_CONTENT_CHARS = 100_000   # ~36k tokens at 2.75 chars/token
 MAX_SKILL_FILE_BYTES = 1_048_576    # 1 MiB per supporting file
+MAX_VALIDATION_SKILL_CHARS = 24_000
+MAX_VALIDATION_FILE_CHARS = 3_000
+QUALITY_PASSING_SCORE = 7
 
 # Characters allowed in skill names (filesystem-safe, URL-friendly)
 VALID_NAME_RE = re.compile(r'^[a-z0-9][a-z0-9._-]*$')
 
 # Subdirectories allowed for write_file/remove_file
 ALLOWED_SUBDIRS = {"references", "templates", "scripts", "assets"}
+
+
+def _extract_json_object(text: str) -> Dict[str, Any]:
+    """Best-effort JSON object extraction from model output."""
+    if not text or not text.strip():
+        raise ValueError("empty response")
+    text = text.strip()
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except Exception:
+        pass
+
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        raise ValueError("no JSON object found")
+
+    parsed = json.loads(match.group(0))
+    if not isinstance(parsed, dict):
+        raise ValueError("JSON payload was not an object")
+    return parsed
+
+
+def _collect_supporting_file_previews(skill_dir: Path) -> List[Dict[str, str]]:
+    previews: List[Dict[str, str]] = []
+    for subdir in sorted(ALLOWED_SUBDIRS):
+        root = skill_dir / subdir
+        if not root.exists():
+            continue
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            previews.append({
+                "path": str(path.relative_to(skill_dir)),
+                "preview": content[:MAX_VALIDATION_FILE_CHARS],
+            })
+    return previews
+
+
+def _required_env_names(frontmatter: Dict[str, Any]) -> List[str]:
+    names: List[str] = []
+
+    raw_required = frontmatter.get("required_environment_variables")
+    if isinstance(raw_required, dict):
+        raw_required = [raw_required]
+    if isinstance(raw_required, list):
+        for item in raw_required:
+            if isinstance(item, str) and item.strip():
+                names.append(item.strip())
+            elif isinstance(item, dict):
+                name = str(item.get("name") or item.get("env_var") or "").strip()
+                if name:
+                    names.append(name)
+
+    prereqs = frontmatter.get("prerequisites")
+    if isinstance(prereqs, dict):
+        env_vars = prereqs.get("env_vars")
+        if isinstance(env_vars, str):
+            env_vars = [env_vars]
+        if isinstance(env_vars, list):
+            names.extend(str(item).strip() for item in env_vars if str(item).strip())
+
+    deduped: List[str] = []
+    for name in names:
+        if name not in deduped:
+            deduped.append(name)
+    return deduped
+
+
+def _static_quality_review(skill_dir: Path) -> Dict[str, Any]:
+    skill_md = skill_dir / "SKILL.md"
+    content = skill_md.read_text(encoding="utf-8")
+    frontmatter, body = parse_frontmatter(content)
+    body = body.strip()
+    issues: List[str] = []
+    warnings: List[str] = []
+    strengths: List[str] = []
+
+    if len(body) < 8:
+        issues.append("SKILL.md body is too short to encode a reliable reusable workflow.")
+    else:
+        strengths.append("Body length is sufficient for a reusable workflow.")
+
+    if re.search(r"^#\s+", body, re.MULTILINE):
+        strengths.append("Has a top-level markdown title.")
+    else:
+        warnings.append("Missing a top-level markdown title in the body.")
+
+    if re.search(r"^\s*(\d+\.|-|\*)\s+", body, re.MULTILINE):
+        strengths.append("Contains explicit step structure.")
+    else:
+        warnings.append("No clear numbered or bulleted step structure detected.")
+
+    if "```" in body:
+        strengths.append("Includes code or command examples.")
+
+    lower_body = body.lower()
+    if any(token in lower_body for token in ("verify", "validation", "check that", "confirm", "expected result")):
+        strengths.append("Includes verification language.")
+    else:
+        warnings.append("No explicit verification/check step detected.")
+
+    if any(token in lower_body for token in ("pitfall", "gotcha", "troubleshoot", "warning", "be careful")):
+        strengths.append("Includes pitfalls or troubleshooting guidance.")
+    else:
+        warnings.append("No pitfalls/troubleshooting guidance detected.")
+
+    supporting_files = _collect_supporting_file_previews(skill_dir)
+    if supporting_files:
+        strengths.append(f"Has {len(supporting_files)} supporting file(s).")
+
+    return {
+        "frontmatter": frontmatter,
+        "body": body,
+        "supporting_files": supporting_files,
+        "issues": issues,
+        "warnings": warnings,
+        "strengths": strengths,
+    }
+
+
+def _build_validation_payload(skill_dir: Path) -> Dict[str, Any]:
+    static = _static_quality_review(skill_dir)
+    skill_md = skill_dir / "SKILL.md"
+    skill_text = skill_md.read_text(encoding="utf-8")
+    return {
+        "name": skill_dir.name,
+        "skill_markdown": skill_text[:MAX_VALIDATION_SKILL_CHARS],
+        "truncated": len(skill_text) > MAX_VALIDATION_SKILL_CHARS,
+        "frontmatter": static["frontmatter"],
+        "body": static["body"][:MAX_VALIDATION_SKILL_CHARS],
+        "supporting_files": static["supporting_files"],
+        "static": {
+            "issues": static["issues"],
+            "warnings": static["warnings"],
+            "strengths": static["strengths"],
+        },
+    }
+
+
+def _smoke_test_suitability(frontmatter: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    required_env = _required_env_names(frontmatter)
+    if required_env:
+        return False, f"Requires environment variables: {', '.join(required_env)}"
+
+    setup = frontmatter.get("setup")
+    if isinstance(setup, dict) and setup.get("collect_secrets"):
+        return False, "Requires interactive secret setup"
+
+    return True, None
+
+
+def _call_validation_llm(messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    from agent.auxiliary_client import call_llm, extract_content_or_reasoning
+
+    response = call_llm(
+        task="skill_validation",
+        messages=messages,
+        temperature=0.1,
+        max_tokens=900,
+    )
+    content = extract_content_or_reasoning(response)
+    return _extract_json_object(content)
+
+
+def _run_smoke_test(payload: Dict[str, Any]) -> Dict[str, Any]:
+    frontmatter = payload.get("frontmatter") or {}
+    suitable, reason = _smoke_test_suitability(frontmatter)
+    if not suitable:
+        return {"status": "skipped", "reason": reason}
+
+    result = _call_validation_llm([
+        {
+            "role": "system",
+            "content": (
+                "You are validating a DAClaw skill. Create a minimal smoke test for this skill and "
+                "simulate whether the skill would guide an agent coherently for that single scenario. "
+                "Return JSON only with keys: suitable_for_smoke_test, user_request, expected_signals, "
+                "simulated_outcome, confidence, issues. simulated_outcome must be one of: pass, warning, fail."
+            ),
+        },
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ])
+    result.setdefault("status", "completed")
+    return result
+
+
+def _judge_skill_quality(payload: Dict[str, Any], smoke_test: Dict[str, Any]) -> Dict[str, Any]:
+    result = _call_validation_llm([
+        {
+            "role": "system",
+            "content": (
+                "You are a strict but practical quality judge for DAClaw skills. "
+                "Evaluate whether the skill is reusable, actionable, and clear enough to keep. "
+                "Do not judge security patterns here; those are handled separately. "
+                "Return JSON only with keys: pass, score, summary, strengths, issues, recommendations. "
+                "score must be an integer from 0 to 10. "
+                "pass should be true only if the skill is good enough for future reuse without likely confusing the agent."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps({"skill": payload, "smoke_test": smoke_test}, ensure_ascii=False),
+        },
+    ])
+    try:
+        result["score"] = int(result.get("score", 0))
+    except Exception:
+        result["score"] = 0
+    result["pass"] = bool(result.get("pass"))
+    return result
+
+
+def _quality_validate_skill(skill_dir: Path) -> Dict[str, Any]:
+    payload = _build_validation_payload(skill_dir)
+    static_issues = payload["static"]["issues"]
+    if static_issues:
+        return {
+            "status": "failed",
+            "pass": False,
+            "score": 0,
+            "summary": "Static quality checks failed.",
+            "issues": static_issues,
+            "warnings": payload["static"]["warnings"],
+            "strengths": payload["static"]["strengths"],
+            "smoke_test": {"status": "skipped", "reason": "Static checks failed"},
+        }
+
+    try:
+        smoke_test = _run_smoke_test(payload)
+        judge = _judge_skill_quality(payload, smoke_test)
+    except Exception as e:
+        logger.info("Skill quality validation skipped for %s: %s", skill_dir.name, e)
+        return {
+            "status": "skipped",
+            "pass": True,
+            "score": None,
+            "summary": f"Quality validation skipped: {e}",
+            "issues": [],
+            "warnings": payload["static"]["warnings"],
+            "strengths": payload["static"]["strengths"],
+            "smoke_test": {"status": "skipped", "reason": str(e)},
+        }
+
+    passed = judge["pass"] and judge["score"] >= QUALITY_PASSING_SCORE
+    return {
+        "status": "passed" if passed else "failed",
+        "pass": passed,
+        "score": judge["score"],
+        "summary": judge.get("summary", ""),
+        "issues": judge.get("issues", []),
+        "recommendations": judge.get("recommendations", []),
+        "warnings": payload["static"]["warnings"],
+        "strengths": judge.get("strengths", []) or payload["static"]["strengths"],
+        "smoke_test": smoke_test,
+    }
 
 
 # =============================================================================
@@ -343,11 +608,21 @@ def _create_skill(name: str, content: str, category: str = None) -> Dict[str, An
         shutil.rmtree(skill_dir, ignore_errors=True)
         return {"success": False, "error": scan_error}
 
+    quality = _quality_validate_skill(skill_dir)
+    if quality["status"] == "failed":
+        shutil.rmtree(skill_dir, ignore_errors=True)
+        return {
+            "success": False,
+            "error": f"Skill quality validation failed: {quality.get('summary') or 'quality gate did not pass.'}",
+            "quality_validation": quality,
+        }
+
     result = {
         "success": True,
         "message": f"Skill '{name}' created.",
         "path": str(skill_dir.relative_to(SKILLS_DIR)),
         "skill_md": str(skill_md),
+        "quality_validation": quality,
     }
     if category:
         result["category"] = category
@@ -387,10 +662,21 @@ def _edit_skill(name: str, content: str) -> Dict[str, Any]:
             _atomic_write_text(skill_md, original_content)
         return {"success": False, "error": scan_error}
 
+    quality = _quality_validate_skill(existing["path"])
+    if quality["status"] == "failed":
+        if original_content is not None:
+            _atomic_write_text(skill_md, original_content)
+        return {
+            "success": False,
+            "error": f"Skill quality validation failed: {quality.get('summary') or 'quality gate did not pass.'}",
+            "quality_validation": quality,
+        }
+
     return {
         "success": True,
         "message": f"Skill '{name}' updated.",
         "path": str(existing["path"]),
+        "quality_validation": quality,
     }
 
 
@@ -479,9 +765,19 @@ def _patch_skill(
         _atomic_write_text(target, original_content)
         return {"success": False, "error": scan_error}
 
+    quality = _quality_validate_skill(skill_dir)
+    if quality["status"] == "failed":
+        _atomic_write_text(target, original_content)
+        return {
+            "success": False,
+            "error": f"Skill quality validation failed: {quality.get('summary') or 'quality gate did not pass.'}",
+            "quality_validation": quality,
+        }
+
     return {
         "success": True,
         "message": f"Patched {'SKILL.md' if not file_path else file_path} in skill '{name}' ({match_count} replacement{'s' if match_count > 1 else ''}).",
+        "quality_validation": quality,
     }
 
 
@@ -556,10 +852,23 @@ def _write_file(name: str, file_path: str, file_content: str) -> Dict[str, Any]:
             target.unlink(missing_ok=True)
         return {"success": False, "error": scan_error}
 
+    quality = _quality_validate_skill(existing["path"])
+    if quality["status"] == "failed":
+        if original_content is not None:
+            _atomic_write_text(target, original_content)
+        else:
+            target.unlink(missing_ok=True)
+        return {
+            "success": False,
+            "error": f"Skill quality validation failed: {quality.get('summary') or 'quality gate did not pass.'}",
+            "quality_validation": quality,
+        }
+
     return {
         "success": True,
         "message": f"File '{file_path}' written to skill '{name}'.",
         "path": str(target),
+        "quality_validation": quality,
     }
 
 

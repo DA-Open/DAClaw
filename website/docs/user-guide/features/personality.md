@@ -181,6 +181,7 @@ DAClaw ships with built-in personalities you can switch to with `/personality`.
 | **technical** | Detailed, accurate technical expert |
 | **creative** | Innovative, outside-the-box thinking |
 | **teacher** | Patient educator with clear examples |
+| **data-analyst** | Adaptive analysis mode: metric-driven, evidence-first, and reusable via skills/memory |
 | **kawaii** | Cute expressions, sparkles, and enthusiasm ★ |
 | **catgirl** | Neko-chan with cat-like expressions, nya~ |
 | **pirate** | Captain DAClaw, tech-savvy buccaneer |
@@ -208,6 +209,8 @@ DAClaw ships with built-in personalities you can switch to with `/personality`.
 ```
 
 These are convenient overlays, but your global `SOUL.md` still gives DAClaw its persistent default personality unless the overlay meaningfully changes it.
+
+`data-analyst` is intentionally not a rigid checklist. It biases DAClaw toward choosing the right analysis for the question, being explicit about assumptions and uncertainty, and saving reusable analysis patterns into skills instead of mutating its core scene mode.
 
 ## Custom personalities in config
 

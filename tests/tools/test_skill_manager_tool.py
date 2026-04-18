@@ -20,6 +20,7 @@ from tools.skill_manager_tool import (
     _delete_skill,
     _write_file,
     _remove_file,
+    _quality_validate_skill,
     skill_manage,
     VALID_NAME_RE,
     ALLOWED_SUBDIRS,
@@ -484,3 +485,125 @@ class TestSkillManageDispatcher:
             raw = skill_manage(action="create", name="test-skill", content=VALID_SKILL_CONTENT)
         result = json.loads(raw)
         assert result["success"] is True
+
+
+class TestSkillQualityValidation:
+    def test_quality_validation_passes_with_smoke_and_judge(self, tmp_path):
+        responses = [
+            {
+                "suitable_for_smoke_test": True,
+                "user_request": "Use this skill to complete a minimal task.",
+                "expected_signals": ["clear steps", "verification"],
+                "simulated_outcome": "pass",
+                "confidence": "high",
+                "issues": [],
+            },
+            {
+                "pass": True,
+                "score": 8,
+                "summary": "Reusable and actionable.",
+                "strengths": ["Clear steps"],
+                "issues": [],
+                "recommendations": [],
+            },
+        ]
+
+        with _skill_dir(tmp_path), \
+             patch("tools.skill_manager_tool._call_validation_llm", side_effect=responses):
+            result = _create_skill("my-skill", VALID_SKILL_CONTENT)
+
+        assert result["success"] is True
+        assert result["quality_validation"]["status"] == "passed"
+        assert result["quality_validation"]["score"] == 8
+
+    def test_quality_validation_failure_rolls_back_create(self, tmp_path):
+        responses = [
+            {
+                "suitable_for_smoke_test": True,
+                "user_request": "Use this skill to complete a minimal task.",
+                "expected_signals": ["clear steps"],
+                "simulated_outcome": "warning",
+                "confidence": "medium",
+                "issues": ["unclear verification"],
+            },
+            {
+                "pass": False,
+                "score": 4,
+                "summary": "Too vague for reliable reuse.",
+                "strengths": [],
+                "issues": ["missing verification"],
+                "recommendations": ["add explicit expected result"],
+            },
+        ]
+
+        with _skill_dir(tmp_path), \
+             patch("tools.skill_manager_tool._call_validation_llm", side_effect=responses):
+            result = _create_skill("my-skill", VALID_SKILL_CONTENT)
+
+        assert result["success"] is False
+        assert result["quality_validation"]["status"] == "failed"
+        assert not (tmp_path / "my-skill").exists()
+
+    def test_quality_validation_skips_smoke_for_env_gated_skills(self, tmp_path):
+        gated_skill = """\
+---
+name: gated-skill
+description: Needs an API key.
+required_environment_variables:
+  - name: TEST_API_KEY
+---
+
+# Gated Skill
+
+1. Read the target input.
+2. Call the remote API.
+3. Verify the result is returned.
+
+## Pitfalls
+
+- Handle quota failures.
+"""
+        judge = {
+            "pass": True,
+            "score": 8,
+            "summary": "Good enough.",
+            "strengths": ["clear verification"],
+            "issues": [],
+            "recommendations": [],
+        }
+
+        with _skill_dir(tmp_path), \
+             patch("tools.skill_manager_tool._call_validation_llm", return_value=judge) as mock_llm:
+            result = _create_skill("gated-skill", gated_skill)
+
+        assert result["success"] is True
+        quality = result["quality_validation"]
+        assert quality["smoke_test"]["status"] == "skipped"
+        assert "environment variables" in quality["smoke_test"]["reason"]
+        assert mock_llm.call_count == 1
+
+    def test_quality_validation_skips_when_auxiliary_unavailable(self, tmp_path):
+        with _skill_dir(tmp_path), \
+             patch("tools.skill_manager_tool._call_validation_llm", side_effect=RuntimeError("No provider configured")):
+            result = _create_skill("my-skill", VALID_SKILL_CONTENT)
+
+        assert result["success"] is True
+        assert result["quality_validation"]["status"] == "skipped"
+
+    def test_static_quality_review_fails_short_skill(self, tmp_path):
+        short_skill = """\
+---
+name: short-skill
+description: Very short.
+---
+
+x
+"""
+        with _skill_dir(tmp_path):
+            skill_dir = tmp_path / "short-skill"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text(short_skill, encoding="utf-8")
+            result = _quality_validate_skill(skill_dir)
+
+        assert result["status"] == "failed"
+        assert result["pass"] is False

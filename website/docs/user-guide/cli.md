@@ -173,9 +173,10 @@ Set a predefined personality to change the agent's tone:
 /personality pirate
 /personality kawaii
 /personality concise
+/personality data-analyst
 ```
 
-Built-in personalities include: `helpful`, `concise`, `technical`, `creative`, `teacher`, `kawaii`, `catgirl`, `pirate`, `shakespeare`, `surfer`, `noir`, `uwu`, `philosopher`, `hype`.
+Built-in personalities include: `helpful`, `concise`, `technical`, `creative`, `teacher`, `data-analyst`, `kawaii`, `catgirl`, `pirate`, `shakespeare`, `surfer`, `noir`, `uwu`, `philosopher`, `hype`.
 
 You can also define custom personalities in `~/.daclaw/config.yaml`:
 

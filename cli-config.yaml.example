@@ -625,6 +625,7 @@ platform_toolsets:
 #   moa          - Mixture of Agents reasoning (mixture_of_agents)
 #   todo         - Task planning and tracking for multi-step work
 #   memory       - Persistent memory across sessions (personal notes + user profile)
+#   skill_validation - Skill quality validation (smoke test + LLM judge for agent-created skills)
 #   session_search - Search and recall past conversations (FTS5 + Gemini Flash summarization)
 #   tts          - Text-to-speech (Edge TTS free, ElevenLabs, OpenAI, MiniMax, Mistral)
 #   cronjob      - Schedule and manage automated tasks (CLI-only)

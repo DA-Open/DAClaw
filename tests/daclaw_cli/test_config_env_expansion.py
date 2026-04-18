@@ -130,3 +130,20 @@ class TestLoadCliConfigExpansion:
         config = load_cli_config()
 
         assert config["auxiliary"]["vision"]["api_key"] == "${UNSET_CLI_VAR_ABC}"
+
+    def test_cli_config_merges_nested_personalities_with_defaults(self, tmp_path, monkeypatch):
+        config_yaml = (
+            "agent:\n"
+            "  personalities:\n"
+            "    helpful: Overridden helpful personality.\n"
+        )
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(config_yaml)
+
+        monkeypatch.setattr("cli._daclaw_home", tmp_path)
+
+        from cli import load_cli_config
+        config = load_cli_config()
+
+        assert config["agent"]["personalities"]["helpful"] == "Overridden helpful personality."
+        assert "data-analyst" in config["agent"]["personalities"]

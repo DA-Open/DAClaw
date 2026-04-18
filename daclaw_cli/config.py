@@ -490,6 +490,13 @@ DEFAULT_CONFIG = {
             "api_key": "",
             "timeout": 30,
         },
+        "skill_validation": {
+            "provider": "auto",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "timeout": 45,
+        },
         "approval": {
             "provider": "auto",
             "model": "",           # fast/cheap model recommended (e.g. gemini-flash, haiku)

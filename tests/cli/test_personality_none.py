@@ -56,6 +56,31 @@ class TestCLIPersonalityNone:
             cli._handle_personality_command("/personality helpful")
         assert cli.system_prompt == "You are helpful."
 
+    def test_data_analyst_personality_works(self):
+        cli = self._make_cli(
+            personalities={
+                "data-analyst": {
+                    "description": "Adaptive analysis mode",
+                    "system_prompt": "You are operating in data-analyst mode.",
+                    "tone": "rigorous",
+                    "style": "adapt the analysis depth to the problem",
+                },
+            }
+        )
+        with patch("cli.save_config_value", return_value=True):
+            cli._handle_personality_command("/personality data-analyst")
+        assert "data-analyst mode" in cli.system_prompt.lower()
+        assert "Tone: rigorous" in cli.system_prompt
+        assert "Style: adapt the analysis depth to the problem" in cli.system_prompt
+
+    def test_default_data_analyst_prompt_mentions_self_description_rule(self):
+        from cli import load_cli_config
+        config = load_cli_config()
+        prompt = config["agent"]["personalities"]["data-analyst"]["system_prompt"]
+        assert "Self-description rule for this scene mode" in prompt
+        assert "automatic skill extraction" in prompt
+        assert "skill quality validation" in prompt
+
     def test_unknown_personality_shows_none_in_available(self, capsys):
         cli = self._make_cli()
         cli._handle_personality_command("/personality nonexistent")

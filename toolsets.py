@@ -29,6 +29,8 @@ from typing import List, Dict, Any, Set, Optional
 # Shared tool list for CLI and all messaging platform toolsets.
 # Edit this once to update all platforms simultaneously.
 _DACLAW_CORE_TOOLS = [
+    # Data analysis
+    "data_profile", "data_catalog",
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -82,6 +84,12 @@ TOOLSETS = {
     "vision": {
         "description": "Image analysis and vision tools",
         "tools": ["vision_analyze"],
+        "includes": []
+    },
+
+    "data": {
+        "description": "Structured data analysis tools for profiling datasets and maintaining a data catalog",
+        "tools": ["data_profile", "data_catalog"],
         "includes": []
     },
     
@@ -226,6 +234,7 @@ TOOLSETS = {
     "daclaw-acp": {
         "description": "Editor integration (VS Code, Zed, JetBrains) — coding-focused tools without messaging, audio, or clarify UI",
         "tools": [
+            "data_profile", "data_catalog",
             "web_search", "web_extract",
             "terminal", "process",
             "read_file", "write_file", "patch", "search_files",
@@ -245,6 +254,7 @@ TOOLSETS = {
     "daclaw-api-server": {
         "description": "OpenAI-compatible API server — full agent tools accessible via HTTP (no interactive UI tools like clarify or send_message)",
         "tools": [
+            "data_profile", "data_catalog",
             # Web
             "web_search", "web_extract",
             # Terminal + process management
