@@ -497,6 +497,13 @@ DEFAULT_CONFIG = {
             "api_key": "",
             "timeout": 45,
         },
+        "analysis_audit": {
+            "provider": "auto",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "timeout": 60,
+        },
         "approval": {
             "provider": "auto",
             "model": "",           # fast/cheap model recommended (e.g. gemini-flash, haiku)

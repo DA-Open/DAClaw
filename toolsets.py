@@ -30,7 +30,7 @@ from typing import List, Dict, Any, Set, Optional
 # Edit this once to update all platforms simultaneously.
 _DACLAW_CORE_TOOLS = [
     # Data analysis
-    "data_profile", "data_catalog",
+    "data_profile", "data_catalog", "analysis_audit",
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -89,7 +89,7 @@ TOOLSETS = {
 
     "data": {
         "description": "Structured data analysis tools for profiling datasets and maintaining a data catalog",
-        "tools": ["data_profile", "data_catalog"],
+        "tools": ["data_profile", "data_catalog", "analysis_audit"],
         "includes": []
     },
     

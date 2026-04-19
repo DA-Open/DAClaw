@@ -95,6 +95,7 @@ from agent.context_compressor import ContextCompressor
 from agent.subdirectory_hints import SubdirectoryHintTracker
 from agent.prompt_caching import apply_anthropic_cache_control
 from agent.prompt_builder import build_skills_system_prompt, build_context_files_prompt, build_environment_hints, load_soul_md, TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, DEVELOPER_ROLE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE, OPENAI_MODEL_EXECUTION_GUIDANCE
+from agent.analysis_audit import audit_analysis_report, looks_like_analysis_task
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
 from agent.display import (
     KawaiiSpinner, build_tool_preview as _build_tool_preview,
@@ -854,6 +855,7 @@ class AIAgent:
         self._last_activity_desc: str = "initializing"
         self._current_tool: str | None = None
         self._api_call_count: int = 0
+        self._analysis_audit_repairs: int = 0
 
         # Rate limit tracking — updated from x-ratelimit-* response headers
         # after each API call.  Accessed by /usage slash command.
@@ -3511,6 +3513,47 @@ class AIAgent:
             prompt_parts.append(PLATFORM_HINTS[platform_key])
 
         return "\n\n".join(p.strip() for p in prompt_parts if p.strip())
+
+    def _should_run_analysis_audit(self, user_message: str, messages: List[Dict[str, Any]]) -> bool:
+        """Return True when the task looks like a data-analysis submission."""
+        return looks_like_analysis_task(
+            user_message or "",
+            messages,
+            self._cached_system_prompt or "",
+        )
+
+    def _build_analysis_audit_repair_prompt(self, audit_result: Dict[str, Any]) -> str:
+        """Convert audit findings into a concrete next-step repair instruction."""
+        issues = audit_result.get("issues") or []
+        issue_lines: List[str] = []
+        for issue in issues[:8]:
+            if not isinstance(issue, dict):
+                continue
+            severity = issue.get("severity", "medium")
+            stage = issue.get("stage", "final_report")
+            issue_type = issue.get("type", "other")
+            message = issue.get("message", "")
+            evidence = issue.get("evidence", "")
+            action = issue.get("suggested_action", "revise_report")
+            issue_lines.append(
+                f"- [{severity}] {stage}/{issue_type}: {message}\n"
+                f"  Evidence: {evidence}\n"
+                f"  Suggested action: {action}"
+            )
+        issue_block = "\n".join(issue_lines) if issue_lines else "- No structured issues were returned."
+        summary = audit_result.get("summary", "")
+        recommended = audit_result.get("recommended_action", "revise_report")
+        return (
+            "Internal analysis audit failed before user delivery.\n"
+            "Review the findings below, then repair the work before responding to the user.\n"
+            "If the problem is only in the final write-up, revise the report. "
+            "If the problem is in the underlying analysis, continue the analysis and rerun the necessary tools.\n\n"
+            f"Audit summary: {summary}\n"
+            f"Recommended action: {recommended}\n"
+            "Findings:\n"
+            f"{issue_block}\n\n"
+            "Do not mention this internal audit process to the user. Return only after the issues are fixed."
+        )
 
     # =========================================================================
     # Pre/post-call guardrails (inspired by PR #1321 — @alireza78a)
@@ -8520,6 +8563,7 @@ class AIAgent:
         truncated_response_prefix = ""
         compression_attempts = 0
         _turn_exit_reason = "unknown"  # Diagnostic: why the loop ended
+        self._analysis_audit_repairs = 0
         
         # Record the execution thread so interrupt()/clear_interrupt() can
         # scope the tool-level interrupt signal to THIS agent's thread only.
@@ -11085,6 +11129,42 @@ class AIAgent:
                     final_response = self._strip_think_blocks(final_response).strip()
                     
                     final_msg = self._build_assistant_message(assistant_message, finish_reason)
+
+                    if final_response and self._should_run_analysis_audit(original_user_message, messages):
+                        audit_result = audit_analysis_report(
+                            user_task=original_user_message or "",
+                            final_report=final_response,
+                            trajectory_messages=messages,
+                        )
+                        if (
+                            audit_result.get("audit_status") == "completed"
+                            and not audit_result.get("pass", True)
+                            and self._analysis_audit_repairs < 2
+                        ):
+                            self._analysis_audit_repairs += 1
+                            logger.info(
+                                "Analysis audit requested repair (%d/2): %s",
+                                self._analysis_audit_repairs,
+                                audit_result.get("summary", ""),
+                            )
+                            self._emit_status(
+                                f"⚠️ Final analysis audit found issues — repairing "
+                                f"({self._analysis_audit_repairs}/2)"
+                            )
+                            while (
+                                messages
+                                and isinstance(messages[-1], dict)
+                                and messages[-1].get("_thinking_prefill")
+                            ):
+                                messages.pop()
+                            messages.append(final_msg)
+                            messages.append({
+                                "role": "user",
+                                "content": self._build_analysis_audit_repair_prompt(audit_result),
+                            })
+                            self._session_messages = messages
+                            self._save_session_log(messages)
+                            continue
 
                     # Pop thinking-only prefill message(s) before appending
                     # the final response.  This avoids consecutive assistant

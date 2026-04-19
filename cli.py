@@ -321,6 +321,7 @@ def load_cli_config() -> Dict[str, Any]:
                         "- For local CSV/TSV and similar tabular files, start with dataset profiling before making strong claims about distributions, nulls, or column types.\n"
                         "- Store stable business conventions and metric definitions in memory only when they are short, durable, and cross-task. Keep bulky schema details and join maps out of general memory.\n"
                         "- Save reusable analysis workflows, QA routines, and reporting structures as skills rather than embedding them into the catalog.\n\n"
+                        "- Before delivering a final analysis report, run a trajectory-based audit that checks whether the report is faithful to the preceding analysis and routes repair work when needed.\n\n"
                         "Evolution policy:\n"
                         "- Keep this scene mode stable; do not rewrite or mutate its core principles during the session.\n"
                         "- When you discover a reusable analysis workflow, diagnostic pattern, or reporting structure, save it as a skill.\n"

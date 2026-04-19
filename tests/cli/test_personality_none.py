@@ -80,6 +80,7 @@ class TestCLIPersonalityNone:
         assert "Self-description rule for this scene mode" in prompt
         assert "automatic skill extraction" in prompt
         assert "skill quality validation" in prompt
+        assert "trajectory-based audit" in prompt
 
     def test_unknown_personality_shows_none_in_available(self, capsys):
         cli = self._make_cli()
