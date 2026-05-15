@@ -64,6 +64,54 @@ daclaw doctor       # Diagnose any issues
 
 📖 **[Full documentation →](https://da-open.github.io/docs/)**
 
+## Web UI
+
+DAClaw includes a local web dashboard with a chat page, file upload, visible tool-call progress, configuration, API key management, sessions, logs, and analytics.
+
+Install the web dependencies if they are not already installed:
+
+```bash
+pip install -e ".[web]"
+# or, from an installed package:
+pip install "daclaw-agent[web]"
+```
+
+Configure a model before starting the UI:
+
+```bash
+daclaw setup model
+# or:
+daclaw model
+```
+
+Start the local dashboard:
+
+```bash
+daclaw dashboard
+```
+
+By default this opens:
+
+```text
+http://127.0.0.1:9119
+```
+
+The chat interface is available at:
+
+```text
+http://127.0.0.1:9119/chat
+```
+
+Useful options:
+
+```bash
+daclaw dashboard --no-open          # Start server without opening a browser
+daclaw dashboard --port 9120        # Use another port
+daclaw dashboard --host 127.0.0.1   # Bind to localhost explicitly
+```
+
+Uploaded files are stored under `~/.daclaw/web_uploads/`. SQLite datasets such as `.sqlite`, `.sqlite3`, `.db`, and `.db3` can be uploaded for analysis. For large local datasets, the default upload limit is 1024 MB; override it with `DACLAW_WEB_UPLOAD_MAX_MB` if needed.
+
 ## CLI vs Messaging Quick Reference
 
 DAClaw has two entry points: start the terminal UI with `daclaw`, or run the gateway and talk to it from Telegram, Discord, Slack, WhatsApp, Signal, or Email. Once you're in a conversation, many slash commands are shared across both interfaces.

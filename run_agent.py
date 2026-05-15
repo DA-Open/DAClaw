@@ -3516,6 +3516,10 @@ class AIAgent:
 
     def _should_run_analysis_audit(self, user_message: str, messages: List[Dict[str, Any]]) -> bool:
         """Return True when the task looks like a data-analysis submission."""
+        if getattr(self, "_disable_analysis_audit", False):
+            return False
+        if env_var_enabled("DACLAW_DISABLE_ANALYSIS_AUDIT"):
+            return False
         return looks_like_analysis_task(
             user_message or "",
             messages,

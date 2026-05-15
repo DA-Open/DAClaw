@@ -14,13 +14,16 @@ import hmac
 import json
 import logging
 import os
+import queue
+import re
 import secrets
 import sys
 import threading
 import time
 import urllib.parse
 import urllib.request
-from pathlib import Path
+import uuid
+from pathlib import Path, PureWindowsPath
 from typing import Any, Dict, List, Optional
 
 import yaml
@@ -49,9 +52,9 @@ from gateway.status import get_running_pid, read_runtime_status
 try:
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
-    from pydantic import BaseModel
+    from pydantic import BaseModel, Field
 except ImportError:
     raise SystemExit(
         "Web UI requires fastapi and uvicorn.\n"
@@ -1726,6 +1729,582 @@ async def delete_session_endpoint(session_id: str):
         return {"ok": True}
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Web chat endpoints
+# ---------------------------------------------------------------------------
+
+
+_CHAT_UPLOAD_ROOT = get_daclaw_home() / "web_uploads"
+_CHAT_UPLOAD_DEFAULT_MAX_MB = 1024
+_CHAT_EVENT_RESULT_LIMIT = 1200
+_CHAT_EVENT_ARGS_LIMIT = 500
+_CHAT_COMMAND_PREVIEW_LIMIT = 180
+_CHAT_TRACE_LIMIT = 40
+_CHAT_EVENT_QUEUE_LIMIT = 200
+_CHAT_HEARTBEAT_SECONDS = 10
+_CHAT_TOTAL_TIMEOUT_SECONDS = 1800
+_SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db", ".db3"}
+
+
+class ChatAttachment(BaseModel):
+    id: str
+    name: str
+    path: str
+    size: int = 0
+    content_type: str = ""
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: List[ChatMessage] = Field(default_factory=list)
+    attachments: List[ChatAttachment] = Field(default_factory=list)
+    session_id: Optional[str] = None
+
+
+def _safe_upload_name(filename: str) -> str:
+    """Return a filesystem-safe filename while keeping it readable."""
+    raw = Path(filename or "upload").name.strip() or "upload"
+    safe = re.sub(r"[^A-Za-z0-9._ -]+", "_", raw).strip(" .")
+    return safe[:160] or "upload"
+
+
+def _chat_upload_max_bytes() -> int:
+    raw = os.getenv("DACLAW_WEB_UPLOAD_MAX_MB", str(_CHAT_UPLOAD_DEFAULT_MAX_MB))
+    try:
+        max_mb = int(raw)
+    except ValueError:
+        max_mb = _CHAT_UPLOAD_DEFAULT_MAX_MB
+    return max(1, max_mb) * 1024 * 1024
+
+
+def _chat_heartbeat_seconds() -> float:
+    raw = os.getenv("DACLAW_WEB_CHAT_HEARTBEAT_SECONDS", str(_CHAT_HEARTBEAT_SECONDS))
+    try:
+        return max(2.0, float(raw))
+    except ValueError:
+        return float(_CHAT_HEARTBEAT_SECONDS)
+
+
+def _chat_total_timeout_seconds() -> float:
+    raw = os.getenv("DACLAW_WEB_CHAT_TIMEOUT_SECONDS", str(_CHAT_TOTAL_TIMEOUT_SECONDS))
+    try:
+        value = float(raw)
+    except ValueError:
+        value = float(_CHAT_TOTAL_TIMEOUT_SECONDS)
+    return max(0.0, value)
+
+
+def _compact_value(value: Any, limit: int = _CHAT_EVENT_RESULT_LIMIT) -> str:
+    if isinstance(value, (dict, list)):
+        text = json.dumps(value, ensure_ascii=False, indent=2)
+    else:
+        text = "" if value is None else str(value)
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"\n... [truncated {len(text) - limit} chars]"
+
+
+def _compact_args(args: Any, limit: int = _CHAT_EVENT_ARGS_LIMIT) -> Dict[str, Any]:
+    if not args:
+        return {}
+    try:
+        text = json.dumps(args, ensure_ascii=False)
+    except Exception:
+        text = str(args)
+    if len(text) <= limit and isinstance(args, dict):
+        return args
+    if isinstance(args, dict):
+        compact: Dict[str, Any] = {}
+        if "command" in args:
+            compact["command"] = _compact_value(args.get("command"), limit)
+        if "path" in args:
+            compact["path"] = args.get("path")
+        if "target" in args:
+            compact["target"] = args.get("target")
+        if "pattern" in args:
+            compact["pattern"] = args.get("pattern")
+        if "timeout" in args:
+            compact["timeout"] = args.get("timeout")
+        compact["_truncated"] = f"Arguments truncated from {len(text)} chars."
+        return compact
+    return {"_truncated": _compact_value(text, limit)}
+
+
+def _single_line_preview(value: Any, limit: int = _CHAT_COMMAND_PREVIEW_LIMIT) -> str:
+    text = "" if value is None else str(value)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"... [truncated {len(text) - limit} chars]"
+
+
+def _tool_summary(name: str, args: Any = None) -> Dict[str, Any]:
+    """Return a tiny, browser-safe tool summary for the chat process panel.
+
+    This deliberately avoids shipping full terminal commands or stdout/stderr
+    to the frontend. Large command payloads were the main reason the page could
+    freeze during SQLite analysis runs.
+    """
+    if not isinstance(args, dict):
+        args = {}
+    lower_name = (name or "").lower()
+    summary: Dict[str, Any] = {}
+
+    if lower_name == "terminal":
+        command = str(args.get("command") or "")
+        lowered = command.lower()
+        if ".sqlite" in lowered or ".sqlite3" in lowered or "sqlite3" in lowered:
+            label = "SQLite 检查"
+        elif "to_csv" in lowered or ".csv" in lowered or ".html" in lowered:
+            label = "报告文件生成"
+        elif "pandas" in lowered or "read_sql" in lowered or "dataframe" in lowered:
+            label = "数据分析"
+        elif "python" in lowered or "python3" in lowered:
+            label = "Python 分析"
+        elif re.search(r"(^|\s)(rg|find)\s", lowered):
+            label = "文件搜索"
+        elif re.search(r"(^|\s)(head|tail|cat|sed)\s", lowered):
+            label = "文件预览"
+        else:
+            label = "终端命令"
+        summary["summary"] = label
+        preview = _single_line_preview(command)
+        if preview:
+            summary["preview"] = preview
+        if args.get("timeout") is not None:
+            summary["args"] = {"timeout": args.get("timeout")}
+        return summary
+
+    friendly = {
+        "write_file": "文件写入",
+        "read_file": "文件读取",
+        "search_files": "文件搜索",
+        "patch": "文件修改",
+        "todo": "任务规划",
+        "skill_view": "技能查看",
+    }.get(lower_name)
+    if friendly:
+        summary["summary"] = friendly
+    return summary
+
+
+def _detect_lightweight_result(result: Any, limit: int = 800) -> bool:
+    if result is None:
+        return False
+    try:
+        text = json.dumps(result, ensure_ascii=False)
+    except Exception:
+        text = str(result)
+    if len(text) > limit:
+        return False
+    lowered = text.lower()
+    # Terminal/file tools often wrap stdout or full file contents. Even when
+    # short, those details are rarely worth rendering in the always-visible
+    # process panel for large data-analysis runs.
+    noisy_markers = ('"output"', '"stdout"', '"stderr"', '"content"', '"command"')
+    return not any(marker in lowered for marker in noisy_markers)
+
+
+def _should_record_chat_event(event: Dict[str, Any]) -> bool:
+    event_type = event.get("type")
+    if event_type in {"assistant_delta", "done", "heartbeat", "reasoning"}:
+        return False
+    if event_type == "tool_progress":
+        return bool(event.get("is_error"))
+    if event_type == "status":
+        message = str(event.get("message") or "").lower()
+        return bool(event.get("is_error")) or any(
+            marker in message for marker in ("error", "failed", "exception", "timeout")
+        )
+    return True
+
+
+def _chat_sse(event: Dict[str, Any]) -> str:
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+def _attachment_analysis_hint(item: ChatAttachment) -> Optional[str]:
+    suffix = Path(item.name or item.path).suffix.lower()
+    if suffix in _SQLITE_SUFFIXES:
+        return (
+            "This upload is a SQLite database. Analyze it with Python's sqlite3 module "
+            "or the sqlite CLI in read-only mode when possible. Inspect sqlite_master, "
+            "PRAGMA table_info, row counts, and small sample rows instead of reading the "
+            "database file as plain text or loading the entire database into memory."
+        )
+    return None
+
+
+def _wsl_path_for_windows_path(path: str) -> Optional[str]:
+    try:
+        win_path = PureWindowsPath(path)
+    except Exception:
+        return None
+    if not win_path.drive:
+        return None
+    drive = win_path.drive.rstrip(":").lower()
+    parts = [part for part in win_path.parts[1:] if part not in {"\\", "/"}]
+    if not drive or not parts:
+        return None
+    return f"/mnt/{drive}/" + "/".join(parts)
+
+
+def _build_chat_user_message(body: ChatRequest) -> str:
+    message = body.message.strip()
+    if not body.attachments:
+        return message
+
+    lines = [
+        message,
+        "",
+        "Uploaded files available in the local workspace for this web chat:",
+    ]
+    for item in body.attachments:
+        terminal_path = _wsl_path_for_windows_path(item.path)
+        lines.append(
+            f"- {item.name} ({item.size} bytes, {item.content_type or 'unknown type'}): {item.path}"
+        )
+        if terminal_path:
+            lines.append(f"  Terminal path if the shell is Linux/WSL: {terminal_path}")
+        hint = _attachment_analysis_hint(item)
+        if hint:
+            lines.append(f"  Analysis hint: {hint}")
+    lines.append(
+        "Use the exact provided upload path when inspecting files. If the terminal runs in Linux/WSL, "
+        "use the Terminal path above. Do not search the filesystem root for uploaded files."
+    )
+    lines.append(
+        "For data-analysis tasks in web chat, prefer creating a self-contained HTML report "
+        "in the same upload directory when useful, with readable sections, tables, and "
+        "lightweight charts using embedded HTML/CSS/SVG. Also summarize the key findings "
+        "in the chat response and link the generated report path. Use Markdown tables for "
+        "tabular summaries and avoid raw LaTeX delimiters when a plain-text formula is enough."
+    )
+    return "\n".join(lines).strip()
+
+
+def _history_for_agent(history: List[ChatMessage]) -> List[Dict[str, str]]:
+    allowed = {"user", "assistant", "system", "tool"}
+    result: List[Dict[str, str]] = []
+    for msg in history[-40:]:
+        role = msg.role if msg.role in allowed else "user"
+        content = (msg.content or "").strip()
+        if content:
+            result.append({"role": role, "content": content})
+    return result
+
+
+def _create_web_chat_agent(
+    *,
+    session_id: Optional[str],
+    stream_delta_callback=None,
+    tool_progress_callback=None,
+    tool_start_callback=None,
+    tool_complete_callback=None,
+    reasoning_callback=None,
+    status_callback=None,
+    step_callback=None,
+):
+    """Create an AIAgent for the dashboard chat without changing core logic."""
+    from run_agent import AIAgent
+    from gateway.run import (
+        GatewayRunner,
+        _resolve_gateway_model,
+        _resolve_runtime_agent_kwargs,
+    )
+    from daclaw_cli.tools_config import _get_platform_tools
+
+    config = load_config()
+    runtime_kwargs = _resolve_runtime_agent_kwargs()
+    model = _resolve_gateway_model(config)
+    if not model:
+        try:
+            from daclaw_cli.models import get_default_model_for_provider
+            model = get_default_model_for_provider(runtime_kwargs.get("provider", ""))
+        except Exception:
+            model = ""
+    enabled_toolsets = sorted(_get_platform_tools(config, "cli"))
+    max_iterations = int(
+        (config.get("agent") or {}).get("max_turns")
+        or os.getenv("DACLAW_MAX_ITERATIONS", "90")
+        or 90
+    )
+
+    try:
+        from daclaw_state import SessionDB
+        session_db = SessionDB()
+    except Exception:
+        session_db = None
+
+    agent = AIAgent(
+        model=model,
+        **runtime_kwargs,
+        max_iterations=max_iterations,
+        quiet_mode=True,
+        verbose_logging=False,
+        enabled_toolsets=enabled_toolsets,
+        session_id=session_id,
+        platform="web",
+        stream_delta_callback=stream_delta_callback,
+        tool_progress_callback=tool_progress_callback,
+        tool_start_callback=tool_start_callback,
+        tool_complete_callback=tool_complete_callback,
+        reasoning_callback=reasoning_callback,
+        status_callback=status_callback,
+        step_callback=step_callback,
+        session_db=session_db,
+        fallback_model=GatewayRunner._load_fallback_model(),
+    )
+    # Web chat cannot currently resume the internal repair loop if the browser
+    # refreshes or the SSE connection drops.  Keep the core analysis path intact
+    # but skip the optional final audit/repair pass for this surface so a
+    # completed report is delivered promptly instead of hanging in a second LLM
+    # call after the data work has already succeeded.
+    agent._disable_analysis_audit = True
+    return agent
+
+
+@app.post("/api/chat/upload")
+async def upload_chat_file(request: Request):
+    """Store a user-uploaded file for DAClaw to inspect during web chat."""
+    try:
+        form = await request.form()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "File upload parsing failed. Install the web extra with "
+                "`pip install daclaw-agent[web]`."
+            ),
+        ) from exc
+
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "filename"):
+        raise HTTPException(status_code=400, detail="Missing file")
+
+    upload_id = uuid.uuid4().hex
+    target_dir = _CHAT_UPLOAD_ROOT / upload_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    filename = _safe_upload_name(getattr(upload, "filename", "") or "upload")
+    target = target_dir / filename
+
+    size = 0
+    max_bytes = _chat_upload_max_bytes()
+    with target.open("wb") as fh:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > max_bytes:
+                try:
+                    target.unlink(missing_ok=True)
+                    target_dir.rmdir()
+                except Exception:
+                    pass
+                max_mb = max_bytes // (1024 * 1024)
+                raise HTTPException(status_code=413, detail=f"File is larger than {max_mb} MB")
+            fh.write(chunk)
+
+    return {
+        "id": upload_id,
+        "name": filename,
+        "path": str(target),
+        "size": size,
+        "content_type": getattr(upload, "content_type", "") or "",
+    }
+
+
+@app.post("/api/chat/stream")
+async def stream_chat(body: ChatRequest):
+    """Run one DAClaw web-chat turn and stream UI events as SSE frames."""
+    if not body.message.strip() and not body.attachments:
+        raise HTTPException(status_code=400, detail="Message or attachment is required")
+
+    event_queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue(maxsize=_CHAT_EVENT_QUEUE_LIMIT)
+    trace: List[Dict[str, Any]] = []
+    started = time.time()
+    last_activity = started
+    delta_buffer = ""
+    last_delta_push = started
+
+    def push(event: Dict[str, Any], *, record: bool = True) -> None:
+        nonlocal last_activity
+        event.setdefault("ts", time.time())
+        last_activity = event["ts"]
+        if record and _should_record_chat_event(event):
+            trace.append(event)
+            if len(trace) > _CHAT_TRACE_LIMIT:
+                del trace[: len(trace) - _CHAT_TRACE_LIMIT]
+        try:
+            event_queue.put_nowait(event)
+        except queue.Full:
+            # Keep the UI responsive under noisy tool activity. Dropping a
+            # status frame is better than letting the producer block while a
+            # browser tab is busy or disconnected.
+            if event.get("type") in {"done", "error"}:
+                try:
+                    event_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                event_queue.put_nowait(event)
+
+    def flush_delta() -> None:
+        nonlocal delta_buffer, last_delta_push
+        if not delta_buffer:
+            return
+        push({"type": "assistant_delta", "delta": delta_buffer}, record=False)
+        delta_buffer = ""
+        last_delta_push = time.time()
+
+    def on_delta(delta: Optional[str]) -> None:
+        nonlocal delta_buffer
+        if not delta:
+            return None
+        delta_buffer += str(delta)
+        now = time.time()
+        # Do not send every token. Coalescing keeps the browser responsive
+        # while still making the report visibly stream in.
+        if len(delta_buffer) >= 320 or now - last_delta_push >= 0.12:
+            flush_delta()
+        return None
+
+    def on_reasoning(text: str) -> None:
+        # Do not expose raw model reasoning in the web process panel.
+        # Tool starts/completions below are the user-visible execution trace.
+        return None
+
+    def on_status(event_type: str, message: str) -> None:
+        push({"type": "status", "event": event_type, "message": message})
+
+    def on_step(iteration: int, prev_tools: list) -> None:
+        push({"type": "step", "iteration": iteration, "previous_tools": prev_tools or []})
+
+    def on_tool_progress(event_type: str, name: str, preview=None, args=None, **kwargs) -> None:
+        is_error = bool(kwargs.get("is_error", False))
+        if not is_error:
+            return
+        event: Dict[str, Any] = {
+            "type": "tool_progress",
+            "event": event_type,
+            "name": name,
+            "preview": _compact_value(preview, 1000) if preview is not None else "",
+            "args": _compact_args(args),
+            "duration": kwargs.get("duration"),
+            "is_error": is_error,
+        }
+        event.update({k: v for k, v in _tool_summary(name, args).items() if k not in event or not event[k]})
+        push(event)
+
+    def on_tool_start(tool_id: str, name: str, args: dict) -> None:
+        event: Dict[str, Any] = {"type": "tool_start", "tool_id": tool_id, "name": name}
+        event.update(_tool_summary(name, args))
+        if name not in {"terminal", "write_file", "patch"}:
+            event["args"] = _compact_args(args)
+        push(event)
+
+    def on_tool_complete(tool_id: str, name: str, args: dict, result: Any) -> None:
+        event: Dict[str, Any] = {
+            "type": "tool_complete",
+            "tool_id": tool_id,
+            "name": name,
+            "result": _compact_value(result, 800) if _detect_lightweight_result(result) else "",
+        }
+        event.update(_tool_summary(name, args))
+        push(event)
+
+    def worker() -> None:
+        try:
+            push({"type": "run_started", "message": "DAClaw is working"})
+            agent = _create_web_chat_agent(
+                session_id=body.session_id,
+                stream_delta_callback=on_delta,
+                tool_progress_callback=on_tool_progress,
+                tool_start_callback=on_tool_start,
+                tool_complete_callback=on_tool_complete,
+                reasoning_callback=on_reasoning,
+                status_callback=on_status,
+                step_callback=on_step,
+            )
+            result = agent.run_conversation(
+                _build_chat_user_message(body),
+                conversation_history=_history_for_agent(body.history),
+            )
+            flush_delta()
+            push({
+                "type": "done",
+                "final_response": result.get("final_response") or "",
+                "session_id": getattr(agent, "session_id", None),
+                "completed": bool(result.get("completed")),
+                "api_calls": result.get("api_calls", 0),
+                "elapsed": time.time() - started,
+                "trace": trace,
+            }, record=False)
+        except Exception as exc:
+            _log.exception("POST /api/chat/stream failed")
+            push({
+                "type": "error",
+                "message": str(exc),
+                "elapsed": time.time() - started,
+            }, record=False)
+        finally:
+            try:
+                event_queue.put_nowait(None)
+            except queue.Full:
+                try:
+                    event_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                event_queue.put_nowait(None)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    async def event_stream():
+        heartbeat_seconds = _chat_heartbeat_seconds()
+        total_timeout_seconds = _chat_total_timeout_seconds()
+        while True:
+            try:
+                event = await asyncio.to_thread(event_queue.get, True, heartbeat_seconds)
+            except queue.Empty:
+                now = time.time()
+                elapsed = now - started
+                if total_timeout_seconds and elapsed > total_timeout_seconds:
+                    yield _chat_sse({
+                        "type": "error",
+                        "message": (
+                            "DAClaw web chat timed out while waiting for a long-running "
+                            "model/tool turn. The generated files remain in the upload "
+                            "directory; start a new turn to continue from them."
+                        ),
+                        "elapsed": elapsed,
+                    })
+                    break
+                yield _chat_sse({
+                    "type": "heartbeat",
+                    "message": "DAClaw is still working",
+                    "elapsed": elapsed,
+                    "idle": now - last_activity,
+                })
+                continue
+            if event is None:
+                break
+            yield _chat_sse(event)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -3379,7 +3379,7 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
         if fatal:
             print("  Run manually:  cd web && npm install && npm run build")
         return False
-    print("  ✓ Web UI built")
+    print("  OK Web UI built")
     return True
 
 

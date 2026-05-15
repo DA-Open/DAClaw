@@ -2,14 +2,14 @@ import { useMemo } from "react";
 
 /**
  * Lightweight markdown renderer for LLM output.
- * Handles: code blocks, inline code, bold, italic, headers, links, lists, horizontal rules.
- * NOT a full CommonMark parser — optimized for typical assistant message patterns.
+ * Supports the report shapes DAClaw commonly emits: headings, lists, tables,
+ * code blocks, links, inline styles, and LaTeX-style math blocks.
  */
 export function Markdown({ content, highlightTerms }: { content: string; highlightTerms?: string[] }) {
   const blocks = useMemo(() => parseBlocks(content), [content]);
 
   return (
-    <div className="text-sm text-foreground leading-relaxed space-y-2">
+    <div className="space-y-4 text-[15px] leading-7 text-foreground">
       {blocks.map((block, i) => (
         <Block key={i} block={block} highlightTerms={highlightTerms} />
       ))}
@@ -17,30 +17,24 @@ export function Markdown({ content, highlightTerms }: { content: string; highlig
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
 type BlockNode =
   | { type: "code"; lang: string; content: string }
   | { type: "heading"; level: number; content: string }
   | { type: "hr" }
   | { type: "list"; ordered: boolean; items: string[] }
+  | { type: "table"; headers: string[]; rows: string[][] }
+  | { type: "math"; content: string }
   | { type: "paragraph"; content: string };
 
-/* ------------------------------------------------------------------ */
-/*  Block parser                                                       */
-/* ------------------------------------------------------------------ */
-
 function parseBlocks(text: string): BlockNode[] {
-  const lines = text.split("\n");
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
   const blocks: BlockNode[] = [];
   let i = 0;
 
   while (i < lines.length) {
     const line = lines[i];
+    const trimmed = line.trim();
 
-    // Fenced code block
     const fenceMatch = line.match(/^```(\w*)/);
     if (fenceMatch) {
       const lang = fenceMatch[1] || "";
@@ -50,12 +44,25 @@ function parseBlocks(text: string): BlockNode[] {
         codeLines.push(lines[i]);
         i++;
       }
-      i++; // skip closing ```
+      if (i < lines.length) i++;
       blocks.push({ type: "code", lang, content: codeLines.join("\n") });
       continue;
     }
 
-    // Heading
+    if (isMathStart(trimmed)) {
+      const collected = collectMathBlock(lines, i);
+      blocks.push({ type: "math", content: collected.content });
+      i = collected.next;
+      continue;
+    }
+
+    if (isTableStart(lines, i)) {
+      const collected = collectTable(lines, i);
+      blocks.push(collected.table);
+      i = collected.next;
+      continue;
+    }
+
     const headingMatch = line.match(/^(#{1,4})\s+(.+)/);
     if (headingMatch) {
       blocks.push({ type: "heading", level: headingMatch[1].length, content: headingMatch[2] });
@@ -63,14 +70,12 @@ function parseBlocks(text: string): BlockNode[] {
       continue;
     }
 
-    // Horizontal rule
     if (/^[-*_]{3,}\s*$/.test(line)) {
       blocks.push({ type: "hr" });
       i++;
       continue;
     }
 
-    // Unordered list
     if (/^[-*+]\s/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^[-*+]\s/.test(lines[i])) {
@@ -81,7 +86,6 @@ function parseBlocks(text: string): BlockNode[] {
       continue;
     }
 
-    // Ordered list
     if (/^\d+[.)]\s/.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^\d+[.)]\s/.test(lines[i])) {
@@ -92,18 +96,18 @@ function parseBlocks(text: string): BlockNode[] {
       continue;
     }
 
-    // Empty line
-    if (line.trim() === "") {
+    if (trimmed === "") {
       i++;
       continue;
     }
 
-    // Paragraph — collect consecutive non-empty, non-special lines
     const paraLines: string[] = [];
     while (
       i < lines.length &&
       lines[i].trim() !== "" &&
       !lines[i].match(/^```/) &&
+      !isMathStart(lines[i].trim()) &&
+      !isTableStart(lines, i) &&
       !lines[i].match(/^#{1,4}\s/) &&
       !lines[i].match(/^[-*+]\s/) &&
       !lines[i].match(/^\d+[.)]\s/) &&
@@ -120,28 +124,98 @@ function parseBlocks(text: string): BlockNode[] {
   return blocks;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Block renderer                                                     */
-/* ------------------------------------------------------------------ */
+function isMathStart(trimmed: string): boolean {
+  return trimmed === "\\[" || trimmed.startsWith("\\[") || trimmed === "$$" || trimmed.startsWith("$$");
+}
+
+function collectMathBlock(lines: string[], start: number): { content: string; next: number } {
+  const first = lines[start].trim();
+  const close = first.startsWith("$$") ? "$$" : "\\]";
+  const open = first.startsWith("$$") ? "$$" : "\\[";
+  const parts: string[] = [];
+
+  let firstContent = first.slice(open.length).trim();
+  if (firstContent.endsWith(close) && firstContent.length > close.length) {
+    firstContent = firstContent.slice(0, -close.length).trim();
+    return { content: firstContent, next: start + 1 };
+  }
+  if (firstContent) parts.push(firstContent);
+
+  let i = start + 1;
+  while (i < lines.length) {
+    const line = lines[i];
+    const closeIndex = line.indexOf(close);
+    if (closeIndex >= 0) {
+      const before = line.slice(0, closeIndex).trim();
+      if (before) parts.push(before);
+      i++;
+      break;
+    }
+    parts.push(line);
+    i++;
+  }
+
+  return { content: parts.join("\n").trim(), next: i };
+}
+
+function isTableStart(lines: string[], index: number): boolean {
+  if (index + 1 >= lines.length) return false;
+  const header = lines[index].trim();
+  const divider = lines[index + 1].trim();
+  return (
+    header.includes("|") &&
+    divider.includes("|") &&
+    /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(divider)
+  );
+}
+
+function splitTableRow(row: string): string[] {
+  const trimmed = row.trim().replace(/^\|/, "").replace(/\|$/, "");
+  return trimmed.split("|").map((cell) => cell.trim());
+}
+
+function collectTable(lines: string[], start: number): { table: Extract<BlockNode, { type: "table" }>; next: number } {
+  const headers = splitTableRow(lines[start]);
+  const rows: string[][] = [];
+  let i = start + 2;
+  while (i < lines.length && lines[i].trim().includes("|") && lines[i].trim() !== "") {
+    rows.push(splitTableRow(lines[i]));
+    i++;
+  }
+  return { table: { type: "table", headers, rows }, next: i };
+}
 
 function Block({ block, highlightTerms }: { block: BlockNode; highlightTerms?: string[] }) {
   switch (block.type) {
     case "code":
       return (
-        <pre className="bg-secondary/60 border border-border px-3 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
-          <code>{block.content}</code>
+        <pre className="overflow-x-auto rounded-xl border border-border bg-secondary/70 px-4 py-3 text-xs leading-relaxed">
+          <code className="bg-transparent p-0">{block.content}</code>
         </pre>
+      );
+
+    case "math":
+      return (
+        <div className="overflow-x-auto rounded-2xl border border-teal-100 bg-teal-50/45 px-4 py-3">
+          <pre className="whitespace-pre-wrap break-words font-mono-ui text-sm leading-7 text-teal-950">
+            {formatMath(block.content)}
+          </pre>
+        </div>
       );
 
     case "heading": {
       const Tag = `h${Math.min(block.level, 4)}` as "h1" | "h2" | "h3" | "h4";
       const sizes: Record<string, string> = {
-        h1: "text-base font-bold",
-        h2: "text-sm font-bold",
-        h3: "text-sm font-semibold",
-        h4: "text-sm font-medium",
+        h1: "mt-2 border-b border-border pb-3 text-2xl font-semibold tracking-tight",
+        h2: "mt-6 border-b border-border pb-2 text-xl font-semibold tracking-tight",
+        h3: "mt-5 text-lg font-semibold",
+        h4: "mt-4 text-base font-semibold",
       };
-      return <Tag className={sizes[Tag]}><InlineContent text={block.content} highlightTerms={highlightTerms} /></Tag>;
+      return (
+        <Tag className={sizes[Tag]}>
+          <InlineContent text={block.content} highlightTerms={highlightTerms} />
+        </Tag>
+      );
     }
 
     case "hr":
@@ -150,26 +224,57 @@ function Block({ block, highlightTerms }: { block: BlockNode; highlightTerms?: s
     case "list": {
       const Tag = block.ordered ? "ol" : "ul";
       return (
-        <Tag className={`space-y-0.5 ${block.ordered ? "list-decimal" : "list-disc"} pl-5 text-sm`}>
+        <Tag className={`space-y-1 ${block.ordered ? "list-decimal" : "list-disc"} pl-6`}>
           {block.items.map((item, i) => (
-            <li key={i}><InlineContent text={item} highlightTerms={highlightTerms} /></li>
+            <li key={i} className="pl-1">
+              <InlineContent text={item} highlightTerms={highlightTerms} />
+            </li>
           ))}
         </Tag>
       );
     }
 
+    case "table":
+      return (
+        <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
+          <table className="min-w-full border-collapse text-left text-sm">
+            <thead className="bg-secondary/70 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                {block.headers.map((header, i) => (
+                  <th key={i} className="border-b border-border px-4 py-3 font-semibold">
+                    <InlineContent text={header} highlightTerms={highlightTerms} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {block.rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="border-b border-border last:border-0 hover:bg-secondary/40">
+                  {block.headers.map((_, cellIndex) => (
+                    <td key={cellIndex} className="px-4 py-3 align-top">
+                      <InlineContent text={row[cellIndex] || ""} highlightTerms={highlightTerms} />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+
     case "paragraph":
-      return <p><InlineContent text={block.content} highlightTerms={highlightTerms} /></p>;
+      return (
+        <p className="whitespace-pre-wrap break-words">
+          <InlineContent text={block.content} highlightTerms={highlightTerms} />
+        </p>
+      );
   }
 }
-
-/* ------------------------------------------------------------------ */
-/*  Inline parser + renderer                                           */
-/* ------------------------------------------------------------------ */
 
 type InlineNode =
   | { type: "text"; content: string }
   | { type: "code"; content: string }
+  | { type: "math"; content: string }
   | { type: "bold"; content: string }
   | { type: "italic"; content: string }
   | { type: "link"; text: string; href: string }
@@ -177,8 +282,8 @@ type InlineNode =
 
 function parseInline(text: string): InlineNode[] {
   const nodes: InlineNode[] = [];
-  // Pattern priority: code > link > bold > italic > bare URL > line break
-  const pattern = /(`[^`]+`)|(\[([^\]]+)\]\(([^)]+)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(\bhttps?:\/\/[^\s<>)\]]+)|(\n)/g;
+  const pattern =
+    /(`[^`]+`)|(\\\((.*?)\\\))|(\$([^$\n]+)\$)|(\[([^\]]+)\]\(([^)]+)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(\bhttps?:\/\/[^\s<>)\]]+)|(\n)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -188,22 +293,20 @@ function parseInline(text: string): InlineNode[] {
     }
 
     if (match[1]) {
-      // Inline code
       nodes.push({ type: "code", content: match[1].slice(1, -1) });
     } else if (match[2]) {
-      // [text](url) link
-      nodes.push({ type: "link", text: match[3], href: match[4] });
-    } else if (match[5]) {
-      // **bold**
-      nodes.push({ type: "bold", content: match[6] });
-    } else if (match[7]) {
-      // *italic*
-      nodes.push({ type: "italic", content: match[8] });
+      nodes.push({ type: "math", content: match[3] });
+    } else if (match[4]) {
+      nodes.push({ type: "math", content: match[5] });
+    } else if (match[6]) {
+      nodes.push({ type: "link", text: match[7], href: match[8] });
     } else if (match[9]) {
-      // Bare URL
-      nodes.push({ type: "link", text: match[9], href: match[9] });
-    } else if (match[10]) {
-      // Line break within paragraph
+      nodes.push({ type: "bold", content: match[10] });
+    } else if (match[11]) {
+      nodes.push({ type: "italic", content: match[12] });
+    } else if (match[13]) {
+      nodes.push({ type: "link", text: match[13], href: match[13] });
+    } else if (match[14]) {
       nodes.push({ type: "br" });
     }
 
@@ -228,14 +331,28 @@ function InlineContent({ text, highlightTerms }: { text: string; highlightTerms?
             return <HighlightedText key={i} text={node.content} terms={highlightTerms} />;
           case "code":
             return (
-              <code key={i} className="bg-secondary/60 px-1.5 py-0.5 text-xs font-mono text-primary/90">
+              <code key={i} className="rounded-md bg-secondary/80 px-1.5 py-0.5 font-mono-ui text-[0.86em] text-primary/90">
                 {node.content}
               </code>
             );
+          case "math":
+            return (
+              <code key={i} className="rounded-md bg-teal-50 px-1.5 py-0.5 font-mono-ui text-[0.86em] text-teal-900">
+                {formatMath(node.content)}
+              </code>
+            );
           case "bold":
-            return <strong key={i} className="font-semibold"><HighlightedText text={node.content} terms={highlightTerms} /></strong>;
+            return (
+              <strong key={i} className="font-semibold">
+                <HighlightedText text={node.content} terms={highlightTerms} />
+              </strong>
+            );
           case "italic":
-            return <em key={i}><HighlightedText text={node.content} terms={highlightTerms} /></em>;
+            return (
+              <em key={i}>
+                <HighlightedText text={node.content} terms={highlightTerms} />
+              </em>
+            );
           case "link":
             return (
               <a
@@ -243,7 +360,7 @@ function InlineContent({ text, highlightTerms }: { text: string; highlightTerms?
                 href={node.href}
                 target="_blank"
                 rel="noreferrer"
-                className="text-primary underline underline-offset-2 decoration-primary/30 hover:decoration-primary/60 transition-colors"
+                className="text-primary underline underline-offset-2 decoration-primary/30 transition-colors hover:decoration-primary/70"
               >
                 {node.text}
               </a>
@@ -256,11 +373,22 @@ function InlineContent({ text, highlightTerms }: { text: string; highlightTerms?
   );
 }
 
-/** Highlight search terms within a plain text string. */
+function formatMath(value: string): string {
+  return value
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1) / ($2)")
+    .replace(/\\times/g, "x")
+    .replace(/\\cdot/g, "*")
+    .replace(/\\%/g, "%")
+    .replace(/\\_/g, "_")
+    .replace(/\\left|\\right/g, "")
+    .replace(/\\text\{([^{}]+)\}/g, "$1")
+    .replace(/\\/g, "")
+    .trim();
+}
+
 function HighlightedText({ text, terms }: { text: string; terms?: string[] }) {
   if (!terms || terms.length === 0) return <>{text}</>;
 
-  // Build a regex that matches any of the search terms (case-insensitive)
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const regex = new RegExp(`(${escaped.join("|")})`, "gi");
   const parts = text.split(regex);
@@ -269,10 +397,12 @@ function HighlightedText({ text, terms }: { text: string; terms?: string[] }) {
     <>
       {parts.map((part, i) =>
         regex.test(part) ? (
-          <mark key={i} className="bg-warning/30 text-warning px-0.5">{part}</mark>
+          <mark key={i} className="bg-warning/20 px-0.5 text-warning">
+            {part}
+          </mark>
         ) : (
           <span key={i}>{part}</span>
-        )
+        ),
       )}
     </>
   );

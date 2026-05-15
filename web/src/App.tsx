@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
-import { Activity, BarChart3, Clock, FileText, KeyRound, MessageSquare, Package, Settings } from "lucide-react";
+import { Activity, BarChart3, Bot, Clock, FileText, KeyRound, MessageSquare, Package, Settings } from "lucide-react";
 import StatusPage from "@/pages/StatusPage";
 import ConfigPage from "@/pages/ConfigPage";
 import EnvPage from "@/pages/EnvPage";
@@ -8,11 +8,13 @@ import LogsPage from "@/pages/LogsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import CronPage from "@/pages/CronPage";
 import SkillsPage from "@/pages/SkillsPage";
+import ChatPage from "@/pages/ChatPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { useI18n } from "@/i18n";
 
 const NAV_ITEMS = [
   { path: "/", labelKey: "status" as const, icon: Activity },
+  { path: "/chat", labelKey: "chat" as const, icon: Bot },
   { path: "/sessions", labelKey: "sessions" as const, icon: MessageSquare },
   { path: "/analytics", labelKey: "analytics" as const, icon: BarChart3 },
   { path: "/logs", labelKey: "logs" as const, icon: FileText },
@@ -27,14 +29,11 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground overflow-x-hidden">
-      <div className="noise-overlay" />
-      <div className="warm-glow" />
-
-      <header className="fixed top-0 left-0 right-0 z-40 border-b border-border bg-background/90 backdrop-blur-sm">
-        <div className="mx-auto flex h-12 max-w-[1400px] items-stretch">
-          <div className="flex items-center border-r border-border px-3 sm:px-5 shrink-0">
-            <span className="font-collapse text-lg sm:text-xl font-bold tracking-wider uppercase blend-lighter">
-              H<span className="hidden sm:inline">ermes </span>A<span className="hidden sm:inline">gent</span>
+      <header className="fixed top-0 left-0 right-0 z-40 border-b border-border bg-card/95 backdrop-blur">
+        <div className="mx-auto flex h-14 max-w-[1440px] items-stretch">
+          <div className="flex items-center border-r border-border px-4 sm:px-6 shrink-0">
+            <span className="text-base font-semibold tracking-tight text-foreground">
+              DA<span className="hidden sm:inline">Claw</span>
             </span>
           </div>
 
@@ -45,7 +44,7 @@ export default function App() {
                 to={path}
                 end={path === "/"}
                 className={({ isActive }) =>
-                  `group relative inline-flex items-center gap-1 sm:gap-1.5 border-r border-border px-2.5 sm:px-4 py-2 font-display text-[0.65rem] sm:text-[0.8rem] tracking-[0.12em] uppercase whitespace-nowrap transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                  `group relative inline-flex items-center gap-1.5 border-r border-border px-3 sm:px-4 py-2 text-sm whitespace-nowrap transition-colors cursor-pointer shrink-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                     isActive
                       ? "text-foreground"
                       : "text-muted-foreground hover:text-foreground"
@@ -68,16 +67,17 @@ export default function App() {
 
           <div className="ml-auto flex items-center gap-2 px-2 sm:px-4">
             <LanguageSwitcher />
-            <span className="hidden sm:inline font-display text-[0.7rem] tracking-[0.15em] uppercase opacity-50">
+            <span className="hidden sm:inline text-sm text-muted-foreground">
               {t.app.webUi}
             </span>
           </div>
         </div>
       </header>
 
-      <main className="relative z-2 mx-auto w-full max-w-[1400px] flex-1 px-3 sm:px-6 pt-16 sm:pt-20 pb-4 sm:pb-8">
+      <main className="relative mx-auto w-full max-w-[1440px] flex-1 px-3 sm:px-6 pt-16 sm:pt-[4.5rem] pb-4 sm:pb-6">
         <Routes>
           <Route path="/" element={<StatusPage />} />
+          <Route path="/chat" element={<ChatPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/logs" element={<LogsPage />} />
@@ -89,12 +89,12 @@ export default function App() {
         </Routes>
       </main>
 
-      <footer className="relative z-2 border-t border-border">
-        <div className="mx-auto flex max-w-[1400px] items-center justify-between px-3 sm:px-6 py-3">
-          <span className="font-display text-[0.7rem] sm:text-[0.8rem] tracking-[0.12em] uppercase opacity-50">
+      <footer className="relative border-t border-border bg-card">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between px-3 sm:px-6 py-3">
+          <span className="text-xs text-muted-foreground">
             {t.app.footer.name}
           </span>
-          <span className="font-display text-[0.6rem] sm:text-[0.7rem] tracking-[0.15em] uppercase text-foreground/40">
+          <span className="text-xs text-muted-foreground">
             {t.app.footer.org}
           </span>
         </div>

@@ -924,9 +924,14 @@ class ShellFileOperations(FileOperations):
 
         # Fallback: find (slower, no .gitignore awareness)
         if not self._has_command('find'):
+            python_cmd = 'python3' if self._has_command('python3') else (
+                'python' if self._has_command('python') else None
+            )
+            if python_cmd:
+                return self._search_files_python(python_cmd, search_pattern, path, limit, offset)
             return SearchResult(
                 error="File search requires 'rg' (ripgrep) or 'find'. "
-                      "Install ripgrep for best results: "
+                      "Python fallback is also unavailable. Install ripgrep for best results: "
                       "https://github.com/BurntSushi/ripgrep#installation"
             )
 
@@ -957,6 +962,88 @@ class ShellFileOperations(FileOperations):
         return SearchResult(
             files=files,
             total_count=len(files)
+        )
+
+    def _search_files_python(
+        self,
+        python_cmd: str,
+        pattern: str,
+        path: str,
+        limit: int,
+        offset: int,
+    ) -> SearchResult:
+        """Fallback file-name search using Python stdlib in the target shell."""
+        import json
+
+        payload = json.dumps({
+            "pattern": pattern,
+            "path": path,
+            "limit": limit,
+            "offset": offset,
+        }, ensure_ascii=False)
+        script = r'''
+import fnmatch
+import json
+import os
+
+params = json.loads(PAYLOAD)
+pattern = params["pattern"]
+root = os.path.expanduser(params["path"])
+limit = int(params["limit"])
+offset = int(params["offset"])
+fetch_limit = max(0, limit + offset)
+matches = []
+
+for current_root, dirs, files in os.walk(root):
+    dirs[:] = [d for d in dirs if not d.startswith(".")]
+    for name in files:
+        if name.startswith("."):
+            continue
+        if fnmatch.fnmatch(name, pattern):
+            full = os.path.join(current_root, name)
+            try:
+                mtime = os.path.getmtime(full)
+            except OSError:
+                mtime = 0
+            matches.append((mtime, full))
+
+matches.sort(reverse=True)
+for _, full in matches[offset:offset + limit]:
+    print(full)
+print("__DACLAW_TOTAL__=" + str(min(len(matches), fetch_limit)))
+print("__DACLAW_TRUNCATED__=" + str(len(matches) >= fetch_limit and fetch_limit > 0).lower())
+'''
+        script = script.replace("PAYLOAD", repr(payload))
+        command = f"{python_cmd} - <<'PY'\n{script}\nPY"
+        result = self._exec(command, timeout=60)
+        if result.exit_code != 0:
+            return SearchResult(
+                error="Python fallback file search failed. Install ripgrep for best results: "
+                      "https://github.com/BurntSushi/ripgrep#installation",
+                total_count=0,
+            )
+
+        files = []
+        total_count = 0
+        truncated = False
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            if line.startswith("__DACLAW_TOTAL__="):
+                try:
+                    total_count = int(line.split("=", 1)[1])
+                except ValueError:
+                    total_count = len(files)
+                continue
+            if line.startswith("__DACLAW_TRUNCATED__="):
+                truncated = line.split("=", 1)[1].strip().lower() == "true"
+                continue
+            files.append(line)
+
+        return SearchResult(
+            files=files,
+            total_count=total_count or len(files),
+            truncated=truncated,
         )
 
     def _search_files_rg(self, pattern: str, path: str, limit: int, offset: int) -> SearchResult:

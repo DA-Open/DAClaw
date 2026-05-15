@@ -120,6 +120,54 @@ class TestWebServerEndpoints:
         assert "daclaw_home" in data
         assert "active_sessions" in data
 
+    def test_chat_upload_accepts_sqlite_database(self, tmp_path, monkeypatch):
+        pytest.importorskip("multipart")
+
+        import daclaw_cli.web_server as web_server
+
+        monkeypatch.setattr(web_server, "_CHAT_UPLOAD_ROOT", tmp_path / "uploads")
+
+        resp = self.client.post(
+            "/api/chat/upload",
+            files={
+                "file": (
+                    "dacomp-zh-001.sqlite",
+                    b"SQLite format 3\x00test",
+                    "application/vnd.sqlite3",
+                )
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "dacomp-zh-001.sqlite"
+        assert data["path"].endswith("dacomp-zh-001.sqlite")
+        assert Path(data["path"]).exists()
+
+    def test_chat_message_adds_sqlite_analysis_hint(self):
+        from daclaw_cli.web_server import ChatAttachment, ChatRequest, _build_chat_user_message
+
+        body = ChatRequest(
+            message="分析这个数据库",
+            attachments=[
+                ChatAttachment(
+                    id="upload-1",
+                    name="dacomp-zh-001.sqlite",
+                    path=r"C:\tmp\dacomp-zh-001.sqlite",
+                    size=128,
+                    content_type="application/vnd.sqlite3",
+                )
+            ],
+        )
+
+        message = _build_chat_user_message(body)
+
+        assert "SQLite database" in message
+        assert "sqlite3" in message
+        assert "PRAGMA table_info" in message
+        assert "/mnt/c/tmp/dacomp-zh-001.sqlite" in message
+        assert "Do not search the filesystem root" in message
+
     def test_get_status_filters_unconfigured_gateway_platforms(self, monkeypatch):
         import gateway.config as gateway_config
         import daclaw_cli.web_server as web_server

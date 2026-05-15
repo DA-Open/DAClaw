@@ -46,7 +46,7 @@ export const en: Translations = {
 
   app: {
     brand: "DAClaw Agent",
-    brandShort: "HA",
+    brandShort: "DA",
     webUi: "Web UI",
     footer: {
       name: "DAClaw Agent",
@@ -54,6 +54,7 @@ export const en: Translations = {
     },
     nav: {
       status: "Status",
+      chat: "Chat",
       sessions: "Sessions",
       analytics: "Analytics",
       logs: "Logs",

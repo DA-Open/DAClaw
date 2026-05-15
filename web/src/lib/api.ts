@@ -34,6 +34,15 @@ async function getSessionToken(): Promise<string> {
   throw new Error("Session token not available — page must be served by the DAClaw dashboard server");
 }
 
+function apiHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  const token = window.__DACLAW_SESSION_TOKEN__;
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  return headers;
+}
+
 export const api = {
   getStatus: () => fetchJSON<StatusResponse>("/api/status"),
   getSessions: (limit = 20, offset = 0) =>
@@ -126,6 +135,74 @@ export const api = {
   // Session search (FTS5)
   searchSessions: (q: string) =>
     fetchJSON<SessionSearchResponse>(`/api/sessions/search?q=${encodeURIComponent(q)}`),
+
+  // Web chat
+  uploadChatFile: async (file: File) => {
+    const body = new FormData();
+    body.set("file", file);
+    const res = await fetch(`${BASE}/api/chat/upload`, {
+      method: "POST",
+      headers: apiHeaders(),
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => res.statusText);
+      let detail = text;
+      try {
+        const parsed = JSON.parse(text) as { detail?: string };
+        detail = parsed.detail || text;
+      } catch {
+        // Keep the original response body.
+      }
+      throw new Error(`${res.status}: ${detail}`);
+    }
+    return res.json() as Promise<ChatAttachment>;
+  },
+  streamChat: async (
+    body: ChatStreamRequest,
+    onEvent: (event: ChatStreamEvent) => void,
+    signal?: AbortSignal,
+  ) => {
+    const res = await fetch(`${BASE}/api/chat/stream`, {
+      method: "POST",
+      headers: apiHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      const text = await res.text().catch(() => res.statusText);
+      throw new Error(`${res.status}: ${text}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const data = frame
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n");
+        if (data) onEvent(JSON.parse(data) as ChatStreamEvent);
+      }
+    }
+
+    if (buffer.trim()) {
+      const data = buffer
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (data) onEvent(JSON.parse(data) as ChatStreamEvent);
+    }
+  },
 
   // OAuth provider management
   getOAuthProviders: () =>
@@ -339,6 +416,60 @@ export interface SessionSearchResult {
 export interface SessionSearchResponse {
   results: SessionSearchResult[];
 }
+
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  content_type: string;
+}
+
+export interface ChatStreamMessage {
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+}
+
+export interface ChatStreamRequest {
+  message: string;
+  history: ChatStreamMessage[];
+  attachments: ChatAttachment[];
+  session_id?: string | null;
+}
+
+export interface ChatTraceEvent {
+  type: string;
+  ts?: number;
+  event?: string;
+  message?: string;
+  text?: string;
+  iteration?: number;
+  previous_tools?: unknown[];
+  name?: string;
+  tool_id?: string;
+  summary?: string;
+  preview?: string;
+  args?: Record<string, unknown>;
+  result?: string;
+  duration?: number | null;
+  is_error?: boolean;
+}
+
+export type ChatStreamEvent =
+  | ({ type: "assistant_delta"; delta: string; ts?: number })
+  | ({ type: "heartbeat"; message: string; elapsed: number; idle?: number; ts?: number })
+  | ({
+      type: "done";
+      final_response: string;
+      session_id?: string | null;
+      completed: boolean;
+      api_calls: number;
+      elapsed: number;
+      trace: ChatTraceEvent[];
+      ts?: number;
+    })
+  | ({ type: "error"; message: string; elapsed?: number; ts?: number })
+  | ChatTraceEvent;
 
 // ── Model info types ──────────────────────────────────────────────────
 
