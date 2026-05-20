@@ -112,6 +112,8 @@ daclaw dashboard --host 127.0.0.1   # Bind to localhost explicitly
 
 Uploaded files are stored under `~/.daclaw/web_uploads/`. SQLite datasets such as `.sqlite`, `.sqlite3`, `.db`, and `.db3` can be uploaded for analysis. For large local datasets, the default upload limit is 1024 MB; override it with `DACLAW_WEB_UPLOAD_MAX_MB` if needed.
 
+For a from-scratch Ubuntu ECS smoke test that exposes the dashboard over a temporary public IP, see [docs/ecs-web-dashboard-smoke-test.md](docs/ecs-web-dashboard-smoke-test.md).
+
 ## CLI vs Messaging Quick Reference
 
 DAClaw has two entry points: start the terminal UI with `daclaw`, or run the gateway and talk to it from Telegram, Discord, Slack, WhatsApp, Signal, or Email. Once you're in a conversation, many slash commands are shared across both interfaces.
