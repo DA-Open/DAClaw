@@ -4,10 +4,9 @@
 # Production
 /build
 
-# Generated files
+# Docusaurus cache files
 .docusaurus
 .cache-loader
-src/data/skills.json
 
 # Misc
 .DS_Store

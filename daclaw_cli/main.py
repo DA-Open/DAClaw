@@ -3357,9 +3357,12 @@ def _build_web_ui(web_dir: Path, *, fatal: bool = False) -> bool:
     """
     if not (web_dir / "package.json").exists():
         return True
+    web_dist_index = PROJECT_ROOT / "daclaw_cli" / "web_dist" / "index.html"
     import shutil
     npm = shutil.which("npm")
     if not npm:
+        if web_dist_index.exists():
+            return True
         if fatal:
             print("Web UI frontend not built and npm is not available.")
             print("Install Node.js, then run:  cd web && npm install && npm run build")

@@ -90,6 +90,11 @@ const config: Config = {
           position: 'left',
         },
         {
+          to: '/download',
+          label: 'Download',
+          position: 'left',
+        },
+        {
           to: '/',
           label: 'Home',
           position: 'right',

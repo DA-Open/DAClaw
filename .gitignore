@@ -16,6 +16,8 @@ __pycache__/model_tools.cpython-310.pyc
 __pycache__/web_tools.cpython-310.pyc
 logs/
 data/
+!website/src/data/
+!website/src/data/skills.json
 .pytest_cache/
 tmp/
 temp_vision_images/
@@ -57,6 +59,12 @@ daclaw_cli/web_dist/
 # Release script temp files
 .release_notes.md
 mini-swe-agent/
+packaging/windows/build/
+packaging/windows/dist/
+packaging/macos/build/
+packaging/macos/dist/
+packaging/defaults/config.yaml
+packaging/defaults/.env
 
 # Nix
 .direnv/

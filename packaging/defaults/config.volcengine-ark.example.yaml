@@ -1,0 +1,11 @@
+model:
+  provider: custom:volcengine-ark
+  default: glm-5.1
+  base_url: https://ark.cn-beijing.volces.com/api/v3
+
+custom_providers:
+  - name: volcengine-ark
+    base_url: https://ark.cn-beijing.volces.com/api/v3
+    key_env: ARK_API_KEY
+    api_mode: chat_completions
+    model: glm-5.1
