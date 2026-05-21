@@ -9,7 +9,8 @@ SKIP_WEB_BUILD=0
 INCLUDE_VOLCENGINE_ARK_DEFAULTS=0
 ARK_API_KEY="${DACLAW_DEFAULT_ARK_API_KEY:-}"
 ARK_BASE_URL="${DACLAW_DEFAULT_ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}"
-ARK_MODEL="${DACLAW_DEFAULT_ARK_MODEL:-glm-5.1}"
+ARK_ENDPOINT_ID="${DACLAW_DEFAULT_ARK_ENDPOINT_ID:-}"
+ARK_MODEL="${DACLAW_DEFAULT_ARK_MODEL:-${DACLAW_DEFAULT_ARK_ENDPOINT_ID:-}}"
 NO_DMG=0
 NO_ZIP=0
 AD_HOC_SIGN=1
@@ -32,7 +33,8 @@ Options:
   --include-volcengine-ark-defaults    Generate private Volcengine Ark defaults
   --ark-api-key KEY                    Private Ark key (or DACLAW_DEFAULT_ARK_API_KEY)
   --ark-base-url URL                   Ark OpenAI-compatible base URL
-  --ark-model MODEL                    Ark model, default glm-5.1
+  --ark-model MODEL                    Ark model parameter, e.g. doubao-seed-2-0-pro-260215 or ep-...
+  --ark-endpoint-id ID                 Alias for --ark-model, kept for endpoint-based Ark deployments
   --no-dmg                             Do not create dmg
   --no-zip                             Do not create zip
   --no-bundle-python                   Do not bundle the arm64 Python runtime
@@ -52,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --include-volcengine-ark-defaults) INCLUDE_VOLCENGINE_ARK_DEFAULTS=1; shift ;;
     --ark-api-key) ARK_API_KEY="$2"; shift 2 ;;
     --ark-base-url) ARK_BASE_URL="$2"; shift 2 ;;
+    --ark-endpoint-id) ARK_ENDPOINT_ID="$2"; ARK_MODEL="$2"; shift 2 ;;
     --ark-model) ARK_MODEL="$2"; shift 2 ;;
     --no-dmg) NO_DMG=1; shift ;;
     --no-zip) NO_ZIP=1; shift ;;
@@ -313,6 +316,11 @@ printf '%s\n' "$VERSION" > "$PAYLOAD_DIR/.daclaw-payload-version"
 if [[ "$INCLUDE_VOLCENGINE_ARK_DEFAULTS" -eq 1 ]]; then
   if [[ -z "$ARK_API_KEY" ]]; then
     echo "Set DACLAW_DEFAULT_ARK_API_KEY or pass --ark-api-key when using --include-volcengine-ark-defaults." >&2
+    exit 1
+  fi
+  if [[ -z "$ARK_MODEL" ]]; then
+    echo "Set DACLAW_DEFAULT_ARK_MODEL or pass --ark-model when using --include-volcengine-ark-defaults." >&2
+    echo "Use the Ark model value your account can access, e.g. doubao-seed-2-0-pro-260215 or an ep-... endpoint ID." >&2
     exit 1
   fi
   mkdir -p "$PAYLOAD_DIR/packaging/defaults"

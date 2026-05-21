@@ -81,6 +81,7 @@ To build a private app that seeds Volcengine Ark as the default provider:
 
 ```bash
 export DACLAW_DEFAULT_ARK_API_KEY="<your-private-ark-key>"
+export DACLAW_DEFAULT_ARK_MODEL="doubao-seed-2-0-pro-260215"
 packaging/macos/build-app.sh --version 0.1.0 --include-volcengine-ark-defaults
 ```
 
@@ -88,9 +89,13 @@ The preset uses:
 
 ```text
 base_url: https://ark.cn-beijing.volces.com/api/v3
-model: glm-5.1
+model: <your Ark model value, e.g. doubao-seed-2-0-pro-260215 or ep-...>
 key env: ARK_API_KEY
 ```
+
+Use the exact Ark model value your account can call. For model-ID based access,
+that can be a value like `doubao-seed-2-0-pro-260215`; for endpoint-based
+deployments, use the `ep-...` endpoint ID.
 
 Do not commit or publicly upload a build that contains a shared private API key unless that is intentional.
 

@@ -51,6 +51,47 @@ def _merge_missing(target: dict[str, Any], defaults: dict[str, Any]) -> bool:
     return changed
 
 
+def _upgrade_volcengine_ark_placeholder(target: dict[str, Any], defaults: dict[str, Any]) -> bool:
+    """Replace the old Ark display-name placeholder with a usable model value.
+
+    Early private installers used ``glm-5.1`` as the OpenAI-compatible model
+    value. Some Ark routes use public model IDs, while endpoint-based routes
+    use ``ep-...`` IDs. Only update configs that still match that placeholder.
+    """
+    default_model_cfg = defaults.get("model")
+    target_model_cfg = target.get("model")
+    if not isinstance(default_model_cfg, dict) or not isinstance(target_model_cfg, dict):
+        return False
+
+    new_model = str(default_model_cfg.get("default") or default_model_cfg.get("model") or "").strip()
+    if not new_model or new_model in {"glm-5.1", "glm5.1"}:
+        return False
+
+    provider = str(target_model_cfg.get("provider") or "").strip().lower()
+    if provider not in {"custom:volcengine-ark", "volcengine-ark"}:
+        return False
+
+    changed = False
+    if str(target_model_cfg.get("default") or "").strip() in {"glm-5.1", "glm5.1"}:
+        target_model_cfg["default"] = new_model
+        changed = True
+    if str(target_model_cfg.get("model") or "").strip() in {"glm-5.1", "glm5.1"}:
+        target_model_cfg["model"] = new_model
+        changed = True
+
+    custom_providers = target.get("custom_providers")
+    if isinstance(custom_providers, list):
+        for entry in custom_providers:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get("name") or "").strip().lower()
+            if name == "volcengine-ark" and str(entry.get("model") or "").strip() in {"glm-5.1", "glm5.1"}:
+                entry["model"] = new_model
+                changed = True
+
+    return changed
+
+
 def _env_keys(path: Path) -> set[str]:
     keys: set[str] = set()
     if not path.exists():
@@ -121,7 +162,9 @@ def main() -> int:
     default_config = _load_yaml(config_default)
     if default_config:
         current_config = _load_yaml(config_path)
-        if _merge_missing(current_config, default_config) or not config_path.exists():
+        changed = _merge_missing(current_config, default_config)
+        changed = _upgrade_volcengine_ark_placeholder(current_config, default_config) or changed
+        if changed or not config_path.exists():
             with config_path.open("w", encoding="utf-8") as f:
                 yaml.safe_dump(current_config, f, sort_keys=False, allow_unicode=True)
             _chmod_private(config_path)

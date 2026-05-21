@@ -51,8 +51,8 @@ For Volcengine Ark private builds:
 
 ```text
 base_url: https://ark.cn-beijing.volces.com/api/v3
-model: glm-5.1
+model: <your Ark model value, e.g. doubao-seed-2-0-pro-260215 or ep-...>
 key env: ARK_API_KEY
 ```
 
-Use `DACLAW_DEFAULT_ARK_API_KEY` at build time. The generated installer payload contains the private `.env`; the source tree does not.
+Use `DACLAW_DEFAULT_ARK_API_KEY` and `DACLAW_DEFAULT_ARK_MODEL` at build time. The generated installer payload contains the private `.env`; the source tree does not.

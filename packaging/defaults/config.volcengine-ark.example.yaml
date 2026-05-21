@@ -1,6 +1,9 @@
 model:
   provider: custom:volcengine-ark
-  default: glm-5.1
+  # Use an Ark model value your account can access, for example:
+  # doubao-seed-2-0-pro-260215
+  # or an endpoint ID such as ep-your-ark-endpoint-id.
+  default: doubao-seed-2-0-pro-260215
   base_url: https://ark.cn-beijing.volces.com/api/v3
 
 custom_providers:
@@ -8,4 +11,4 @@ custom_providers:
     base_url: https://ark.cn-beijing.volces.com/api/v3
     key_env: ARK_API_KEY
     api_mode: chat_completions
-    model: glm-5.1
+    model: doubao-seed-2-0-pro-260215

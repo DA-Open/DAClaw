@@ -7,7 +7,8 @@ param(
     [switch]$IncludeVolcengineArkDefaults,
     [string]$VolcengineArkApiKey = $env:DACLAW_DEFAULT_ARK_API_KEY,
     [string]$VolcengineArkBaseUrl = "https://ark.cn-beijing.volces.com/api/v3",
-    [string]$VolcengineArkModel = "glm-5.1"
+    [string]$VolcengineArkEndpointId = $env:DACLAW_DEFAULT_ARK_ENDPOINT_ID,
+    [string]$VolcengineArkModel = $(if ($env:DACLAW_DEFAULT_ARK_MODEL) { $env:DACLAW_DEFAULT_ARK_MODEL } else { $env:DACLAW_DEFAULT_ARK_ENDPOINT_ID })
 )
 
 $ErrorActionPreference = "Stop"
@@ -195,6 +196,9 @@ Remove-Item -LiteralPath $payloadDistDir -Recurse -Force -ErrorAction SilentlyCo
 if ($IncludeVolcengineArkDefaults) {
     if ([string]::IsNullOrWhiteSpace($VolcengineArkApiKey)) {
         throw "Set DACLAW_DEFAULT_ARK_API_KEY or pass -VolcengineArkApiKey when using -IncludeVolcengineArkDefaults."
+    }
+    if ([string]::IsNullOrWhiteSpace($VolcengineArkModel)) {
+        throw "Set DACLAW_DEFAULT_ARK_MODEL or pass -VolcengineArkModel when using -IncludeVolcengineArkDefaults. Use an Ark model value your account can access, e.g. doubao-seed-2-0-pro-260215 or an ep-... endpoint ID."
     }
     $defaultsDir = Join-Path $PayloadDir "packaging\defaults"
     New-Item -ItemType Directory -Force -Path $defaultsDir | Out-Null

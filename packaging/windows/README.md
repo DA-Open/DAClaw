@@ -88,6 +88,7 @@ set the key in the shell environment and enable the preset:
 
 ```powershell
 $env:DACLAW_DEFAULT_ARK_API_KEY = "<your-private-ark-key>"
+$env:DACLAW_DEFAULT_ARK_MODEL = "doubao-seed-2-0-pro-260215"
 powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\windows\build-installer.ps1 -Version 0.1.0 -IncludeVolcengineArkDefaults
 ```
 
