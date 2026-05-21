@@ -71,6 +71,7 @@ PAYLOAD_DIR="$BUILD_ROOT/payload"
 APP_BUNDLE="$BUILD_ROOT/DAClaw.app"
 APP_PAYLOAD="$APP_BUNDLE/Contents/Resources/payload"
 APP_PYTHON="$APP_BUNDLE/Contents/Resources/python"
+APP_ARCH_REPORT="$APP_BUNDLE/Contents/Resources/build-architecture-report.txt"
 
 copy_dir() {
   local name="$1"
@@ -125,6 +126,59 @@ api = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/l
 headers = {
     "Accept": "application/vnd.github+json",
     "User-Agent": "daclaw-macos-packager",
+}
+
+verify_macho_architectures() {
+  local app="$1"
+  local report="$2"
+  local failures=0
+
+  : > "$report"
+  echo "DAClaw macOS build architecture report" >> "$report"
+  echo "version=$VERSION" >> "$report"
+  echo "built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$report"
+  echo "runner_arch=$(/usr/bin/uname -m)" >> "$report"
+  echo >> "$report"
+
+  if [[ "$(/usr/bin/uname -m)" != "arm64" ]]; then
+    echo "Build host is not arm64. Refusing to produce Apple Silicon release." | tee -a "$report" >&2
+    return 1
+  fi
+
+  local executable="$app/Contents/MacOS/DAClaw"
+  if [[ ! -x "$executable" ]]; then
+    echo "Missing executable: $executable" | tee -a "$report" >&2
+    return 1
+  fi
+
+  local executable_info
+  executable_info="$(/usr/bin/file "$executable")"
+  echo "$executable_info" >> "$report"
+  if [[ "$executable_info" != *"Mach-O"* || "$executable_info" != *"arm64"* ]]; then
+    echo "CFBundleExecutable is not an arm64 Mach-O binary: $executable_info" | tee -a "$report" >&2
+    return 1
+  fi
+
+  while IFS= read -r -d '' file_path; do
+    local info
+    info="$(/usr/bin/file "$file_path")"
+    if [[ "$info" == *"Mach-O"* ]]; then
+      echo "$info" >> "$report"
+      if [[ "$info" != *"arm64"* ]]; then
+        echo "Non-arm64 Mach-O binary found: $info" | tee -a "$report" >&2
+        failures=$((failures + 1))
+      fi
+    fi
+  done < <(/usr/bin/find "$app" -type f \( -perm -111 -o -name '*.dylib' -o -name '*.so' \) -print0)
+
+  if [[ "$failures" -gt 0 ]]; then
+    echo "Architecture verification failed with $failures non-arm64 Mach-O file(s)." | tee -a "$report" >&2
+    return 1
+  fi
+
+  echo >> "$report"
+  echo "architecture_verification=passed" >> "$report"
+  echo "Architecture verification passed: all Mach-O executables have arm64 slices."
 }
 token = os.environ.get("GITHUB_TOKEN", "").strip()
 if token:
@@ -281,13 +335,20 @@ fi
 
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 sed "s/__APP_VERSION__/$VERSION/g" "$SCRIPT_DIR/Info.plist" > "$APP_BUNDLE/Contents/Info.plist"
-cp "$SCRIPT_DIR/launch-daclaw.sh" "$APP_BUNDLE/Contents/MacOS/DAClaw"
-chmod +x "$APP_BUNDLE/Contents/MacOS/DAClaw"
+if ! command -v clang >/dev/null 2>&1; then
+  echo "clang is required to build the native macOS launcher." >&2
+  exit 1
+fi
+clang -arch arm64 -mmacosx-version-min=12.0 "$SCRIPT_DIR/launcher.c" -o "$APP_BUNDLE/Contents/MacOS/DAClaw"
+cp "$SCRIPT_DIR/launch-daclaw.sh" "$APP_BUNDLE/Contents/Resources/launch-daclaw.sh"
+chmod +x "$APP_BUNDLE/Contents/Resources/launch-daclaw.sh"
 /usr/bin/rsync -a "$PAYLOAD_DIR/" "$APP_PAYLOAD/"
 
 if [[ "$BUNDLE_PYTHON" -eq 1 ]]; then
   download_bundled_python
 fi
+
+verify_macho_architectures "$APP_BUNDLE" "$APP_ARCH_REPORT"
 
 if [[ "$AD_HOC_SIGN" -eq 1 ]] && command -v codesign >/dev/null 2>&1; then
   echo "Applying ad-hoc codesign..."

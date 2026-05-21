@@ -38,6 +38,15 @@ DAClaw dependencies are installed into that venv only. The user's base Python en
 
 Python, Node.js, npm, and Git are build-time tools only. Users do not need them.
 The `.app` bundle includes an arm64 Python runtime for Apple Silicon Macs.
+The app's `CFBundleExecutable` is a native arm64 launcher, and the release
+build fails if any executable Mach-O file inside the bundle lacks an arm64
+slice. The generated bundle also includes:
+
+```text
+DAClaw.app/Contents/Resources/build-architecture-report.txt
+```
+
+Use that report to confirm which binaries were packaged.
 
 ## Build
 

@@ -54,10 +54,14 @@ jobs:
       - name: Verify bundled Python runtime
         run: |
           APP="packaging/macos/build/DAClaw.app"
+          file "$APP/Contents/MacOS/DAClaw"
+          file "$APP/Contents/MacOS/DAClaw" | grep 'Mach-O' | grep 'arm64'
           test -x "$APP/Contents/Resources/python/bin/python3" || test -x "$APP/Contents/Resources/python/bin/python3.11"
           PY="$APP/Contents/Resources/python/bin/python3"
           if [ ! -x "$PY" ]; then PY="$APP/Contents/Resources/python/bin/python3.11"; fi
           "$PY" -c 'import platform, sys; print(sys.version); print(platform.machine()); assert platform.machine() == "arm64"'
+          grep 'architecture_verification=passed' "$APP/Contents/Resources/build-architecture-report.txt"
+          cat "$APP/Contents/Resources/build-architecture-report.txt"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
