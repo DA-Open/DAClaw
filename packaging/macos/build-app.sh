@@ -127,59 +127,6 @@ headers = {
     "Accept": "application/vnd.github+json",
     "User-Agent": "daclaw-macos-packager",
 }
-
-verify_macho_architectures() {
-  local app="$1"
-  local report="$2"
-  local failures=0
-
-  : > "$report"
-  echo "DAClaw macOS build architecture report" >> "$report"
-  echo "version=$VERSION" >> "$report"
-  echo "built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$report"
-  echo "runner_arch=$(/usr/bin/uname -m)" >> "$report"
-  echo >> "$report"
-
-  if [[ "$(/usr/bin/uname -m)" != "arm64" ]]; then
-    echo "Build host is not arm64. Refusing to produce Apple Silicon release." | tee -a "$report" >&2
-    return 1
-  fi
-
-  local executable="$app/Contents/MacOS/DAClaw"
-  if [[ ! -x "$executable" ]]; then
-    echo "Missing executable: $executable" | tee -a "$report" >&2
-    return 1
-  fi
-
-  local executable_info
-  executable_info="$(/usr/bin/file "$executable")"
-  echo "$executable_info" >> "$report"
-  if [[ "$executable_info" != *"Mach-O"* || "$executable_info" != *"arm64"* ]]; then
-    echo "CFBundleExecutable is not an arm64 Mach-O binary: $executable_info" | tee -a "$report" >&2
-    return 1
-  fi
-
-  while IFS= read -r -d '' file_path; do
-    local info
-    info="$(/usr/bin/file "$file_path")"
-    if [[ "$info" == *"Mach-O"* ]]; then
-      echo "$info" >> "$report"
-      if [[ "$info" != *"arm64"* ]]; then
-        echo "Non-arm64 Mach-O binary found: $info" | tee -a "$report" >&2
-        failures=$((failures + 1))
-      fi
-    fi
-  done < <(/usr/bin/find "$app" -type f \( -perm -111 -o -name '*.dylib' -o -name '*.so' \) -print0)
-
-  if [[ "$failures" -gt 0 ]]; then
-    echo "Architecture verification failed with $failures non-arm64 Mach-O file(s)." | tee -a "$report" >&2
-    return 1
-  fi
-
-  echo >> "$report"
-  echo "architecture_verification=passed" >> "$report"
-  echo "Architecture verification passed: all Mach-O executables have arm64 slices."
-}
 token = os.environ.get("GITHUB_TOKEN", "").strip()
 if token:
     headers["Authorization"] = f"Bearer {token}"
@@ -235,6 +182,59 @@ if sys.version_info < (3, 11):
     raise SystemExit(f"Bundled Python is {sys.version}, expected 3.11+")
 print("Bundled Python:", sys.version.split()[0], platform.machine())
 PY
+}
+
+verify_macho_architectures() {
+  local app="$1"
+  local report="$2"
+  local failures=0
+
+  : > "$report"
+  echo "DAClaw macOS build architecture report" >> "$report"
+  echo "version=$VERSION" >> "$report"
+  echo "built_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$report"
+  echo "runner_arch=$(/usr/bin/uname -m)" >> "$report"
+  echo >> "$report"
+
+  if [[ "$(/usr/bin/uname -m)" != "arm64" ]]; then
+    echo "Build host is not arm64. Refusing to produce Apple Silicon release." | tee -a "$report" >&2
+    return 1
+  fi
+
+  local executable="$app/Contents/MacOS/DAClaw"
+  if [[ ! -x "$executable" ]]; then
+    echo "Missing executable: $executable" | tee -a "$report" >&2
+    return 1
+  fi
+
+  local executable_info
+  executable_info="$(/usr/bin/file "$executable")"
+  echo "$executable_info" >> "$report"
+  if [[ "$executable_info" != *"Mach-O"* || "$executable_info" != *"arm64"* ]]; then
+    echo "CFBundleExecutable is not an arm64 Mach-O binary: $executable_info" | tee -a "$report" >&2
+    return 1
+  fi
+
+  while IFS= read -r -d '' file_path; do
+    local info
+    info="$(/usr/bin/file "$file_path")"
+    if [[ "$info" == *"Mach-O"* ]]; then
+      echo "$info" >> "$report"
+      if [[ "$info" != *"arm64"* ]]; then
+        echo "Non-arm64 Mach-O binary found: $info" | tee -a "$report" >&2
+        failures=$((failures + 1))
+      fi
+    fi
+  done < <(/usr/bin/find "$app" -type f \( -perm -111 -o -name '*.dylib' -o -name '*.so' \) -print0)
+
+  if [[ "$failures" -gt 0 ]]; then
+    echo "Architecture verification failed with $failures non-arm64 Mach-O file(s)." | tee -a "$report" >&2
+    return 1
+  fi
+
+  echo >> "$report"
+  echo "architecture_verification=passed" >> "$report"
+  echo "Architecture verification passed: all Mach-O executables have arm64 slices."
 }
 
 echo "Building DAClaw macOS app"
