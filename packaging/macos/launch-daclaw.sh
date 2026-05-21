@@ -5,9 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONTENTS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 PAYLOAD_DIR="$RESOURCES_DIR/payload"
+BUNDLED_PYTHON_DIR="$RESOURCES_DIR/python"
 
 APP_SUPPORT="$HOME/Library/Application Support/DAClaw"
 RUNTIME_APP="$APP_SUPPORT/app"
+RUNTIME_PYTHON_DIR="$APP_SUPPORT/runtime/python"
 LOG_DIR="$APP_SUPPORT/logs"
 LAUNCH_LOG="$LOG_DIR/launcher.log"
 STDOUT_LOG="$LOG_DIR/dashboard.stdout.log"
@@ -33,6 +35,23 @@ show_error() {
 }
 
 find_python() {
+  local bundled_python="$RUNTIME_PYTHON_DIR/bin/python3"
+  if [[ ! -x "$bundled_python" ]]; then
+    bundled_python="$RUNTIME_PYTHON_DIR/bin/python3.11"
+  fi
+  if [[ -x "$bundled_python" ]]; then
+    log "Using bundled Python runtime: $bundled_python"
+    printf '%s\n' "$bundled_python"
+    return 0
+  fi
+
+  local host_arch
+  host_arch="$(/usr/bin/uname -m)"
+  if [[ "$host_arch" == "arm64" ]]; then
+    log "Bundled Python runtime is unavailable; refusing system Python fallback on Apple Silicon"
+    return 1
+  fi
+
   local candidates=(
     "/opt/homebrew/bin/python3.12"
     "/opt/homebrew/bin/python3.11"
@@ -47,18 +66,60 @@ find_python() {
     if command -v "$candidate" >/dev/null 2>&1; then
       local path
       path="$(command -v "$candidate")"
-      if "$path" - <<'PY' >/dev/null 2>&1
+      if DACLAW_HOST_ARCH="$host_arch" "$path" - <<'PY' >/dev/null 2>&1
+import os
+import platform
 import sys
-raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
+
+if sys.version_info < (3, 11):
+    raise SystemExit(1)
+
+host_arch = os.environ.get("DACLAW_HOST_ARCH", "")
+python_arch = platform.machine()
+if host_arch == "arm64" and python_arch != "arm64":
+    raise SystemExit(1)
+
+raise SystemExit(0)
 PY
       then
+        local python_arch
+        python_arch="$("$path" -c 'import platform; print(platform.machine())' 2>/dev/null || true)"
+        log "Using Python: $path ($python_arch)"
         printf '%s\n' "$path"
         return 0
+      else
+        log "Skipping Python candidate: $path"
       fi
     fi
   done
 
   return 1
+}
+
+copy_python_runtime_if_needed() {
+  if [[ ! -d "$BUNDLED_PYTHON_DIR" ]]; then
+    log "No bundled Python runtime found in app bundle; falling back to system Python search"
+    return 0
+  fi
+
+  local bundled_version="$BUNDLED_PYTHON_DIR/.daclaw-python-version"
+  local runtime_version="$RUNTIME_PYTHON_DIR/.daclaw-python-version"
+  local needs_copy=0
+
+  if [[ ! -x "$RUNTIME_PYTHON_DIR/bin/python3" && ! -x "$RUNTIME_PYTHON_DIR/bin/python3.11" ]]; then
+    needs_copy=1
+  elif [[ -f "$bundled_version" ]]; then
+    if [[ ! -f "$runtime_version" ]] || ! cmp -s "$bundled_version" "$runtime_version"; then
+      needs_copy=1
+    fi
+  fi
+
+  if [[ "$needs_copy" -eq 1 ]]; then
+    log "Copying bundled Python runtime to $RUNTIME_PYTHON_DIR"
+    rm -rf "$RUNTIME_PYTHON_DIR"
+    mkdir -p "$RUNTIME_PYTHON_DIR"
+    /usr/bin/rsync -a "$BUNDLED_PYTHON_DIR/" "$RUNTIME_PYTHON_DIR/"
+  fi
 }
 
 dashboard_ready() {
@@ -101,7 +162,21 @@ ensure_runtime() {
   local venv_python="$RUNTIME_APP/venv/bin/python"
   local payload_version="$RUNTIME_APP/.daclaw-payload-version"
   local runtime_version="$RUNTIME_APP/.daclaw-runtime-version"
+  local python_source_version="$RUNTIME_PYTHON_DIR/.daclaw-python-version"
+  local python_runtime_version="$RUNTIME_APP/.daclaw-runtime-python-version"
   local needs_install=0
+  local needs_venv_recreate=0
+
+  if [[ -f "$python_source_version" ]]; then
+    if [[ ! -f "$python_runtime_version" ]] || ! cmp -s "$python_source_version" "$python_runtime_version"; then
+      needs_venv_recreate=1
+    fi
+  fi
+
+  if [[ "$needs_venv_recreate" -eq 1 && -d "$RUNTIME_APP/venv" ]]; then
+    log "Recreating DAClaw virtual environment for bundled Python runtime"
+    rm -rf "$RUNTIME_APP/venv"
+  fi
 
   if [[ ! -x "$venv_python" ]]; then
     log "Creating DAClaw virtual environment"
@@ -115,10 +190,14 @@ ensure_runtime() {
 
   if [[ "$needs_install" -eq 1 ]]; then
     log "Installing DAClaw dependencies into private venv"
+    "$venv_python" -m ensurepip --upgrade >> "$LAUNCH_LOG" 2>&1 || true
     "$venv_python" -m pip install --upgrade pip >> "$LAUNCH_LOG" 2>&1
     (cd "$RUNTIME_APP" && "$venv_python" -m pip install -e ".[web]" >> "$LAUNCH_LOG" 2>&1)
     if [[ -f "$payload_version" ]]; then
       cp "$payload_version" "$runtime_version"
+    fi
+    if [[ -f "$python_source_version" ]]; then
+      cp "$python_source_version" "$python_runtime_version"
     fi
   fi
 
@@ -180,10 +259,15 @@ open_or_start_dashboard() {
 main() {
   log "Launching DAClaw"
   copy_payload_if_needed
+  copy_python_runtime_if_needed
 
   local python
   if ! python="$(find_python)"; then
-    show_error "Python 3.11 or newer is required for this DAClaw preview. Install Python, then open DAClaw again."
+    if [[ "$(/usr/bin/uname -m)" == "arm64" ]]; then
+      show_error "DAClaw could not find its bundled arm64 Python runtime. Reinstall DAClaw from the latest dmg."
+    else
+      show_error "DAClaw could not find Python 3.11 or newer. Reinstall DAClaw from the latest dmg."
+    fi
     exit 1
   fi
 

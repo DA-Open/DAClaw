@@ -13,6 +13,9 @@ ARK_MODEL="${DACLAW_DEFAULT_ARK_MODEL:-glm-5.1}"
 NO_DMG=0
 NO_ZIP=0
 AD_HOC_SIGN=1
+BUNDLE_PYTHON=1
+PYTHON_STANDALONE_VERSION="${DACLAW_BUNDLED_PYTHON_VERSION:-3.11}"
+PYTHON_STANDALONE_ARCHIVE_URL="${DACLAW_BUNDLED_PYTHON_URL:-}"
 
 usage() {
   cat <<'EOF'
@@ -32,6 +35,9 @@ Options:
   --ark-model MODEL                    Ark model, default glm-5.1
   --no-dmg                             Do not create dmg
   --no-zip                             Do not create zip
+  --no-bundle-python                   Do not bundle the arm64 Python runtime
+  --python-version VERSION             Bundled Python minor version, default 3.11
+  --python-standalone-url URL          Override python-build-standalone archive URL
   --no-sign                            Skip ad-hoc codesign
   -h, --help                           Show this help
 EOF
@@ -49,6 +55,9 @@ while [[ $# -gt 0 ]]; do
     --ark-model) ARK_MODEL="$2"; shift 2 ;;
     --no-dmg) NO_DMG=1; shift ;;
     --no-zip) NO_ZIP=1; shift ;;
+    --no-bundle-python) BUNDLE_PYTHON=0; shift ;;
+    --python-version) PYTHON_STANDALONE_VERSION="$2"; shift 2 ;;
+    --python-standalone-url) PYTHON_STANDALONE_ARCHIVE_URL="$2"; shift 2 ;;
     --no-sign) AD_HOC_SIGN=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
@@ -61,6 +70,7 @@ DIST_DIR="$(mkdir -p "$DIST_DIR" && cd "$DIST_DIR" && pwd)"
 PAYLOAD_DIR="$BUILD_ROOT/payload"
 APP_BUNDLE="$BUILD_ROOT/DAClaw.app"
 APP_PAYLOAD="$APP_BUNDLE/Contents/Resources/payload"
+APP_PYTHON="$APP_BUNDLE/Contents/Resources/python"
 
 copy_dir() {
   local name="$1"
@@ -87,6 +97,81 @@ copy_file() {
     mkdir -p "$(dirname "$PAYLOAD_DIR/$name")"
     cp "$SOURCE_DIR/$name" "$PAYLOAD_DIR/$name"
   fi
+}
+
+download_bundled_python() {
+  local download_dir="$BUILD_ROOT/python-standalone"
+  local archive="$download_dir/python-standalone.tar.gz"
+  local extract_dir="$download_dir/extract"
+
+  rm -rf "$download_dir" "$APP_PYTHON"
+  mkdir -p "$download_dir" "$extract_dir" "$APP_BUNDLE/Contents/Resources"
+
+  local url="$PYTHON_STANDALONE_ARCHIVE_URL"
+  if [[ -z "$url" ]]; then
+    if ! command -v python3 >/dev/null 2>&1; then
+      echo "python3 is required during release build to resolve python-build-standalone assets." >&2
+      exit 1
+    fi
+    url="$(PYTHON_STANDALONE_VERSION="$PYTHON_STANDALONE_VERSION" python3 - <<'PY'
+import json
+import os
+import re
+import sys
+import urllib.request
+
+minor = os.environ.get("PYTHON_STANDALONE_VERSION", "3.11")
+api = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+with urllib.request.urlopen(api, timeout=30) as response:
+    release = json.load(response)
+
+pattern = re.compile(
+    rf"^cpython-{re.escape(minor)}\.\d+\+\d+-aarch64-apple-darwin-install_only\.tar\.gz$"
+)
+matches = [
+    asset["browser_download_url"]
+    for asset in release.get("assets", [])
+    if pattern.match(asset.get("name", ""))
+]
+if not matches:
+    print(f"No aarch64 macOS python-build-standalone asset found for {minor}", file=sys.stderr)
+    raise SystemExit(1)
+print(matches[0])
+PY
+)"
+  fi
+
+  echo "Downloading bundled arm64 Python runtime:"
+  echo "  $url"
+  /usr/bin/curl -L --fail --retry 3 --output "$archive" "$url"
+  /usr/bin/tar -xzf "$archive" -C "$extract_dir"
+
+  if [[ ! -d "$extract_dir/python" ]]; then
+    echo "Unexpected python-build-standalone archive layout; missing python/ directory." >&2
+    exit 1
+  fi
+
+  /usr/bin/rsync -a "$extract_dir/python/" "$APP_PYTHON/"
+  printf '%s\n' "$PYTHON_STANDALONE_VERSION" > "$APP_PYTHON/.daclaw-python-version"
+
+  local bundled_python="$APP_PYTHON/bin/python3"
+  if [[ ! -x "$bundled_python" ]]; then
+    bundled_python="$APP_PYTHON/bin/python3.11"
+  fi
+  if [[ ! -x "$bundled_python" ]]; then
+    echo "Bundled Python executable not found under $APP_PYTHON/bin." >&2
+    exit 1
+  fi
+  "$bundled_python" - <<'PY'
+import platform
+import sys
+
+if platform.machine() != "arm64":
+    raise SystemExit(f"Bundled Python is {platform.machine()}, expected arm64")
+if sys.version_info < (3, 11):
+    raise SystemExit(f"Bundled Python is {sys.version}, expected 3.11+")
+print("Bundled Python:", sys.version.split()[0], platform.machine())
+PY
 }
 
 echo "Building DAClaw macOS app"
@@ -190,6 +275,10 @@ sed "s/__APP_VERSION__/$VERSION/g" "$SCRIPT_DIR/Info.plist" > "$APP_BUNDLE/Conte
 cp "$SCRIPT_DIR/launch-daclaw.sh" "$APP_BUNDLE/Contents/MacOS/DAClaw"
 chmod +x "$APP_BUNDLE/Contents/MacOS/DAClaw"
 /usr/bin/rsync -a "$PAYLOAD_DIR/" "$APP_PAYLOAD/"
+
+if [[ "$BUNDLE_PYTHON" -eq 1 ]]; then
+  download_bundled_python
+fi
 
 if [[ "$AD_HOC_SIGN" -eq 1 ]] && command -v codesign >/dev/null 2>&1; then
   echo "Applying ad-hoc codesign..."

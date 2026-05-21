@@ -50,6 +50,14 @@ jobs:
             --version "${{ github.event.inputs.version }}" \
             --include-volcengine-ark-defaults
 
+      - name: Verify bundled Python runtime
+        run: |
+          APP="packaging/macos/build/DAClaw.app"
+          test -x "$APP/Contents/Resources/python/bin/python3" || test -x "$APP/Contents/Resources/python/bin/python3.11"
+          PY="$APP/Contents/Resources/python/bin/python3"
+          if [ ! -x "$PY" ]; then PY="$APP/Contents/Resources/python/bin/python3.11"; fi
+          "$PY" -c 'import platform, sys; print(sys.version); print(platform.machine()); assert platform.machine() == "arm64"'
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

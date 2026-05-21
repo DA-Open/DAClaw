@@ -34,10 +34,10 @@ DAClaw dependencies are installed into that venv only. The user's base Python en
 ## Requirements For This Preview
 
 - macOS 12 or newer
-- Python 3.11 or newer
 - Internet access during first launch
 
-Node.js, npm, and Git are build-time tools only. Users do not need them.
+Python, Node.js, npm, and Git are build-time tools only. Users do not need them.
+The `.app` bundle includes an arm64 Python runtime for Apple Silicon Macs.
 
 ## Build
 
@@ -58,6 +58,12 @@ To use an existing `daclaw_cli/web_dist`:
 
 ```bash
 packaging/macos/build-app.sh --version 0.1.0 --skip-web-build
+```
+
+To build without bundling Python, for developer-only testing:
+
+```bash
+packaging/macos/build-app.sh --version 0.1.0 --no-bundle-python
 ```
 
 ## Private Volcengine Ark Defaults
