@@ -10,11 +10,18 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    # Pin to an Apple Silicon runner so the generated app uses arm64 tooling
+    # and does not ask M-series Mac users to install Rosetta.
+    runs-on: macos-14
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check runner architecture
+        run: |
+          echo "Runner machine: $(uname -m)"
+          test "$(uname -m)" = "arm64"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -25,6 +32,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          architecture: "arm64"
+
+      - name: Check tool architecture
+        run: |
+          echo "Node arch: $(node -p 'process.arch')"
+          echo "Python arch: $(python -c 'import platform; print(platform.machine())')"
+          test "$(node -p 'process.arch')" = "arm64"
+          test "$(python -c 'import platform; print(platform.machine())')" = "arm64"
 
       - name: Build macOS app and dmg
         env:
