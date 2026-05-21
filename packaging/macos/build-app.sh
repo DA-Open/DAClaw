@@ -122,7 +122,16 @@ import urllib.request
 
 minor = os.environ.get("PYTHON_STANDALONE_VERSION", "3.11")
 api = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
-with urllib.request.urlopen(api, timeout=30) as response:
+headers = {
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "daclaw-macos-packager",
+}
+token = os.environ.get("GITHUB_TOKEN", "").strip()
+if token:
+    headers["Authorization"] = f"Bearer {token}"
+
+request = urllib.request.Request(api, headers=headers)
+with urllib.request.urlopen(request, timeout=30) as response:
     release = json.load(response)
 
 pattern = re.compile(

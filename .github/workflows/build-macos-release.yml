@@ -44,6 +44,7 @@ jobs:
       - name: Build macOS app and dmg
         env:
           DACLAW_DEFAULT_ARK_API_KEY: ${{ secrets.DACLAW_DEFAULT_ARK_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           chmod +x packaging/macos/build-app.sh
           packaging/macos/build-app.sh \
