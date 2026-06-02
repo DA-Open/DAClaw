@@ -240,6 +240,26 @@ verify_macho_architectures() {
   echo "Architecture verification passed: all Mach-O executables have arm64 slices."
 }
 
+generate_app_icon() {
+  local iconset="$BUILD_ROOT/AppIcon.iconset"
+  local icon_path="$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+
+  if ! command -v swift >/dev/null 2>&1; then
+    echo "swift is required to generate the macOS app icon." >&2
+    exit 1
+  fi
+  if [[ ! -x /usr/bin/iconutil ]]; then
+    echo "iconutil is required to generate the macOS app icon." >&2
+    exit 1
+  fi
+
+  rm -rf "$iconset" "$icon_path"
+  swift "$SCRIPT_DIR/generate-app-icon.swift" "$iconset"
+  /usr/bin/iconutil -c icns "$iconset" -o "$icon_path"
+  test -f "$icon_path"
+  echo "App icon: $icon_path"
+}
+
 echo "Building DAClaw macOS app"
 echo "Version: $VERSION"
 echo "Source:  $SOURCE_DIR"
@@ -343,6 +363,7 @@ fi
 
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 sed "s/__APP_VERSION__/$VERSION/g" "$SCRIPT_DIR/Info.plist" > "$APP_BUNDLE/Contents/Info.plist"
+generate_app_icon
 if ! command -v clang >/dev/null 2>&1; then
   echo "clang is required to build the native macOS launcher." >&2
   exit 1

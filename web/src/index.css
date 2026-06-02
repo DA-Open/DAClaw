@@ -48,6 +48,36 @@
   --font-compressed: "RulesCompressed", Arial, sans-serif;
 }
 
+:root {
+  color-scheme: light;
+}
+
+html.dark,
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --color-background: #0b0f14;
+  --color-foreground: #eef2f7;
+  --color-card: #11161d;
+  --color-card-foreground: #eef2f7;
+  --color-primary: #14b8a6;
+  --color-primary-foreground: #041312;
+  --color-secondary: #171d26;
+  --color-secondary-foreground: #eef2f7;
+  --color-muted: #171d26;
+  --color-muted-foreground: #9aa4b2;
+  --color-accent: #1d2632;
+  --color-accent-foreground: #f8fafc;
+  --color-destructive: #f87171;
+  --color-destructive-foreground: #190707;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-border: #27313f;
+  --color-input: #3b4655;
+  --color-ring: #2dd4bf;
+  --color-popover: #11161d;
+  --color-popover-foreground: #eef2f7;
+}
+
 /* ---- Global body ---- */
 body {
   margin: 0;
@@ -102,6 +132,17 @@ code {
   padding: 0.15em 0.4em;
   border-radius: 0;
   background: color-mix(in srgb, var(--color-foreground) 8%, transparent);
+}
+
+.katex {
+  color: inherit;
+  font-size: 1em;
+}
+.katex-display {
+  margin: 0;
+}
+.katex-inline .katex {
+  vertical-align: -0.08em;
 }
 
 /* ---- Dither texture ---- */

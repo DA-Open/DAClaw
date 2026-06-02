@@ -10,13 +10,18 @@ Usage:
 """
 
 import asyncio
+import base64
+import csv
 import hmac
 import json
 import logging
+import mimetypes
 import os
 import queue
 import re
 import secrets
+import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -1746,6 +1751,7 @@ _CHAT_EVENT_QUEUE_LIMIT = 200
 _CHAT_HEARTBEAT_SECONDS = 10
 _CHAT_TOTAL_TIMEOUT_SECONDS = 1800
 _SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db", ".db3"}
+_WEB_WORKSPACE_STATE = get_daclaw_home() / "web_workspace.json"
 
 
 class ChatAttachment(BaseModel):
@@ -1766,6 +1772,10 @@ class ChatRequest(BaseModel):
     history: List[ChatMessage] = Field(default_factory=list)
     attachments: List[ChatAttachment] = Field(default_factory=list)
     session_id: Optional[str] = None
+
+
+class WorkspaceRootRequest(BaseModel):
+    path: str
 
 
 def _safe_upload_name(filename: str) -> str:
@@ -1956,13 +1966,127 @@ def _wsl_path_for_windows_path(path: str) -> Optional[str]:
     return f"/mnt/{drive}/" + "/".join(parts)
 
 
+def _normalize_workspace_path(path_text: str) -> Path:
+    raw = (path_text or "").strip().strip('"').strip("'")
+    if not raw:
+        raise HTTPException(status_code=400, detail="Workspace path is required")
+
+    terminal_path = _wsl_path_for_windows_path(raw)
+    if terminal_path:
+        raw = terminal_path
+
+    expanded = os.path.expandvars(os.path.expanduser(raw))
+    path = Path(expanded)
+    if not path.is_absolute():
+        raise HTTPException(status_code=400, detail="Workspace path must be absolute")
+    resolved = path.resolve()
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail=f"Workspace path does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise HTTPException(status_code=400, detail=f"Workspace path is not a directory: {resolved}")
+    return resolved
+
+
+def _default_workspace_root() -> Path:
+    return _CHAT_UPLOAD_ROOT.resolve()
+
+
+def _load_workspace_root() -> Path:
+    env_root = os.getenv("DACLAW_WEB_WORKSPACE_ROOT", "").strip()
+    if env_root:
+        try:
+            return _normalize_workspace_path(env_root)
+        except HTTPException:
+            _log.warning("Ignoring invalid DACLAW_WEB_WORKSPACE_ROOT=%r", env_root)
+
+    try:
+        if _WEB_WORKSPACE_STATE.exists():
+            data = json.loads(_WEB_WORKSPACE_STATE.read_text(encoding="utf-8"))
+            root = str(data.get("root") or "").strip()
+            if root:
+                return _normalize_workspace_path(root)
+    except Exception as exc:
+        _log.warning("Failed to load web workspace root: %s", exc)
+
+    root = _default_workspace_root()
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _save_workspace_root(path: Path) -> None:
+    _WEB_WORKSPACE_STATE.parent.mkdir(parents=True, exist_ok=True)
+    _WEB_WORKSPACE_STATE.write_text(
+        json.dumps({"root": str(path), "updated_at": time.time()}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _pick_workspace_root_native() -> Optional[Path]:
+    script = r"""
+Add-Type -AssemblyName System.Windows.Forms
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = 'Select DAClaw workspace folder'
+$dialog.ShowNewFolderButton = $true
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  Write-Output $dialog.SelectedPath
+}
+"""
+    errors: List[str] = []
+    for executable in ("powershell.exe", "pwsh.exe"):
+        try:
+            result = subprocess.run(
+                [executable, "-NoProfile", "-STA", "-Command", script],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=600,
+            )
+        except FileNotFoundError:
+            errors.append(f"{executable} not found")
+            continue
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(status_code=504, detail="Folder picker timed out") from exc
+
+        if result.returncode == 0:
+            selected = result.stdout.strip().splitlines()[-1].strip() if result.stdout.strip() else ""
+            return _normalize_workspace_path(selected) if selected else None
+        errors.append((result.stderr or result.stdout or f"{executable} exited with {result.returncode}").strip())
+
+    raise HTTPException(
+        status_code=501,
+        detail="Native folder picker is unavailable. Use the path input as a fallback. " + " | ".join(errors),
+    )
+
+
+def _workspace_root_payload(root: Optional[Path] = None) -> Dict[str, Any]:
+    active = (root or _workspace_upload_root()).resolve()
+    return {
+        "root": str(active),
+        "default_root": str(_default_workspace_root()),
+        "terminal_cwd": str(active),
+        "exists": active.exists() and active.is_dir(),
+    }
+
+
 def _build_chat_user_message(body: ChatRequest) -> str:
     message = body.message.strip()
+    workspace_root = _workspace_upload_root()
     if not body.attachments:
-        return message
+        return "\n".join(
+            [
+                message,
+                "",
+                f"Current DAClaw web workspace root: {workspace_root}",
+                "When inspecting local files or writing outputs, use this workspace unless the user explicitly asks for another path.",
+            ]
+        ).strip()
 
     lines = [
         message,
+        "",
+        f"Current DAClaw web workspace root: {workspace_root}",
         "",
         "Uploaded files available in the local workspace for this web chat:",
     ]
@@ -1988,6 +2112,488 @@ def _build_chat_user_message(body: ChatRequest) -> str:
         "tabular summaries and avoid raw LaTeX delimiters when a plain-text formula is enough."
     )
     return "\n".join(lines).strip()
+
+
+_WORKSPACE_TEXT_SUFFIXES = {
+    ".csv",
+    ".tsv",
+    ".txt",
+    ".md",
+    ".json",
+    ".jsonl",
+    ".log",
+    ".sql",
+    ".py",
+    ".r",
+    ".yaml",
+    ".yml",
+}
+_WORKSPACE_HTML_SUFFIXES = {".html", ".htm"}
+_WORKSPACE_TABLE_SUFFIXES = {".csv", ".tsv"}
+_WORKSPACE_DOCUMENT_SUFFIXES = {".pdf", ".doc", ".docx", ".ppt", ".pptx"}
+_WORKSPACE_MAX_TEXT_PREVIEW = 80_000
+_WORKSPACE_MAX_HTML_PREVIEW = 2_000_000
+_WORKSPACE_FILE_LIMIT = 500
+_WORKSPACE_SKIP_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+}
+
+
+def _workspace_upload_root() -> Path:
+    return _load_workspace_root()
+
+
+def _workspace_encode_file_id(path: Path) -> str:
+    rel = path.resolve().relative_to(_workspace_upload_root())
+    rel_text = rel.as_posix()
+    encoded = base64.urlsafe_b64encode(rel_text.encode("utf-8")).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _workspace_decode_file_id(file_id: str) -> Path:
+    try:
+        padded = file_id + ("=" * (-len(file_id) % 4))
+        rel_text = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Workspace file not found") from exc
+
+    rel_path = Path(rel_text)
+    if rel_path.is_absolute() or ".." in rel_path.parts:
+        raise HTTPException(status_code=404, detail="Workspace file not found")
+
+    root = _workspace_upload_root()
+    path = (root / rel_path).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Workspace file not found") from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Workspace file not found")
+    return path
+
+
+def _workspace_file_kind(path: Path) -> str:
+    suffix = path.suffix.lower()
+    name = path.name.lower()
+    if suffix in _SQLITE_SUFFIXES:
+        return "database"
+    if suffix in _WORKSPACE_TABLE_SUFFIXES or suffix in {".xlsx", ".xls", ".parquet"}:
+        return "dataset"
+    if suffix in _WORKSPACE_HTML_SUFFIXES:
+        return "dashboard" if "dashboard" in name else "report"
+    if suffix in _WORKSPACE_DOCUMENT_SUFFIXES:
+        return "document"
+    if suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}:
+        return "visual"
+    return "artifact"
+
+
+def _workspace_previewable(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    return (
+        suffix in _WORKSPACE_TEXT_SUFFIXES
+        or suffix in _WORKSPACE_HTML_SUFFIXES
+        or suffix in _SQLITE_SUFFIXES
+    )
+
+
+def _workspace_file_record(path: Path) -> Dict[str, Any]:
+    stat = path.stat()
+    rel = path.resolve().relative_to(_workspace_upload_root())
+    upload_id = rel.parts[0] if rel.parts else ""
+    content_type = mimetypes.guess_type(path.name)[0] or ""
+    return {
+        "id": _workspace_encode_file_id(path),
+        "upload_id": upload_id,
+        "name": path.name,
+        "relative_path": rel.as_posix(),
+        "path": str(path),
+        "size": stat.st_size,
+        "modified_at": stat.st_mtime,
+        "created_at": stat.st_ctime,
+        "suffix": path.suffix.lower(),
+        "kind": _workspace_file_kind(path),
+        "content_type": content_type,
+        "previewable": _workspace_previewable(path),
+    }
+
+
+def _workspace_normalize_folder(folder: str = "") -> Path:
+    root = _workspace_upload_root()
+    folder_text = (folder or "").strip().strip("/\\")
+    rel = Path(folder_text) if folder_text else Path()
+    if rel.is_absolute() or ".." in rel.parts:
+        raise HTTPException(status_code=400, detail="Invalid workspace folder")
+    target = (root / rel).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid workspace folder") from exc
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail="Workspace folder not found")
+    return target.relative_to(root)
+
+
+def _workspace_directory_record(path: Path) -> Dict[str, Any]:
+    root = _workspace_upload_root()
+    stat = path.stat()
+    rel = path.resolve().relative_to(root)
+    child_files = 0
+    child_dirs = 0
+    try:
+        for child in path.iterdir():
+            if child.name.startswith("."):
+                continue
+            if child.is_dir() and child.name not in _WORKSPACE_SKIP_DIRS:
+                child_dirs += 1
+            elif child.is_file():
+                child_files += 1
+    except OSError:
+        pass
+    return {
+        "name": path.name,
+        "relative_path": rel.as_posix(),
+        "path": str(path),
+        "modified_at": stat.st_mtime,
+        "file_count": child_files,
+        "directory_count": child_dirs,
+    }
+
+
+def _workspace_browse_directory_record(path: Path) -> Dict[str, Any]:
+    stat = path.stat()
+    child_files = 0
+    child_dirs = 0
+    try:
+        for child in path.iterdir():
+            if child.name.startswith("."):
+                continue
+            if child.is_dir() and child.name not in _WORKSPACE_SKIP_DIRS:
+                child_dirs += 1
+            elif child.is_file():
+                child_files += 1
+    except OSError:
+        pass
+    return {
+        "name": path.name or str(path),
+        "path": str(path),
+        "modified_at": stat.st_mtime,
+        "file_count": child_files,
+        "directory_count": child_dirs,
+    }
+
+
+def _workspace_browse_root_candidates() -> List[Dict[str, str]]:
+    candidates: List[Path] = [
+        _workspace_upload_root(),
+        Path.cwd(),
+        Path.home(),
+        _default_workspace_root(),
+    ]
+    for raw in ("/mnt/c/D/Projects", "/mnt/c/D", "/mnt/c/Users", "/mnt/c", "/"):
+        candidates.append(Path(raw))
+    mnt = Path("/mnt")
+    try:
+        candidates.extend(path for path in mnt.iterdir() if path.is_dir())
+    except OSError:
+        pass
+
+    seen: set[str] = set()
+    roots: List[Dict[str, str]] = []
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+        except OSError:
+            continue
+        key = str(resolved)
+        if key in seen or not resolved.exists() or not resolved.is_dir():
+            continue
+        seen.add(key)
+        roots.append({"name": resolved.name or key, "path": key})
+    return roots
+
+
+def _workspace_browse_directories(path_text: str = "") -> Dict[str, Any]:
+    current = _normalize_workspace_path(path_text) if (path_text or "").strip() else _workspace_upload_root()
+    directories: List[Path] = []
+    try:
+        for child in current.iterdir():
+            if child.name.startswith(".") or child.name in _WORKSPACE_SKIP_DIRS:
+                continue
+            if child.is_dir():
+                directories.append(child)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot list folder: {exc}") from exc
+
+    directories.sort(key=lambda item: item.name.lower())
+    parent = None if current.parent == current else str(current.parent)
+    return {
+        "path": str(current),
+        "parent": parent,
+        "roots": _workspace_browse_root_candidates(),
+        "directories": [_workspace_browse_directory_record(path) for path in directories],
+    }
+
+
+def _workspace_list_files(folder: str = "") -> Dict[str, Any]:
+    root = _workspace_upload_root()
+    if not root.exists():
+        return {
+            "folder": "",
+            "current_path": str(root),
+            "parent": None,
+            "directories": [],
+            "files": [],
+            "summary": {},
+            "truncated": False,
+        }
+
+    rel_folder = _workspace_normalize_folder(folder)
+    current_dir = (root / rel_folder).resolve()
+    directories: List[Path] = []
+    files: List[Path] = []
+    truncated = False
+
+    try:
+        for child in current_dir.iterdir():
+            if child.name.startswith("."):
+                continue
+            if child.is_dir():
+                if child.name in _WORKSPACE_SKIP_DIRS:
+                    continue
+                directories.append(child)
+            elif child.is_file():
+                if len(files) >= _WORKSPACE_FILE_LIMIT:
+                    truncated = True
+                    continue
+                files.append(child)
+    except OSError as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot list workspace folder: {exc}") from exc
+
+    directories.sort(key=lambda item: item.name.lower())
+    files.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    records = [_workspace_file_record(path) for path in files[:_WORKSPACE_FILE_LIMIT]]
+    summary: Dict[str, int] = {}
+    for item in records:
+        kind = str(item.get("kind") or "artifact")
+        summary[kind] = summary.get(kind, 0) + 1
+
+    parent = None
+    if rel_folder.parts:
+        parent = Path(*rel_folder.parts[:-1]).as_posix() if len(rel_folder.parts) > 1 else ""
+
+    rel_folder_text = rel_folder.as_posix() if rel_folder.parts else ""
+
+    return {
+        "folder": rel_folder_text,
+        "current_path": str(current_dir),
+        "parent": parent,
+        "directories": [_workspace_directory_record(path) for path in directories],
+        "files": records,
+        "summary": summary,
+        "truncated": truncated,
+    }
+
+
+def _workspace_quote_sqlite_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _workspace_preview_text(path: Path, limit: int = _WORKSPACE_MAX_TEXT_PREVIEW) -> Dict[str, Any]:
+    raw = path.read_bytes()
+    truncated = len(raw) > limit
+    text = raw[:limit].decode("utf-8", errors="replace")
+    return {
+        "type": "text",
+        "text": text,
+        "truncated": truncated,
+        "line_count": text.count("\n") + (1 if text else 0),
+    }
+
+
+def _workspace_preview_delimited(path: Path) -> Dict[str, Any]:
+    delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
+    with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as fh:
+        reader = csv.reader(fh, delimiter=delimiter)
+        try:
+            columns = next(reader)
+        except StopIteration:
+            return {"type": "table", "columns": [], "rows": [], "truncated": False}
+        rows: List[List[str]] = []
+        for index, row in enumerate(reader):
+            if index >= 80:
+                break
+            rows.append(row)
+    return {
+        "type": "table",
+        "columns": columns,
+        "rows": rows,
+        "truncated": len(rows) >= 80,
+    }
+
+
+def _workspace_preview_json(path: Path) -> Dict[str, Any]:
+    text_preview = _workspace_preview_text(path)
+    try:
+        parsed = json.loads(text_preview["text"])
+        pretty = json.dumps(parsed, ensure_ascii=False, indent=2)
+        if len(pretty) <= _WORKSPACE_MAX_TEXT_PREVIEW:
+            text_preview["text"] = pretty
+            text_preview["truncated"] = False
+    except Exception:
+        pass
+    text_preview["type"] = "json"
+    return text_preview
+
+
+def _workspace_preview_html(path: Path) -> Dict[str, Any]:
+    raw = path.read_bytes()
+    truncated = len(raw) > _WORKSPACE_MAX_HTML_PREVIEW
+    html = raw[:_WORKSPACE_MAX_HTML_PREVIEW].decode("utf-8", errors="replace")
+    return {"type": "html", "html": html, "truncated": truncated}
+
+
+def _workspace_preview_sqlite(path: Path) -> Dict[str, Any]:
+    tables: List[Dict[str, Any]] = []
+    db_uri = f"file:{path.as_posix()}?mode=ro"
+    with sqlite3.connect(db_uri, uri=True) as conn:
+        conn.row_factory = sqlite3.Row
+        table_rows = conn.execute(
+            """
+            SELECT name, type
+            FROM sqlite_master
+            WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+            LIMIT 40
+            """
+        ).fetchall()
+        for row in table_rows:
+            table_name = str(row["name"])
+            quoted = _workspace_quote_sqlite_identifier(table_name)
+            columns = [
+                {"name": str(col["name"]), "type": str(col["type"] or "")}
+                for col in conn.execute(f"PRAGMA table_info({quoted})").fetchall()
+            ]
+            count: Optional[int] = None
+            sample: List[Dict[str, Any]] = []
+            try:
+                count = int(conn.execute(f"SELECT COUNT(*) AS c FROM {quoted}").fetchone()["c"])
+                sample = [
+                    dict(item)
+                    for item in conn.execute(f"SELECT * FROM {quoted} LIMIT 5").fetchall()
+                ]
+            except Exception:
+                pass
+            tables.append(
+                {
+                    "name": table_name,
+                    "type": str(row["type"]),
+                    "columns": columns,
+                    "row_count": count,
+                    "sample": sample,
+                }
+            )
+    return {"type": "database", "tables": tables}
+
+
+def _workspace_preview_file(path: Path) -> Dict[str, Any]:
+    suffix = path.suffix.lower()
+    if suffix in _WORKSPACE_TABLE_SUFFIXES:
+        return _workspace_preview_delimited(path)
+    if suffix in _SQLITE_SUFFIXES:
+        return _workspace_preview_sqlite(path)
+    if suffix in _WORKSPACE_HTML_SUFFIXES:
+        return _workspace_preview_html(path)
+    if suffix == ".json":
+        return _workspace_preview_json(path)
+    if suffix in _WORKSPACE_TEXT_SUFFIXES:
+        return _workspace_preview_text(path)
+    return {
+        "type": "unsupported",
+        "message": "Preview is not available for this file type yet.",
+    }
+
+
+@app.get("/api/workspace/files")
+async def list_workspace_files(folder: str = ""):
+    listing = _workspace_list_files(folder)
+    return {
+        "root": str(_workspace_upload_root()),
+        "folder": listing["folder"],
+        "current_path": listing["current_path"],
+        "parent": listing["parent"],
+        "directories": listing["directories"],
+        "files": listing["files"],
+        "summary": listing["summary"],
+        "truncated": listing["truncated"],
+        "limit": _WORKSPACE_FILE_LIMIT,
+    }
+
+
+@app.get("/api/workspace/root")
+async def get_workspace_root():
+    return _workspace_root_payload()
+
+
+@app.put("/api/workspace/root")
+async def set_workspace_root(body: WorkspaceRootRequest):
+    root = _normalize_workspace_path(body.path)
+    _save_workspace_root(root)
+    os.environ["TERMINAL_CWD"] = str(root)
+    return _workspace_root_payload(root)
+
+
+@app.get("/api/workspace/directories")
+async def browse_workspace_directories(path: str = ""):
+    return _workspace_browse_directories(path)
+
+
+@app.post("/api/workspace/root/pick")
+async def pick_workspace_root():
+    # Native Windows folder dialogs are unreliable when the dashboard is served
+    # from a hidden WSL/background process. The frontend now uses the
+    # non-blocking /api/workspace/directories browser instead; keep this endpoint
+    # fast so older cached clients do not spin forever.
+    payload = _workspace_root_payload()
+    payload["cancelled"] = True
+    payload["detail"] = "Use /api/workspace/directories to choose a workspace folder."
+    return payload
+
+
+@app.get("/api/workspace/files/{file_id}/preview")
+async def preview_workspace_file(file_id: str):
+    path = _workspace_decode_file_id(file_id)
+    return {
+        "file": _workspace_file_record(path),
+        "preview": _workspace_preview_file(path),
+    }
+
+
+@app.get("/api/workspace/files/{file_id}/download")
+async def download_workspace_file(file_id: str):
+    path = _workspace_decode_file_id(file_id)
+    return FileResponse(path, filename=path.name)
+
+
+@app.delete("/api/workspace/files/{file_id}")
+async def delete_workspace_file(file_id: str):
+    path = _workspace_decode_file_id(file_id)
+    try:
+        path.unlink()
+        return {"ok": True}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Workspace file not found") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete workspace file: {exc}") from exc
 
 
 def _history_for_agent(history: List[ChatMessage]) -> List[Dict[str, str]]:
@@ -2021,6 +2627,8 @@ def _create_web_chat_agent(
     )
     from daclaw_cli.tools_config import _get_platform_tools
 
+    workspace_root = _workspace_upload_root()
+    os.environ["TERMINAL_CWD"] = str(workspace_root)
     config = load_config()
     runtime_kwargs = _resolve_runtime_agent_kwargs()
     model = _resolve_gateway_model(config)
@@ -2090,7 +2698,7 @@ async def upload_chat_file(request: Request):
         raise HTTPException(status_code=400, detail="Missing file")
 
     upload_id = uuid.uuid4().hex
-    target_dir = _CHAT_UPLOAD_ROOT / upload_id
+    target_dir = _workspace_upload_root() / "uploads" / upload_id
     target_dir.mkdir(parents=True, exist_ok=True)
     filename = _safe_upload_name(getattr(upload, "filename", "") or "upload")
     target = target_dir / filename

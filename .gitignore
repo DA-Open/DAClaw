@@ -55,6 +55,7 @@ environments/benchmarks/evals/
 
 # Web UI build output
 daclaw_cli/web_dist/
+.daclaw-dashboard-*.log
 
 # Release script temp files
 .release_notes.md

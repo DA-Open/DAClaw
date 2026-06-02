@@ -63,6 +63,36 @@ export const api = {
   },
   getAnalytics: (days: number) =>
     fetchJSON<AnalyticsResponse>(`/api/analytics/usage?days=${days}`),
+  getWorkspaceFiles: (folder = "") => {
+    const qs = new URLSearchParams();
+    if (folder) qs.set("folder", folder);
+    const suffix = qs.toString();
+    return fetchJSON<WorkspaceFilesResponse>(`/api/workspace/files${suffix ? `?${suffix}` : ""}`);
+  },
+  getWorkspaceRoot: () =>
+    fetchJSON<WorkspaceRootResponse>("/api/workspace/root"),
+  setWorkspaceRoot: (path: string) =>
+    fetchJSON<WorkspaceRootResponse>("/api/workspace/root", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path }),
+    }),
+  browseWorkspaceDirectories: (path = "") => {
+    const qs = new URLSearchParams();
+    if (path) qs.set("path", path);
+    const suffix = qs.toString();
+    return fetchJSON<WorkspaceBrowseResponse>(`/api/workspace/directories${suffix ? `?${suffix}` : ""}`);
+  },
+  pickWorkspaceRoot: () =>
+    fetchJSON<WorkspaceRootResponse>("/api/workspace/root/pick", {
+      method: "POST",
+    }),
+  getWorkspaceFilePreview: (id: string) =>
+    fetchJSON<WorkspaceFilePreviewResponse>(`/api/workspace/files/${encodeURIComponent(id)}/preview`),
+  deleteWorkspaceFile: (id: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/workspace/files/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }),
   getConfig: () => fetchJSON<Record<string, unknown>>("/api/config"),
   getDefaults: () => fetchJSON<Record<string, unknown>>("/api/config/defaults"),
   getSchema: () => fetchJSON<{ fields: Record<string, unknown>; category_order: string[] }>("/api/config/schema"),
@@ -372,6 +402,82 @@ export interface AnalyticsResponse {
     total_actual_cost: number;
     total_sessions: number;
   };
+}
+
+export interface WorkspaceFile {
+  id: string;
+  upload_id: string;
+  name: string;
+  relative_path: string;
+  path: string;
+  size: number;
+  modified_at: number;
+  created_at: number;
+  suffix: string;
+  kind: "dataset" | "database" | "report" | "dashboard" | "document" | "visual" | "artifact" | string;
+  content_type: string;
+  previewable: boolean;
+}
+
+export interface WorkspaceDirectory {
+  name: string;
+  relative_path: string;
+  path: string;
+  modified_at: number;
+  file_count: number;
+  directory_count: number;
+}
+
+export interface WorkspaceBrowseDirectory {
+  name: string;
+  path: string;
+  modified_at: number;
+  file_count: number;
+  directory_count: number;
+}
+
+export interface WorkspaceBrowseRoot {
+  name: string;
+  path: string;
+}
+
+export interface WorkspaceBrowseResponse {
+  path: string;
+  parent: string | null;
+  roots: WorkspaceBrowseRoot[];
+  directories: WorkspaceBrowseDirectory[];
+}
+
+export interface WorkspaceFilesResponse {
+  root: string;
+  folder: string;
+  current_path: string;
+  parent: string | null;
+  directories: WorkspaceDirectory[];
+  files: WorkspaceFile[];
+  summary: Record<string, number>;
+  truncated: boolean;
+  limit: number;
+}
+
+export interface WorkspaceRootResponse {
+  root: string;
+  default_root: string;
+  terminal_cwd: string;
+  exists: boolean;
+  cancelled?: boolean;
+}
+
+export type WorkspacePreview =
+  | { type: "table"; columns: string[]; rows: string[][]; truncated: boolean }
+  | { type: "database"; tables: Array<{ name: string; type: string; columns: Array<{ name: string; type: string }>; row_count: number | null; sample: Record<string, unknown>[] }> }
+  | { type: "html"; html: string; truncated: boolean }
+  | { type: "json" | "text"; text: string; truncated: boolean; line_count: number }
+  | { type: "unsupported"; message: string };
+
+export interface WorkspaceFilePreviewResponse {
+  file: WorkspaceFile;
+  preview: WorkspacePreview;
 }
 
 export interface CronJob {

@@ -1,27 +1,22 @@
+import { Languages } from "lucide-react";
 import { useI18n } from "@/i18n/context";
 
-/**
- * Compact language toggle — shows a clickable flag that switches between
- * English and Chinese.  Persists choice to localStorage.
- */
 export function LanguageSwitcher() {
-  const { locale, setLocale, t } = useI18n();
-
-  const toggle = () => setLocale(locale === "en" ? "zh" : "en");
+  const { locale, setLocale } = useI18n();
+  const nextLocale = locale === "en" ? "zh" : "en";
+  const label = locale === "en" ? "中文" : "EN";
+  const title = locale === "en" ? "切换到中文" : "Switch to English";
 
   return (
     <button
       type="button"
-      onClick={toggle}
-      className="group relative inline-flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      title={t.language.switchTo}
-      aria-label={t.language.switchTo}
+      onClick={() => setLocale(nextLocale)}
+      className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-background px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+      title={title}
+      aria-label={title}
     >
-      {/* Show the *other* language's flag as the clickable target */}
-      <span className="text-base leading-none">{locale === "en" ? "🇨🇳" : "🇬🇧"}</span>
-      <span className="hidden sm:inline font-display tracking-wide uppercase text-[0.65rem]">
-        {locale === "en" ? "中文" : "EN"}
-      </span>
+      <Languages className="h-4 w-4" />
+      <span>{label}</span>
     </button>
   );
 }

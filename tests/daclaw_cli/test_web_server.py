@@ -144,6 +144,57 @@ class TestWebServerEndpoints:
         assert data["path"].endswith("dacomp-zh-001.sqlite")
         assert Path(data["path"]).exists()
 
+    def test_workspace_files_list_and_preview_csv(self, tmp_path, monkeypatch):
+        import daclaw_cli.web_server as web_server
+
+        root = tmp_path / "uploads"
+        upload_dir = root / "upload-1"
+        upload_dir.mkdir(parents=True)
+        (upload_dir / "sales.csv").write_text(
+            "region,revenue\nNorth,120\nSouth,95\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(web_server, "_CHAT_UPLOAD_ROOT", root)
+
+        resp = self.client.get("/api/workspace/files")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["folder"] == ""
+        assert data["files"] == []
+        assert data["directories"][0]["name"] == "upload-1"
+
+        resp = self.client.get("/api/workspace/files?folder=upload-1")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["folder"] == "upload-1"
+        assert data["summary"]["dataset"] == 1
+        assert data["files"][0]["name"] == "sales.csv"
+
+        preview = self.client.get(f"/api/workspace/files/{data['files'][0]['id']}/preview")
+        assert preview.status_code == 200
+        preview_data = preview.json()["preview"]
+        assert preview_data["type"] == "table"
+        assert preview_data["columns"] == ["region", "revenue"]
+        assert preview_data["rows"][0] == ["North", "120"]
+
+    def test_workspace_file_delete_removes_uploaded_file(self, tmp_path, monkeypatch):
+        import daclaw_cli.web_server as web_server
+
+        root = tmp_path / "uploads"
+        upload_dir = root / "upload-1"
+        upload_dir.mkdir(parents=True)
+        target = upload_dir / "sales.csv"
+        target.write_text("region,revenue\nNorth,120\n", encoding="utf-8")
+        monkeypatch.setattr(web_server, "_CHAT_UPLOAD_ROOT", root)
+
+        files = self.client.get("/api/workspace/files?folder=upload-1").json()["files"]
+        resp = self.client.delete(f"/api/workspace/files/{files[0]['id']}")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        assert not target.exists()
+        assert self.client.get("/api/workspace/files?folder=upload-1").json()["files"] == []
+
     def test_chat_message_adds_sqlite_analysis_hint(self):
         from daclaw_cli.web_server import ChatAttachment, ChatRequest, _build_chat_user_message
 

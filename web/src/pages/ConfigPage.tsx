@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Save,
   Search,
+  Sun,
   Upload,
   X,
   ChevronRight,
@@ -13,6 +14,7 @@ import {
   FileText,
   Settings,
   Bot,
+  Moon,
   Monitor,
   Palette,
   Users,
@@ -38,6 +40,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useI18n } from "@/i18n";
+import { useThemePreference, type ThemePreference } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -84,7 +88,37 @@ export default function ConfigPage() {
   const [activeCategory, setActiveCategory] = useState<string>("");
   const { toast, showToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const { preference: themePreference, resolvedTheme, setPreference: setThemePreference } = useThemePreference();
+
+  const appearanceText =
+    locale === "zh"
+      ? {
+          title: "外观",
+          description: "选择界面主题；跟随系统会自动响应浏览器或操作系统偏好。",
+          current: `当前：${resolvedTheme === "dark" ? "深色" : "浅色"}`,
+          options: {
+            system: "跟随系统",
+            light: "浅色",
+            dark: "深色",
+          },
+        }
+      : {
+          title: "Appearance",
+          description: "Choose the interface theme. System follows your browser or OS preference automatically.",
+          current: `Current: ${resolvedTheme === "dark" ? "dark" : "light"}`,
+          options: {
+            system: "System",
+            light: "Light",
+            dark: "Dark",
+          },
+        };
+
+  const themeOptions: Array<{ value: ThemePreference; icon: React.ComponentType<{ className?: string }> }> = [
+    { value: "system", icon: Monitor },
+    { value: "light", icon: Sun },
+    { value: "dark", icon: Moon },
+  ];
 
   function prettyCategoryName(cat: string): string {
     const key = cat as keyof typeof t.config.categories;
@@ -337,6 +371,38 @@ export default function ConfigPage() {
               {saving ? t.common.saving : t.common.save}
             </Button>
           )}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Palette className="h-4 w-4 text-muted-foreground" />
+            {appearanceText.title}
+            <Badge variant="secondary" className="text-[10px]">
+              {appearanceText.current}
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{appearanceText.description}</p>
+        </div>
+        <div className="flex shrink-0 items-center rounded-full border border-border bg-background p-0.5">
+          {themeOptions.map(({ value, icon: Icon }) => {
+            const active = themePreference === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors",
+                  active ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setThemePreference(value)}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {appearanceText.options[value]}
+              </button>
+            );
+          })}
         </div>
       </div>
 

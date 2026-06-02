@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 
 /**
  * Lightweight markdown renderer for LLM output.
@@ -196,10 +198,8 @@ function Block({ block, highlightTerms }: { block: BlockNode; highlightTerms?: s
 
     case "math":
       return (
-        <div className="overflow-x-auto rounded-2xl border border-teal-100 bg-teal-50/45 px-4 py-3">
-          <pre className="whitespace-pre-wrap break-words font-mono-ui text-sm leading-7 text-teal-950">
-            {formatMath(block.content)}
-          </pre>
+        <div className="overflow-x-auto rounded-2xl border border-border bg-secondary/45 px-4 py-3">
+          <MathContent content={block.content} displayMode />
         </div>
       );
 
@@ -283,7 +283,7 @@ type InlineNode =
 function parseInline(text: string): InlineNode[] {
   const nodes: InlineNode[] = [];
   const pattern =
-    /(`[^`]+`)|(\\\((.*?)\\\))|(\$([^$\n]+)\$)|(\[([^\]]+)\]\(([^)]+)\))|(\*\*([^*]+)\*\*)|(\*([^*]+)\*)|(\bhttps?:\/\/[^\s<>)\]]+)|(\n)/g;
+    /(\*\*([\s\S]+?)\*\*)|(`[^`\n]+`)|(\\\((.*?)\\\))|(\$([^$\n]+)\$)|(\[([^\]]+)\]\(([^)]+)\))|(\*([^*\n]+)\*)|(\bhttps?:\/\/[^\s<>)\]]+)|(\n)/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
@@ -293,15 +293,19 @@ function parseInline(text: string): InlineNode[] {
     }
 
     if (match[1]) {
-      nodes.push({ type: "code", content: match[1].slice(1, -1) });
-    } else if (match[2]) {
-      nodes.push({ type: "math", content: match[3] });
+      nodes.push({ type: "bold", content: match[2] });
+    } else if (match[3]) {
+      nodes.push({ type: "code", content: match[3].slice(1, -1) });
     } else if (match[4]) {
       nodes.push({ type: "math", content: match[5] });
     } else if (match[6]) {
-      nodes.push({ type: "link", text: match[7], href: match[8] });
-    } else if (match[9]) {
-      nodes.push({ type: "bold", content: match[10] });
+      if (looksLikeInlineMath(match[7])) {
+        nodes.push({ type: "math", content: match[7] });
+      } else {
+        nodes.push({ type: "text", content: match[6] });
+      }
+    } else if (match[8]) {
+      nodes.push({ type: "link", text: match[9], href: match[10] });
     } else if (match[11]) {
       nodes.push({ type: "italic", content: match[12] });
     } else if (match[13]) {
@@ -320,6 +324,14 @@ function parseInline(text: string): InlineNode[] {
   return nodes;
 }
 
+function looksLikeInlineMath(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/\\|[{}_^=]|(?:\s|^)[+\-*/](?:\s|$)/.test(text)) return true;
+  if (/^[a-zA-Z][a-zA-Z0-9]?$/.test(text)) return true;
+  return false;
+}
+
 function InlineContent({ text, highlightTerms }: { text: string; highlightTerms?: string[] }) {
   const nodes = useMemo(() => parseInline(text), [text]);
 
@@ -336,15 +348,11 @@ function InlineContent({ text, highlightTerms }: { text: string; highlightTerms?
               </code>
             );
           case "math":
-            return (
-              <code key={i} className="rounded-md bg-teal-50 px-1.5 py-0.5 font-mono-ui text-[0.86em] text-teal-900">
-                {formatMath(node.content)}
-              </code>
-            );
+            return <MathContent key={i} content={node.content} />;
           case "bold":
             return (
               <strong key={i} className="font-semibold">
-                <HighlightedText text={node.content} terms={highlightTerms} />
+                <InlineContent text={node.content} highlightTerms={highlightTerms} />
               </strong>
             );
           case "italic":
@@ -373,17 +381,34 @@ function InlineContent({ text, highlightTerms }: { text: string; highlightTerms?
   );
 }
 
-function formatMath(value: string): string {
-  return value
-    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1) / ($2)")
-    .replace(/\\times/g, "x")
-    .replace(/\\cdot/g, "*")
-    .replace(/\\%/g, "%")
-    .replace(/\\_/g, "_")
-    .replace(/\\left|\\right/g, "")
-    .replace(/\\text\{([^{}]+)\}/g, "$1")
-    .replace(/\\/g, "")
-    .trim();
+function MathContent({ content, displayMode = false }: { content: string; displayMode?: boolean }) {
+  const html = useMemo(() => {
+    try {
+      return katex.renderToString(content, {
+        displayMode,
+        throwOnError: false,
+        strict: false,
+        trust: false,
+        output: "html",
+      });
+    } catch {
+      return "";
+    }
+  }, [content, displayMode]);
+
+  if (!html) {
+    return (
+      <code className="rounded-md bg-secondary/80 px-1.5 py-0.5 font-mono-ui text-[0.86em] text-primary/90">
+        {content}
+      </code>
+    );
+  }
+
+  if (displayMode) {
+    return <div className="katex-block text-foreground" dangerouslySetInnerHTML={{ __html: html }} />;
+  }
+
+  return <span className="katex-inline text-foreground" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
 function HighlightedText({ text, terms }: { text: string; terms?: string[] }) {
@@ -391,12 +416,13 @@ function HighlightedText({ text, terms }: { text: string; terms?: string[] }) {
 
   const escaped = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const regex = new RegExp(`(${escaped.join("|")})`, "gi");
+  const testRegex = new RegExp(`^(${escaped.join("|")})$`, "i");
   const parts = text.split(regex);
 
   return (
     <>
       {parts.map((part, i) =>
-        regex.test(part) ? (
+        testRegex.test(part) ? (
           <mark key={i} className="bg-warning/20 px-0.5 text-warning">
             {part}
           </mark>

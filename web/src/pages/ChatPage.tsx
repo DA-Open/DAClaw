@@ -6,6 +6,8 @@ import {
   FileText,
   Loader2,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Plus,
   Send,
@@ -67,7 +69,7 @@ function loadConversations(): Conversation[] {
         messages: (conversation.messages || []).map((message) => ({
           ...message,
           running: false,
-          trace: undefined,
+          trace: sanitizeTrace(message.trace),
         })),
       }));
     }
@@ -83,7 +85,7 @@ function persistableConversations(conversations: Conversation[]): Conversation[]
     messages: conversation.messages.map((message) => ({
       ...message,
       running: false,
-      trace: undefined,
+      trace: sanitizeTrace(message.trace),
     })),
   }));
 }
@@ -160,7 +162,7 @@ function TracePanel({ trace = [], running = false }: { trace?: ChatTraceEvent[];
   if (!running && items.length === 0) return null;
 
   return (
-    <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-muted/40">
+    <div className="mt-1 overflow-hidden rounded-2xl border border-border bg-muted/40">
       <button
         type="button"
         className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs text-muted-foreground hover:bg-secondary"
@@ -350,6 +352,13 @@ export default function ChatPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("daclaw-chat-sidebar-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -371,6 +380,14 @@ export default function ChatPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [active?.messages, running]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("daclaw-chat-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+    } catch {
+      // Ignore local UI persistence failures.
+    }
+  }, [sidebarCollapsed]);
 
   const updateActive = (updater: (conversation: Conversation) => Conversation) => {
     setConversations((prev) =>
@@ -569,23 +586,51 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-7rem)] min-h-[620px] max-w-[1280px] overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+    <div className="flex h-full min-h-0 w-full overflow-hidden bg-background">
+      {sidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm md:hidden"
+          aria-label="Close chat sidebar"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-border bg-[#f7f7f8] p-3 transition-transform md:static md:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-border bg-secondary/70 p-2 transition-[transform,width] duration-200 md:static md:z-auto md:translate-x-0",
           sidebarOpen ? "translate-x-0" : "-translate-x-full",
+          sidebarCollapsed ? "md:w-[4.25rem]" : "md:w-72",
         )}
       >
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" className="h-10 flex-1 justify-start rounded-xl bg-card px-3 shadow-sm" onClick={addConversation}>
+        <div className={cn("flex items-center gap-2", sidebarCollapsed && "md:justify-center")}>
+          <Button
+            variant="ghost"
+            className={cn(
+              "h-10 flex-1 justify-start rounded-xl bg-card px-3 shadow-sm",
+              sidebarCollapsed && "md:w-10 md:flex-none md:justify-center md:px-0",
+            )}
+            onClick={addConversation}
+            aria-label="New chat"
+            title="New chat"
+          >
             <Plus className="h-4 w-4" />
-            New chat
+            <span className={cn(sidebarCollapsed && "md:hidden")}>New chat</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden shrink-0 rounded-xl md:inline-flex"
+            onClick={() => setSidebarCollapsed((value) => !value)}
+            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </Button>
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(false)}>
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <div className="mt-3 flex-1 space-y-1 overflow-y-auto">
+        <div className={cn("mt-3 flex-1 overflow-y-auto", sidebarCollapsed ? "md:space-y-2" : "space-y-1")}>
           {conversations.map((conversation) => (
             <button
               key={conversation.id}
@@ -593,15 +638,25 @@ export default function ChatPage() {
               className={cn(
                 "group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground hover:bg-card",
                 conversation.id === active.id && "bg-card shadow-sm",
+                sidebarCollapsed && "md:h-10 md:justify-center md:px-0",
               )}
               onClick={() => {
                 setActiveId(conversation.id);
                 setSidebarOpen(false);
               }}
+              title={conversation.title}
             >
-              <span className="min-w-0 flex-1 truncate">{conversation.title}</span>
+              <span className={cn("min-w-0 flex-1 truncate", sidebarCollapsed && "md:hidden")}>{conversation.title}</span>
+              <span
+                className={cn(
+                  "hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-xs font-semibold text-muted-foreground",
+                  sidebarCollapsed && "md:flex",
+                )}
+              >
+                {(conversation.title || "C").slice(0, 1).toUpperCase()}
+              </span>
               <Trash2
-                className="h-4 w-4 shrink-0 opacity-0 hover:text-destructive group-hover:opacity-100"
+                className={cn("h-4 w-4 shrink-0 opacity-0 hover:text-destructive group-hover:opacity-100", sidebarCollapsed && "md:hidden")}
                 onClick={(event) => {
                   event.stopPropagation();
                   deleteConversation(conversation.id);
@@ -612,13 +667,13 @@ export default function ChatPage() {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-card">
-        <header className="flex h-14 shrink-0 items-center gap-3 px-4">
+      <main className="flex min-w-0 flex-1 flex-col bg-background">
+        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSidebarOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-semibold">DAClaw</h1>
+            <h1 className="truncate text-sm font-semibold text-muted-foreground">DAClaw</h1>
           </div>
           {running && (
             <Badge variant="secondary" className="gap-1 rounded-full">
@@ -628,9 +683,9 @@ export default function ChatPage() {
           )}
         </header>
 
-        <div className="flex-1 overflow-y-auto px-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6">
           {active.messages.length === 0 ? (
-            <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center px-4 text-center">
+            <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center px-4 pb-16 text-center">
               <h2 className="text-3xl font-semibold tracking-tight">What can DAClaw analyze for you?</h2>
             </div>
           ) : (
@@ -643,7 +698,7 @@ export default function ChatPage() {
           )}
         </div>
 
-        <div className="shrink-0 bg-card px-4 pb-4">
+        <div className="shrink-0 border-t border-border bg-background/95 px-3 py-3 backdrop-blur">
           <div className="mx-auto max-w-3xl">
             {pendingFiles.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
@@ -667,7 +722,7 @@ export default function ChatPage() {
                 </button>
               </div>
             )}
-            <div className="rounded-[28px] border border-border bg-card p-2 shadow-[0_2px_18px_rgba(15,23,42,0.08)]">
+            <div className="rounded-[24px] border border-border bg-card px-3 py-2 shadow-[0_2px_14px_rgba(15,23,42,0.08)]">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -675,38 +730,39 @@ export default function ChatPage() {
                 className="hidden"
                 onChange={(event) => handleFiles(event.target.files)}
               />
-              <textarea
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    submit();
-                  }
-                }}
-                placeholder="Ask DAClaw"
-                className="max-h-40 min-h-12 w-full resize-none bg-transparent px-4 py-3 text-[15px] leading-6 outline-none placeholder:text-muted-foreground"
-                disabled={running}
-              />
-              <div className="flex items-center justify-between px-1 pb-1">
+              <div className="flex items-end gap-2">
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="rounded-full"
+                  className="h-9 w-9 shrink-0 rounded-full"
                   disabled={uploading || running}
                   onClick={() => fileInputRef.current?.click()}
                   aria-label="Upload files"
                 >
                   {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                 </Button>
+                <textarea
+                  value={input}
+                  rows={1}
+                  onChange={(event) => setInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      submit();
+                    }
+                  }}
+                  placeholder="Ask DAClaw"
+                  className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-[15px] leading-5 outline-none placeholder:text-muted-foreground"
+                  disabled={running}
+                />
                 {running ? (
-                  <Button variant="outline" className="rounded-full" onClick={stop}>
+                  <Button variant="outline" className="h-9 shrink-0 rounded-full px-4" onClick={stop}>
                     Stop
                   </Button>
                 ) : (
                   <Button
                     size="icon"
-                    className="rounded-full"
+                    className="h-9 w-9 shrink-0 rounded-full"
                     onClick={submit}
                     disabled={uploading || (!input.trim() && pendingFiles.length === 0)}
                   >

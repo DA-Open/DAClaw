@@ -62,6 +62,8 @@ jobs:
           PY="$APP/Contents/Resources/python/bin/python3"
           if [ ! -x "$PY" ]; then PY="$APP/Contents/Resources/python/bin/python3.11"; fi
           "$PY" -c 'import platform, sys; print(sys.version); print(platform.machine()); assert platform.machine() == "arm64"'
+          test -f "$APP/Contents/Resources/AppIcon.icns"
+          plutil -extract CFBundleIconFile raw -o - "$APP/Contents/Info.plist" | grep '^AppIcon$'
           grep 'architecture_verification=passed' "$APP/Contents/Resources/build-architecture-report.txt"
           cat "$APP/Contents/Resources/build-architecture-report.txt"
 
