@@ -51,7 +51,8 @@ jobs:
           chmod +x packaging/macos/build-app.sh
           packaging/macos/build-app.sh \
             --version "${{ github.event.inputs.version }}" \
-            --include-volcengine-ark-defaults
+            --include-volcengine-ark-defaults \
+            --no-zip
 
       - name: Verify bundled Python runtime
         run: |
@@ -73,4 +74,3 @@ jobs:
           name: daclaw-macos-${{ github.event.inputs.version }}
           path: |
             packaging/macos/dist/*.dmg
-            packaging/macos/dist/*.zip
