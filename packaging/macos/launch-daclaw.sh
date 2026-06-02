@@ -16,6 +16,7 @@ STDOUT_LOG="$LOG_DIR/dashboard.stdout.log"
 STDERR_LOG="$LOG_DIR/dashboard.stderr.log"
 DACLAW_APP_HOME="$APP_SUPPORT/home"
 DEFAULT_WORKSPACE_ROOT="$HOME/Documents/DAClaw Workspace"
+DASHBOARD_PORT_FILE="$APP_SUPPORT/dashboard.port"
 
 HOST="127.0.0.1"
 PORT_START="${DACLAW_DASHBOARD_PORT:-9119}"
@@ -134,6 +135,24 @@ dashboard_ready() {
   /usr/bin/curl -fsS --max-time 2 "http://$HOST:$port/api/status" >/dev/null 2>&1
 }
 
+dashboard_owned_by_this_app() {
+  local port="$1"
+  "$RUNTIME_APP/venv/bin/python" - "$HOST" "$port" "$DACLAW_HOME" <<'PY' >/dev/null 2>&1
+import json
+import sys
+import urllib.request
+from pathlib import Path
+
+host, port, expected_home = sys.argv[1], sys.argv[2], sys.argv[3]
+with urllib.request.urlopen(f"http://{host}:{port}/api/status", timeout=2) as response:
+    status = json.load(response)
+
+actual_home = status.get("daclaw_home") or ""
+if Path(actual_home).expanduser().resolve() != Path(expected_home).expanduser().resolve():
+    raise SystemExit(1)
+PY
+}
+
 port_available() {
   local port="$1"
   ! /usr/sbin/lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
@@ -218,14 +237,15 @@ ensure_runtime() {
 open_or_start_dashboard() {
   local selected_port=""
 
-  for ((offset=0; offset<PORT_SEARCH_COUNT; offset++)); do
-    local candidate=$((PORT_START + offset))
-    if dashboard_ready "$candidate"; then
-      log "Dashboard already running on port $candidate"
-      /usr/bin/open "http://$HOST:$candidate/"
+  if [[ -f "$DASHBOARD_PORT_FILE" ]]; then
+    local remembered_port
+    remembered_port="$(tr -dc '0-9' < "$DASHBOARD_PORT_FILE" | head -c 5)"
+    if [[ -n "$remembered_port" ]] && dashboard_ready "$remembered_port" && dashboard_owned_by_this_app "$remembered_port"; then
+      log "Opening existing DAClaw dashboard on port $remembered_port"
+      /usr/bin/open "http://$HOST:$remembered_port/"
       return 0
     fi
-  done
+  fi
 
   for ((offset=0; offset<PORT_SEARCH_COUNT; offset++)); do
     local candidate=$((PORT_START + offset))
@@ -253,6 +273,7 @@ open_or_start_dashboard() {
 
   for _ in $(seq 1 60); do
     if dashboard_ready "$selected_port"; then
+      printf '%s\n' "$selected_port" > "$DASHBOARD_PORT_FILE"
       /usr/bin/open "http://$HOST:$selected_port/"
       return 0
     fi

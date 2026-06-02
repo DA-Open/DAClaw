@@ -118,6 +118,8 @@ class TestWebServerEndpoints:
         data = resp.json()
         assert "version" in data
         assert "daclaw_home" in data
+        assert "workspace_root" in data
+        assert "platform" in data
         assert "active_sessions" in data
 
     def test_chat_upload_accepts_sqlite_database(self, tmp_path, monkeypatch):
@@ -143,6 +145,32 @@ class TestWebServerEndpoints:
         assert data["name"] == "dacomp-zh-001.sqlite"
         assert data["path"].endswith("dacomp-zh-001.sqlite")
         assert Path(data["path"]).exists()
+        assert Path(data["path"]).parent == tmp_path / "uploads"
+
+    def test_chat_upload_keeps_chinese_filename_in_workspace_root(self, tmp_path, monkeypatch):
+        pytest.importorskip("multipart")
+
+        import daclaw_cli.web_server as web_server
+
+        root = tmp_path / "workspace"
+        monkeypatch.setattr(web_server, "_CHAT_UPLOAD_ROOT", root)
+
+        resp = self.client.post(
+            "/api/chat/upload",
+            files={
+                "file": (
+                    "销售数据.csv",
+                    "品类,金额\n蔬菜,100\n".encode("utf-8"),
+                    "text/csv",
+                )
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "销售数据.csv"
+        assert Path(data["path"]) == root / "销售数据.csv"
+        assert (root / "销售数据.csv").exists()
 
     def test_workspace_files_list_and_preview_csv(self, tmp_path, monkeypatch):
         import daclaw_cli.web_server as web_server
@@ -176,6 +204,40 @@ class TestWebServerEndpoints:
         assert preview_data["type"] == "table"
         assert preview_data["columns"] == ["region", "revenue"]
         assert preview_data["rows"][0] == ["North", "120"]
+
+    def test_workspace_preview_csv_supports_gb18030_chinese(self, tmp_path, monkeypatch):
+        import daclaw_cli.web_server as web_server
+
+        root = tmp_path / "uploads"
+        root.mkdir(parents=True)
+        target = root / "销售数据.csv"
+        target.write_bytes("品类,金额\n蔬菜,100\n日配,95\n".encode("gb18030"))
+        monkeypatch.setattr(web_server, "_CHAT_UPLOAD_ROOT", root)
+
+        data = self.client.get("/api/workspace/files").json()
+        assert data["files"][0]["name"] == "销售数据.csv"
+
+        preview = self.client.get(f"/api/workspace/files/{data['files'][0]['id']}/preview")
+        assert preview.status_code == 200
+        preview_data = preview.json()["preview"]
+        assert preview_data["type"] == "table"
+        assert preview_data["encoding"] == "gb18030"
+        assert preview_data["columns"] == ["品类", "金额"]
+        assert preview_data["rows"][0] == ["蔬菜", "100"]
+
+    def test_workspace_flattens_legacy_uuid_upload_directories(self, tmp_path, monkeypatch):
+        import daclaw_cli.web_server as web_server
+
+        root = tmp_path / "uploads"
+        legacy_dir = root / "uploads" / "84cf782e87e2e41c8820000000000000"
+        legacy_dir.mkdir(parents=True)
+        (legacy_dir / "销售数据.csv").write_text("品类,金额\n蔬菜,100\n", encoding="utf-8")
+        monkeypatch.setattr(web_server, "_CHAT_UPLOAD_ROOT", root)
+
+        data = self.client.get("/api/workspace/files?folder=uploads").json()
+        assert data["directories"] == []
+        assert data["files"][0]["name"] == "销售数据.csv"
+        assert data["summary"]["dataset"] == 1
 
     def test_workspace_file_delete_removes_uploaded_file(self, tmp_path, monkeypatch):
         import daclaw_cli.web_server as web_server

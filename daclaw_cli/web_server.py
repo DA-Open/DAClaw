@@ -13,6 +13,7 @@ import asyncio
 import base64
 import csv
 import hmac
+import io
 import json
 import logging
 import mimetypes
@@ -25,9 +26,9 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
-import uuid
 from pathlib import Path, PureWindowsPath
 from typing import Any, Dict, List, Optional
 
@@ -455,10 +456,19 @@ async def get_status():
     except Exception:
         pass
 
+    workspace_root = ""
+    try:
+        workspace_root = str(_workspace_upload_root())
+    except Exception:
+        _log.debug("Unable to resolve workspace root for status response", exc_info=True)
+
     return {
         "version": __version__,
         "release_date": __release_date__,
         "daclaw_home": str(get_daclaw_home()),
+        "workspace_root": workspace_root,
+        "cwd": str(Path.cwd()),
+        "platform": sys.platform,
         "config_path": str(get_config_path()),
         "env_path": str(get_env_path()),
         "config_version": current_ver,
@@ -1780,9 +1790,25 @@ class WorkspaceRootRequest(BaseModel):
 
 def _safe_upload_name(filename: str) -> str:
     """Return a filesystem-safe filename while keeping it readable."""
-    raw = Path(filename or "upload").name.strip() or "upload"
-    safe = re.sub(r"[^A-Za-z0-9._ -]+", "_", raw).strip(" .")
+    raw = Path(PureWindowsPath(filename or "upload").name).name.strip() or "upload"
+    safe = unicodedata.normalize("NFC", raw)
+    safe = re.sub(r"[\x00-\x1f\x7f/\\:]+", "_", safe).strip(" .")
     return safe[:160] or "upload"
+
+
+def _unique_workspace_upload_target(root: Path, filename: str) -> Path:
+    """Return a readable, non-colliding target path in the workspace root."""
+    target = root / filename
+    if not target.exists():
+        return target
+
+    stem = Path(filename).stem or "upload"
+    suffix = Path(filename).suffix
+    for index in range(2, 10_000):
+        candidate = root / f"{stem} ({index}){suffix}"
+        if not candidate.exists():
+            return candidate
+    raise HTTPException(status_code=409, detail="Could not allocate a unique upload filename")
 
 
 def _chat_upload_max_bytes() -> int:
@@ -2134,6 +2160,9 @@ _WORKSPACE_DOCUMENT_SUFFIXES = {".pdf", ".doc", ".docx", ".ppt", ".pptx"}
 _WORKSPACE_MAX_TEXT_PREVIEW = 80_000
 _WORKSPACE_MAX_HTML_PREVIEW = 2_000_000
 _WORKSPACE_FILE_LIMIT = 500
+_WORKSPACE_TEXT_ENCODINGS = ("utf-8-sig", "utf-8", "gb18030", "gbk", "big5")
+_WORKSPACE_LEGACY_UPLOAD_DIR = "uploads"
+_WORKSPACE_LEGACY_UPLOAD_ID_RE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
 _WORKSPACE_SKIP_DIRS = {
     ".git",
     ".hg",
@@ -2146,6 +2175,39 @@ _WORKSPACE_SKIP_DIRS = {
     ".mypy_cache",
     ".ruff_cache",
 }
+
+
+def _workspace_decode_bytes(raw: bytes, limit: Optional[int] = None) -> Dict[str, Any]:
+    """Decode text previews with Chinese-friendly fallbacks."""
+    sample = raw if limit is None else raw[:limit]
+    for encoding in _WORKSPACE_TEXT_ENCODINGS:
+        try:
+            return {"text": sample.decode(encoding), "encoding": encoding, "lossy": False}
+        except UnicodeDecodeError:
+            continue
+    return {"text": sample.decode("utf-8", errors="replace"), "encoding": "utf-8", "lossy": True}
+
+
+def _workspace_is_legacy_upload_hash_dir(path: Path, root: Path) -> bool:
+    try:
+        rel = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return (
+        len(rel.parts) == 2
+        and rel.parts[0] == _WORKSPACE_LEGACY_UPLOAD_DIR
+        and bool(_WORKSPACE_LEGACY_UPLOAD_ID_RE.fullmatch(rel.parts[1]))
+        and path.is_dir()
+    )
+
+
+def _workspace_legacy_upload_files(path: Path, root: Path) -> List[Path]:
+    if not _workspace_is_legacy_upload_hash_dir(path, root):
+        return []
+    try:
+        return [child for child in path.iterdir() if child.is_file() and not child.name.startswith(".")]
+    except OSError:
+        return []
 
 
 def _workspace_upload_root() -> Path:
@@ -2370,6 +2432,14 @@ def _workspace_list_files(folder: str = "") -> Dict[str, Any]:
             if child.is_dir():
                 if child.name in _WORKSPACE_SKIP_DIRS:
                     continue
+                legacy_files = _workspace_legacy_upload_files(child, root)
+                if legacy_files:
+                    for legacy_file in legacy_files:
+                        if len(files) >= _WORKSPACE_FILE_LIMIT:
+                            truncated = True
+                            continue
+                        files.append(legacy_file)
+                    continue
                 directories.append(child)
             elif child.is_file():
                 if len(files) >= _WORKSPACE_FILE_LIMIT:
@@ -2411,33 +2481,46 @@ def _workspace_quote_sqlite_identifier(name: str) -> str:
 def _workspace_preview_text(path: Path, limit: int = _WORKSPACE_MAX_TEXT_PREVIEW) -> Dict[str, Any]:
     raw = path.read_bytes()
     truncated = len(raw) > limit
-    text = raw[:limit].decode("utf-8", errors="replace")
+    decoded = _workspace_decode_bytes(raw, limit)
+    text = str(decoded["text"])
     return {
         "type": "text",
         "text": text,
         "truncated": truncated,
         "line_count": text.count("\n") + (1 if text else 0),
+        "encoding": decoded["encoding"],
+        "lossy": decoded["lossy"],
     }
 
 
 def _workspace_preview_delimited(path: Path) -> Dict[str, Any]:
     delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
-    with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as fh:
-        reader = csv.reader(fh, delimiter=delimiter)
-        try:
-            columns = next(reader)
-        except StopIteration:
-            return {"type": "table", "columns": [], "rows": [], "truncated": False}
-        rows: List[List[str]] = []
-        for index, row in enumerate(reader):
-            if index >= 80:
-                break
-            rows.append(row)
+    raw = path.read_bytes()
+    decoded = _workspace_decode_bytes(raw, _WORKSPACE_MAX_TEXT_PREVIEW)
+    reader = csv.reader(io.StringIO(str(decoded["text"])), delimiter=delimiter)
+    try:
+        columns = next(reader)
+    except StopIteration:
+        return {
+            "type": "table",
+            "columns": [],
+            "rows": [],
+            "truncated": False,
+            "encoding": decoded["encoding"],
+            "lossy": decoded["lossy"],
+        }
+    rows: List[List[str]] = []
+    for index, row in enumerate(reader):
+        if index >= 80:
+            break
+        rows.append(row)
     return {
         "type": "table",
         "columns": columns,
         "rows": rows,
-        "truncated": len(rows) >= 80,
+        "truncated": len(rows) >= 80 or len(raw) > _WORKSPACE_MAX_TEXT_PREVIEW,
+        "encoding": decoded["encoding"],
+        "lossy": decoded["lossy"],
     }
 
 
@@ -2458,8 +2541,14 @@ def _workspace_preview_json(path: Path) -> Dict[str, Any]:
 def _workspace_preview_html(path: Path) -> Dict[str, Any]:
     raw = path.read_bytes()
     truncated = len(raw) > _WORKSPACE_MAX_HTML_PREVIEW
-    html = raw[:_WORKSPACE_MAX_HTML_PREVIEW].decode("utf-8", errors="replace")
-    return {"type": "html", "html": html, "truncated": truncated}
+    decoded = _workspace_decode_bytes(raw, _WORKSPACE_MAX_HTML_PREVIEW)
+    return {
+        "type": "html",
+        "html": decoded["text"],
+        "truncated": truncated,
+        "encoding": decoded["encoding"],
+        "lossy": decoded["lossy"],
+    }
 
 
 def _workspace_preview_sqlite(path: Path) -> Dict[str, Any]:
@@ -2697,11 +2786,10 @@ async def upload_chat_file(request: Request):
     if upload is None or not hasattr(upload, "filename"):
         raise HTTPException(status_code=400, detail="Missing file")
 
-    upload_id = uuid.uuid4().hex
-    target_dir = _workspace_upload_root() / "uploads" / upload_id
+    target_dir = _workspace_upload_root()
     target_dir.mkdir(parents=True, exist_ok=True)
     filename = _safe_upload_name(getattr(upload, "filename", "") or "upload")
-    target = target_dir / filename
+    target = _unique_workspace_upload_target(target_dir, filename)
 
     size = 0
     max_bytes = _chat_upload_max_bytes()
@@ -2714,7 +2802,6 @@ async def upload_chat_file(request: Request):
             if size > max_bytes:
                 try:
                     target.unlink(missing_ok=True)
-                    target_dir.rmdir()
                 except Exception:
                     pass
                 max_mb = max_bytes // (1024 * 1024)
@@ -2722,8 +2809,8 @@ async def upload_chat_file(request: Request):
             fh.write(chunk)
 
     return {
-        "id": upload_id,
-        "name": filename,
+        "id": _workspace_encode_file_id(target),
+        "name": target.name,
         "path": str(target),
         "size": size,
         "content_type": getattr(upload, "content_type", "") or "",

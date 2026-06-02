@@ -90,6 +90,10 @@ copy_dir() {
       --exclude '.venv' \
       --exclude 'dist' \
       --exclude 'build' \
+      --exclude 'web_uploads' \
+      --exclude 'web_workspace.json' \
+      --exclude '.daclaw-dashboard-*.log' \
+      --exclude '*.log' \
       --exclude 'daclaw_agent.egg-info' \
       "$SOURCE_DIR/$name/" "$PAYLOAD_DIR/$name/"
   fi
@@ -297,7 +301,6 @@ runtime_dirs=(
   plugins
   skills
   tools
-  web
 )
 
 runtime_files=(
