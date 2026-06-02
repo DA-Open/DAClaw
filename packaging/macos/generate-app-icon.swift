@@ -28,10 +28,31 @@ let variants: [(name: String, pixels: Int)] = [
 
 func renderIcon(pixelSize: Int, to url: URL) throws {
     let dimension = CGFloat(pixelSize)
-    let image = NSImage(size: NSSize(width: dimension, height: dimension))
+    guard
+        let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixelSize,
+            pixelsHigh: pixelSize,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ),
+        let context = NSGraphicsContext(bitmapImageRep: bitmap)
+    else {
+        fail("Failed to create DAClaw app icon bitmap context.")
+    }
 
-    image.lockFocus()
-    defer { image.unlockFocus() }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = context
+    context.cgContext.setShouldAntialias(true)
+    context.cgContext.setAllowsAntialiasing(true)
+    defer {
+        NSGraphicsContext.restoreGraphicsState()
+    }
 
     let canvas = NSRect(x: 0, y: 0, width: dimension, height: dimension)
     NSColor.clear.setFill()
@@ -72,11 +93,7 @@ func renderIcon(pixelSize: Int, to url: URL) throws {
     )
     text.draw(in: textRect, withAttributes: attributes)
 
-    guard
-        let tiff = image.tiffRepresentation,
-        let bitmap = NSBitmapImageRep(data: tiff),
-        let png = bitmap.representation(using: .png, properties: [:])
-    else {
+    guard let png = bitmap.representation(using: .png, properties: [:]) else {
         fail("Failed to render DAClaw app icon PNG.")
     }
 
