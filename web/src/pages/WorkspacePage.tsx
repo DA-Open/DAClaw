@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Copy,
   Database,
   FileSpreadsheet,
   FileText,
@@ -33,6 +34,8 @@ import {
 import { api } from "@/lib/api";
 import type {
   ChatAttachment,
+  ChatRunEvent,
+  ChatStreamEvent,
   ChatStreamMessage,
   ChatTraceEvent,
   WorkspaceBrowseResponse,
@@ -56,6 +59,8 @@ type MiniMessage = {
   running?: boolean;
   attachments?: ChatAttachment[];
   trace?: ChatTraceEvent[];
+  runId?: string;
+  lastSeq?: number;
 };
 type WorkspaceAssistantConversation = {
   id: string;
@@ -64,11 +69,17 @@ type WorkspaceAssistantConversation = {
   sessionId?: string | null;
   messages: MiniMessage[];
 };
+
+function isMethodNotAllowedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith("405:");
+}
 const ASSISTANT_CONVERSATIONS_KEY = "daclaw-web-chat-conversations";
 const ASSISTANT_LEGACY_CONVERSATIONS_KEY = "daclaw.workspace.assistant.conversations";
 const ASSISTANT_LEGACY_MEMORY_KEY = "daclaw.workspace.assistant.messages";
 const ASSISTANT_TRACE_EVENT_LIMIT = 60;
 const ASSISTANT_TRACE_TEXT_LIMIT = 3000;
+const ASSISTANT_PERSISTED_MESSAGE_TEXT_LIMIT = 120_000;
 
 const COPY = {
   en: {
@@ -364,6 +375,11 @@ function truncateAssistantTraceText(value: string | undefined, limit = ASSISTANT
   return `${value.slice(0, limit)}\n... [truncated ${value.length - limit} chars]`;
 }
 
+function truncateAssistantPersistedMessage(value: string): string {
+  if (value.length <= ASSISTANT_PERSISTED_MESSAGE_TEXT_LIMIT) return value;
+  return `${value.slice(0, ASSISTANT_PERSISTED_MESSAGE_TEXT_LIMIT)}\n\n... [conversation content truncated for browser storage; the original run completed successfully]`;
+}
+
 function sanitizeAssistantTraceEvent(event: ChatTraceEvent): ChatTraceEvent {
   let args = event.args;
   if (args && JSON.stringify(args).length > ASSISTANT_TRACE_TEXT_LIMIT) {
@@ -395,6 +411,28 @@ function shouldKeepAssistantTraceEvent(event: ChatTraceEvent): boolean {
 function appendAssistantTraceEvent(trace: ChatTraceEvent[] = [], event: ChatTraceEvent): ChatTraceEvent[] {
   if (!shouldKeepAssistantTraceEvent(event)) return trace;
   return [...trace, sanitizeAssistantTraceEvent(event)].slice(-ASSISTANT_TRACE_EVENT_LIMIT);
+}
+
+function isTerminalChatRunStatus(status: string | undefined): boolean {
+  return status === "completed" || status === "failed";
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timeout = window.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        window.clearTimeout(timeout);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
 }
 
 function sanitizeAssistantTrace(trace: ChatTraceEvent[] = []): ChatTraceEvent[] {
@@ -447,10 +485,16 @@ function createWorkspaceAssistantConversation(): WorkspaceAssistantConversation 
   };
 }
 
-function sanitizeAssistantMessages(messages: MiniMessage[] = []): MiniMessage[] {
+function sanitizeAssistantMessages(messages: MiniMessage[] = [], persist = false): MiniMessage[] {
   return messages
     .filter((message) => message && (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
-    .map((message) => ({ ...message, running: false, trace: sanitizeAssistantTrace(message.trace) }));
+    .map((message) => ({
+      ...message,
+      content: persist ? truncateAssistantPersistedMessage(message.content) : message.content,
+      running: Boolean(message.running && message.runId),
+      lastSeq: typeof message.lastSeq === "number" ? message.lastSeq : -1,
+      trace: sanitizeAssistantTrace(message.trace),
+    }));
 }
 
 function sanitizeAssistantConversations(value: unknown): WorkspaceAssistantConversation[] {
@@ -509,7 +553,7 @@ function loadAssistantConversations(): WorkspaceAssistantConversation[] {
 function persistableAssistantConversations(conversations: WorkspaceAssistantConversation[]): WorkspaceAssistantConversation[] {
   return conversations.slice(0, 30).map((conversation) => ({
     ...conversation,
-    messages: sanitizeAssistantMessages(conversation.messages),
+    messages: sanitizeAssistantMessages(conversation.messages, true),
   }));
 }
 
@@ -1622,9 +1666,10 @@ function CompactChatPanel({
   const [conversations, setConversations] = useState<WorkspaceAssistantConversation[]>(() => initialConversationsRef.current ?? [createWorkspaceAssistantConversation()]);
   const [activeConversationId, setActiveConversationId] = useState(() => initialConversationsRef.current?.[0]?.id ?? "");
   const [input, setInput] = useState("");
-  const [running, setRunning] = useState(false);
+  const [, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const legacyStreamSeqRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const activeConversation = useMemo(
@@ -1632,6 +1677,7 @@ function CompactChatPanel({
     [activeConversationId, conversations],
   );
   const messages = useMemo(() => activeConversation?.messages ?? [], [activeConversation]);
+  const activeRunning = Boolean(messages.some((message) => message.running));
   const contextAttachments = useMemo(() => files.map(workspaceFileToAttachment), [files]);
   const contextSize = useMemo(() => files.reduce((sum, file) => sum + (Number.isFinite(file.size) ? file.size : 0), 0), [files]);
 
@@ -1659,7 +1705,7 @@ function CompactChatPanel({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [activeConversationId, messages, running]);
+  }, [activeConversationId, messages, activeRunning]);
 
   useEffect(() => {
     if (resetToken === 0) return;
@@ -1667,13 +1713,23 @@ function CompactChatPanel({
   }, [resetToken, startNewConversation]);
 
   useEffect(() => {
-    try {
+    const persist = () => {
       window.localStorage.setItem(ASSISTANT_CONVERSATIONS_KEY, JSON.stringify(persistableAssistantConversations(conversations)));
       window.localStorage.removeItem(ASSISTANT_LEGACY_CONVERSATIONS_KEY);
       window.localStorage.removeItem(ASSISTANT_LEGACY_MEMORY_KEY);
+    };
+    try {
+      persist();
     } catch {
       // Session memory is best-effort only.
     }
+    return () => {
+      try {
+        persist();
+      } catch {
+        // Session memory is best-effort only.
+      }
+    };
   }, [conversations]);
 
   const appendAssistant = (conversationId: string, messageId: string, updater: (content: string) => string, runningState = true) => {
@@ -1686,10 +1742,158 @@ function CompactChatPanel({
     }));
   };
 
+  const applyRunEvent = (conversationId: string, assistantId: string, event: ChatRunEvent) => {
+    if (event.type === "assistant_delta" && "delta" in event) {
+      appendAssistant(conversationId, assistantId, (content) => content + event.delta);
+      updateConversation(conversationId, (conversation) => ({
+        ...conversation,
+        messages: conversation.messages.map((message) =>
+          message.id === assistantId ? { ...message, runId: event.run_id, lastSeq: event.seq } : message,
+        ),
+      }));
+      return;
+    }
+
+    if (event.type === "heartbeat") return;
+
+    if (event.type === "done" && "final_response" in event) {
+      updateConversation(conversationId, (current) => ({
+        ...current,
+        sessionId: event.session_id ?? current.sessionId,
+        updatedAt: Date.now(),
+        messages: current.messages.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: event.final_response || message.content || labels.emptyAssistantReply,
+                trace: sanitizeAssistantTrace(event.trace),
+                running: false,
+                runId: event.run_id,
+                lastSeq: event.seq,
+              }
+            : message,
+        ),
+      }));
+      onFilesChanged();
+      return;
+    }
+
+    if (event.type === "error" && "message" in event) {
+      updateConversation(conversationId, (current) => ({
+        ...current,
+        updatedAt: Date.now(),
+        messages: current.messages.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: message.content || `${labels.requestFailed}: ${event.message}`,
+                trace: appendAssistantTraceEvent(message.trace, event),
+                running: false,
+                runId: event.run_id,
+                lastSeq: event.seq,
+              }
+            : message,
+        ),
+      }));
+      return;
+    }
+
+    updateConversation(conversationId, (current) => ({
+      ...current,
+      updatedAt: Date.now(),
+      messages: current.messages.map((message) =>
+        message.id === assistantId
+          ? { ...message, trace: appendAssistantTraceEvent(message.trace, event), runId: event.run_id, lastSeq: event.seq }
+          : message,
+      ),
+    }));
+  };
+
+  const pollRun = async (
+    runId: string,
+    conversationId: string,
+    assistantId: string,
+    startAfter = -1,
+    signal?: AbortSignal,
+  ) => {
+    let after = startAfter;
+    setRunning(true);
+    while (true) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const payload = await api.getChatRunEvents(runId, after);
+      for (const event of payload.events) {
+        after = event.seq;
+        applyRunEvent(conversationId, assistantId, event);
+      }
+      if (isTerminalChatRunStatus(payload.run.status)) {
+        updateConversation(conversationId, (current) => ({
+          ...current,
+          sessionId: payload.run.session_id ?? current.sessionId,
+          messages: current.messages.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  running: false,
+                  content:
+                    payload.run.status === "failed"
+                      ? message.content || `${labels.requestFailed}: ${payload.run.error || "Unknown error"}`
+                      : message.content || payload.run.final_response || labels.emptyAssistantReply,
+                }
+              : message,
+          ),
+        }));
+        onFilesChanged();
+        break;
+      }
+      await delay(payload.events.length > 0 ? 200 : 900, signal);
+    }
+  };
+
+  const streamChatFallback = async (
+    body: Parameters<typeof api.streamChat>[0],
+    conversationId: string,
+    assistantId: string,
+    signal?: AbortSignal,
+  ) => {
+    const runId = `legacy-stream-${Date.now().toString(36)}`;
+    await api.streamChat(
+      body,
+      (event: ChatStreamEvent) => {
+        const seq = legacyStreamSeqRef.current++;
+        applyRunEvent(conversationId, assistantId, { ...event, run_id: runId, seq } as ChatRunEvent);
+      },
+      signal,
+    );
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    for (const conversation of conversations) {
+      for (const message of conversation.messages) {
+        if (message.role !== "assistant" || !message.running || !message.runId) continue;
+        void pollRun(message.runId, conversation.id, message.id, message.lastSeq ?? -1, controller.signal).catch((err) => {
+          if (controller.signal.aborted) return;
+          const messageText = err instanceof Error ? err.message : String(err);
+          updateConversation(conversation.id, (current) => ({
+            ...current,
+            messages: current.messages.map((item) =>
+              item.id === message.id
+                ? { ...item, running: false, content: item.content || `${labels.requestFailed}: ${messageText}` }
+                : item,
+            ),
+          }));
+        });
+      }
+    }
+    return () => controller.abort();
+    // Run only on assistant mount. Running messages keep runId/lastSeq in localStorage.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const submitPrompt = async (prompt?: string) => {
     const text = (prompt ?? input).trim();
     const conversation = activeConversation;
-    if (!text || running || !conversation) return;
+    if (!text || activeRunning || !conversation) return;
     const userId = makeId("user");
     const assistantId = makeId("assistant");
     const conversationId = conversation.id;
@@ -1704,8 +1908,6 @@ function CompactChatPanel({
       selectedFile ? `The user is currently previewing: ${selectedFile.relative_path || selectedFile.path || selectedFile.name}` : "No single file is selected; treat the whole workspace as the target.",
       "If the request is a simple greeting or UI question, answer normally without forcing tool use.",
     ].join("\n");
-    let receivedAssistantContent = false;
-
     setInput("");
     setError(null);
     updateConversation(conversationId, (current) => ({
@@ -1715,7 +1917,7 @@ function CompactChatPanel({
       messages: [
         ...current.messages,
         { id: userId, role: "user", content: text },
-        { id: assistantId, role: "assistant", content: "", trace: [], running: true },
+        { id: assistantId, role: "assistant", content: "", trace: [], running: true, lastSeq: -1 },
       ],
     }));
     setRunning(true);
@@ -1724,65 +1926,35 @@ function CompactChatPanel({
     abortRef.current = controller;
 
     try {
-      await api.streamChat(
-        { message: workspacePrompt, history, attachments: contextAttachments, session_id: conversation.sessionId ?? null },
-        (event) => {
-          if (event.type === "assistant_delta" && "delta" in event) {
-            if (event.delta.trim()) receivedAssistantContent = true;
-            appendAssistant(conversationId, assistantId, (content) => content + event.delta);
-          } else if (event.type === "heartbeat") {
-            return;
-          } else if (event.type === "done" && "final_response" in event) {
-            if ((event.final_response || "").trim()) receivedAssistantContent = true;
-            updateConversation(conversationId, (current) => ({
-              ...current,
-              sessionId: event.session_id ?? current.sessionId,
-              updatedAt: Date.now(),
-              messages: current.messages.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      content: event.final_response || message.content || (receivedAssistantContent ? message.content : labels.emptyAssistantReply),
-                      trace: sanitizeAssistantTrace(event.trace),
-                      running: false,
-                    }
-                  : message,
-              ),
-            }));
-            onFilesChanged();
-          } else if (event.type === "error" && "message" in event) {
-            updateConversation(conversationId, (current) => ({
-              ...current,
-              updatedAt: Date.now(),
-              messages: current.messages.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      content: message.content || `${labels.requestFailed}: ${event.message}`,
-                      trace: appendAssistantTraceEvent(message.trace, event),
-                      running: false,
-                    }
-                  : message,
-              ),
-            }));
-            throw new Error(event.message);
-          } else {
-            updateConversation(conversationId, (current) => ({
-              ...current,
-              updatedAt: Date.now(),
-              messages: current.messages.map((message) =>
-                message.id === assistantId ? { ...message, trace: appendAssistantTraceEvent(message.trace, event) } : message,
-              ),
-            }));
-          }
-        },
-        controller.signal,
-      );
+      const body = { message: workspacePrompt, history, attachments: contextAttachments, session_id: conversation.sessionId ?? null };
+      const run = await api.startChatRun(body);
+      updateConversation(conversationId, (current) => ({
+        ...current,
+        messages: current.messages.map((message) =>
+          message.id === assistantId ? { ...message, runId: run.run_id, lastSeq: -1 } : message,
+        ),
+      }));
+      await pollRun(run.run_id, conversationId, assistantId, -1, controller.signal);
     } catch (err) {
+      if (!controller.signal.aborted && isMethodNotAllowedError(err)) {
+        try {
+          await streamChatFallback(
+            { message: workspacePrompt, history, attachments: contextAttachments, session_id: conversation.sessionId ?? null },
+            conversationId,
+            assistantId,
+            controller.signal,
+          );
+          return;
+        } catch (fallbackErr) {
+          err = fallbackErr;
+        }
+      }
       const aborted = controller.signal.aborted;
       const message = aborted ? labels.stopped : err instanceof Error ? err.message : String(err);
       setError(aborted ? null : message);
-      appendAssistant(conversationId, assistantId, (content) => content || (aborted ? message : `${labels.requestFailed}: ${message}`), false);
+      if (!aborted) {
+        appendAssistant(conversationId, assistantId, (content) => content || `${labels.requestFailed}: ${message}`, false);
+      }
     } finally {
       setRunning(false);
       abortRef.current = null;
@@ -1791,6 +1963,13 @@ function CompactChatPanel({
 
   const stop = () => {
     abortRef.current?.abort();
+    updateConversation(activeConversation?.id ?? "", (conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map((message) =>
+        message.running ? { ...message, running: false, content: message.content || labels.stopped } : message,
+      ),
+    }));
+    setRunning(false);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1815,7 +1994,7 @@ function CompactChatPanel({
             </option>
           ))}
         </select>
-        {running && (
+        {activeRunning && (
           <Badge variant="secondary" className="h-6 gap-1 text-[11px]">
             <Loader2 className="h-3 w-3 animate-spin" />
             {labels.working}
@@ -1875,10 +2054,20 @@ function CompactChatPanel({
                   </span>
                   <div className="min-w-0 flex-1">
                     <CompactTracePanel trace={message.trace} running={message.running} />
-                    <div className="max-w-full overflow-hidden rounded-2xl border border-border bg-background px-3 py-2 text-foreground">
-                      <div className="[&>div]:space-y-3 [&_h1]:text-lg [&_h2]:mt-3 [&_h2]:text-base [&_h3]:mt-3 [&_h3]:text-sm [&_li]:pl-0 [&_ol]:pl-5 [&_p]:text-sm [&_p]:leading-6 [&_pre]:text-[11px] [&_table]:text-xs [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2 [&_ul]:pl-5">
+                    <div className="group/message max-w-full overflow-hidden rounded-2xl border border-border bg-background px-3 py-2 text-foreground">
+                      <div className="select-text [&>div]:space-y-3 [&_h1]:text-lg [&_h2]:mt-3 [&_h2]:text-base [&_h3]:mt-3 [&_h3]:text-sm [&_li]:pl-0 [&_ol]:pl-5 [&_p]:text-sm [&_p]:leading-6 [&_pre]:text-[11px] [&_table]:text-xs [&_td]:px-2 [&_td]:py-2 [&_th]:px-2 [&_th]:py-2 [&_ul]:pl-5">
                         <Markdown content={message.content || (message.running ? "..." : "")} />
                       </div>
+                      {message.content.trim() && (
+                        <button
+                          type="button"
+                          className="mt-2 inline-flex h-7 items-center gap-1 rounded-full border border-border px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/message:opacity-100 focus:opacity-100"
+                          onClick={() => void navigator.clipboard?.writeText(message.content)}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          Copy
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1898,7 +2087,7 @@ function CompactChatPanel({
               key={prompt}
               type="button"
               className="shrink-0 rounded-full border border-border bg-background px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-              disabled={running}
+              disabled={activeRunning}
               onClick={() => void submitPrompt(prompt)}
             >
               {prompt}
@@ -1911,11 +2100,11 @@ function CompactChatPanel({
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={labels.chatPlaceholder}
-            disabled={running}
+            disabled={activeRunning}
             className="max-h-20 min-h-12 w-full resize-none bg-transparent px-2 py-1 text-sm leading-6 outline-none placeholder:text-muted-foreground"
           />
           <div className="flex justify-end">
-            {running ? (
+            {activeRunning ? (
               <Button variant="outline" size="sm" className="h-8" onClick={stop}>
                 {labels.stop}
               </Button>

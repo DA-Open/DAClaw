@@ -233,6 +233,16 @@ export const api = {
       if (data) onEvent(JSON.parse(data) as ChatStreamEvent);
     }
   },
+  startChatRun: (body: ChatStreamRequest) =>
+    fetchJSON<ChatRunResponse>("/api/chat/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getChatRunEvents: (runId: string, after = -1) =>
+    fetchJSON<ChatRunEventsResponse>(
+      `/api/chat/runs/${encodeURIComponent(runId)}/events?after=${encodeURIComponent(String(after))}`,
+    ),
 
   // OAuth provider management
   getOAuthProviders: () =>
@@ -562,8 +572,8 @@ export interface ChatTraceEvent {
 }
 
 export type ChatStreamEvent =
-  | ({ type: "assistant_delta"; delta: string; ts?: number })
-  | ({ type: "heartbeat"; message: string; elapsed: number; idle?: number; ts?: number })
+  | ({ type: "assistant_delta"; delta: string; ts?: number; run_id?: string; seq?: number })
+  | ({ type: "heartbeat"; message: string; elapsed: number; idle?: number; ts?: number; run_id?: string; seq?: number })
   | ({
       type: "done";
       final_response: string;
@@ -573,9 +583,33 @@ export type ChatStreamEvent =
       elapsed: number;
       trace: ChatTraceEvent[];
       ts?: number;
+      run_id?: string;
+      seq?: number;
     })
-  | ({ type: "error"; message: string; elapsed?: number; ts?: number })
+  | ({ type: "error"; message: string; elapsed?: number; ts?: number; run_id?: string; seq?: number })
   | ChatTraceEvent;
+
+export interface ChatRunResponse {
+  run_id: string;
+  status: "queued" | "running" | "completed" | "failed" | string;
+  created_at: number;
+  updated_at: number;
+  next_seq: number;
+  session_id?: string | null;
+  final_response?: string;
+  error?: string | null;
+}
+
+export type ChatRunEvent = ChatStreamEvent & {
+  run_id: string;
+  seq: number;
+};
+
+export interface ChatRunEventsResponse {
+  run: ChatRunResponse;
+  events: ChatRunEvent[];
+  next_seq: number;
+}
 
 // ── Model info types ──────────────────────────────────────────────────
 

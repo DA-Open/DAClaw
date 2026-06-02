@@ -4838,6 +4838,12 @@ def cmd_dashboard(args):
         print("Install them with:  pip install daclaw-agent[web]")
         sys.exit(1)
 
+    try:
+        from tools.skills_sync import sync_skills
+        sync_skills(quiet=True)
+    except Exception:
+        pass
+
     if not _build_web_ui(PROJECT_ROOT / "web", fatal=True):
         sys.exit(1)
 

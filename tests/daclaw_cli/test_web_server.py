@@ -2,6 +2,7 @@
 
 import os
 import json
+import time
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
@@ -172,6 +173,45 @@ class TestWebServerEndpoints:
         assert Path(data["path"]) == root / "销售数据.csv"
         assert (root / "销售数据.csv").exists()
 
+    def test_chat_run_events_can_be_polled_after_start(self, monkeypatch):
+        import daclaw_cli.web_server as web_server
+
+        def fake_create_web_chat_agent(**callbacks):
+            class FakeAgent:
+                session_id = "session-polled"
+
+                def run_conversation(self, *_args, **_kwargs):
+                    callbacks["tool_start_callback"]("tool-1", "terminal", {"command": "echo hi"})
+                    callbacks["stream_delta_callback"]("hello")
+                    return {"final_response": "hello", "completed": True, "api_calls": 1}
+
+            return FakeAgent()
+
+        monkeypatch.setattr(web_server, "_create_web_chat_agent", fake_create_web_chat_agent)
+
+        resp = self.client.post(
+            "/api/chat/runs",
+            json={"message": "hi", "history": [], "attachments": [], "session_id": None},
+        )
+
+        assert resp.status_code == 200
+        run_id = resp.json()["run_id"]
+        payload = None
+        for _ in range(30):
+            events_resp = self.client.get(f"/api/chat/runs/{run_id}/events?after=-1")
+            assert events_resp.status_code == 200
+            payload = events_resp.json()
+            if payload["run"]["status"] == "completed":
+                break
+            time.sleep(0.05)
+
+        assert payload is not None
+        assert payload["run"]["status"] == "completed"
+        assert payload["run"]["session_id"] == "session-polled"
+        assert any(event["type"] == "tool_start" for event in payload["events"])
+        assert any(event["type"] == "assistant_delta" and event["delta"] == "hello" for event in payload["events"])
+        assert any(event["type"] == "done" and event["final_response"] == "hello" for event in payload["events"])
+
     def test_workspace_files_list_and_preview_csv(self, tmp_path, monkeypatch):
         import daclaw_cli.web_server as web_server
 
@@ -280,6 +320,32 @@ class TestWebServerEndpoints:
         assert "PRAGMA table_info" in message
         assert "/mnt/c/tmp/dacomp-zh-001.sqlite" in message
         assert "Do not search the filesystem root" in message
+
+    def test_chat_message_without_attachments_uses_workspace_scope(self, tmp_path, monkeypatch):
+        import daclaw_cli.web_server as web_server
+        from daclaw_cli.web_server import ChatRequest, _build_chat_user_message
+
+        monkeypatch.setattr(web_server, "_CHAT_UPLOAD_ROOT", tmp_path)
+
+        message = _build_chat_user_message(ChatRequest(message="list files"))
+
+        assert str(tmp_path) in message
+        assert "active analysis scope" in message
+        assert "Before saying a file is missing" in message
+
+    def test_set_workspace_root_syncs_agent_cwd_environment(self, tmp_path, monkeypatch):
+        import daclaw_cli.web_server as web_server
+
+        monkeypatch.setattr(web_server, "_save_workspace_root", lambda root: None)
+        monkeypatch.setattr(web_server, "_normalize_workspace_path", lambda value: tmp_path)
+        monkeypatch.delenv("TERMINAL_CWD", raising=False)
+        monkeypatch.delenv("MESSAGING_CWD", raising=False)
+
+        resp = self.client.put("/api/workspace/root", json={"path": str(tmp_path)})
+
+        assert resp.status_code == 200
+        assert os.environ["TERMINAL_CWD"] == str(tmp_path)
+        assert os.environ["MESSAGING_CWD"] == str(tmp_path)
 
     def test_get_status_filters_unconfigured_gateway_platforms(self, monkeypatch):
         import gateway.config as gateway_config

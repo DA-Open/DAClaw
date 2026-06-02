@@ -1760,6 +1760,25 @@ _CHAT_TRACE_LIMIT = 40
 _CHAT_EVENT_QUEUE_LIMIT = 200
 _CHAT_HEARTBEAT_SECONDS = 10
 _CHAT_TOTAL_TIMEOUT_SECONDS = 1800
+_CHAT_RUN_EVENT_LIMIT = 1000
+_CHAT_RUN_RETENTION_SECONDS = 2 * 60 * 60
+_CHAT_RUN_LIMIT = 50
+_CHAT_RUNS: Dict[str, Dict[str, Any]] = {}
+_CHAT_RUN_LOCK = threading.RLock()
+_WEB_AGENT_DEFAULT_TOOLSETS = [
+    "data",
+    "file",
+    "terminal",
+    "code_execution",
+    "skills",
+    "memory",
+    "session_search",
+    "web",
+    "vision",
+    "image_gen",
+    "todo",
+    "delegation",
+]
 _SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db", ".db3"}
 _WEB_WORKSPACE_STATE = get_daclaw_home() / "web_workspace.json"
 
@@ -1966,6 +1985,99 @@ def _chat_sse(event: Dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
+def _chat_run_payload(run: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "run_id": run["id"],
+        "status": run.get("status", "queued"),
+        "created_at": run.get("created_at"),
+        "updated_at": run.get("updated_at"),
+        "next_seq": run.get("next_seq", 0),
+        "session_id": run.get("session_id"),
+        "final_response": run.get("final_response"),
+        "error": run.get("error"),
+    }
+
+
+def _chat_run_cleanup_locked() -> None:
+    now = time.time()
+    stale_ids = [
+        run_id
+        for run_id, run in _CHAT_RUNS.items()
+        if now - float(run.get("updated_at") or run.get("created_at") or now) > _CHAT_RUN_RETENTION_SECONDS
+    ]
+    for run_id in stale_ids:
+        _CHAT_RUNS.pop(run_id, None)
+
+    if len(_CHAT_RUNS) <= _CHAT_RUN_LIMIT:
+        return
+    ordered = sorted(
+        _CHAT_RUNS.items(),
+        key=lambda item: float(item[1].get("updated_at") or item[1].get("created_at") or 0),
+    )
+    for run_id, run in ordered:
+        if len(_CHAT_RUNS) <= _CHAT_RUN_LIMIT:
+            break
+        if run.get("status") not in {"running", "queued"}:
+            _CHAT_RUNS.pop(run_id, None)
+
+
+def _chat_run_get(run_id: str) -> Dict[str, Any]:
+    with _CHAT_RUN_LOCK:
+        run = _CHAT_RUNS.get(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Chat run not found")
+        return run
+
+
+def _chat_run_append(run_id: str, event: Dict[str, Any], *, record: bool = True) -> Dict[str, Any]:
+    with _CHAT_RUN_LOCK:
+        run = _CHAT_RUNS.get(run_id)
+        if not run:
+            raise RuntimeError(f"Chat run not found: {run_id}")
+
+        item = dict(event)
+        item.setdefault("ts", time.time())
+        item["run_id"] = run_id
+        item["seq"] = int(run.get("next_seq") or 0)
+        run["next_seq"] = item["seq"] + 1
+        run["updated_at"] = item["ts"]
+
+        event_type = item.get("type")
+        if event_type == "run_started":
+            run["status"] = "running"
+        elif event_type == "done":
+            run["status"] = "completed"
+            run["session_id"] = item.get("session_id")
+            run["final_response"] = item.get("final_response") or ""
+        elif event_type == "error":
+            run["status"] = "failed"
+            run["error"] = item.get("message") or "Unknown error"
+
+        if record and _should_record_chat_event(item):
+            trace_item = {key: value for key, value in item.items() if key not in {"seq", "run_id"}}
+            run["trace"].append(trace_item)
+            if len(run["trace"]) > _CHAT_TRACE_LIMIT:
+                del run["trace"][: len(run["trace"]) - _CHAT_TRACE_LIMIT]
+
+        run["events"].append(item)
+        if len(run["events"]) > _CHAT_RUN_EVENT_LIMIT:
+            del run["events"][: len(run["events"]) - _CHAT_RUN_EVENT_LIMIT]
+        return dict(item)
+
+
+def _chat_run_events(run_id: str, after: int = -1) -> Dict[str, Any]:
+    with _CHAT_RUN_LOCK:
+        run = _CHAT_RUNS.get(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Chat run not found")
+        events = [dict(event) for event in run["events"] if int(event.get("seq", -1)) > after]
+        return {
+            "run": _chat_run_payload(run),
+            "events": events,
+            "next_seq": int(run.get("next_seq") or 0),
+        }
+
+
 def _attachment_analysis_hint(item: ChatAttachment) -> Optional[str]:
     suffix = Path(item.name or item.path).suffix.lower()
     if suffix in _SQLITE_SUFFIXES:
@@ -2099,20 +2211,21 @@ def _workspace_root_payload(root: Optional[Path] = None) -> Dict[str, Any]:
 def _build_chat_user_message(body: ChatRequest) -> str:
     message = body.message.strip()
     workspace_root = _workspace_upload_root()
+    workspace_context = [
+        f"Current DAClaw web workspace root: {workspace_root}",
+        "Treat this workspace root as the active analysis scope for all local file, dataset, report, and dashboard work.",
+        "Before saying a file is missing, inspect or list files under this workspace root. Do not fall back to the process cwd or home directory unless the user explicitly asks for another path.",
+        "When writing outputs, save them inside this workspace root unless the user gives a different target path.",
+        "For SQLite databases, prefer Python's built-in sqlite3 module in a single analysis script. Do not install system packages or rely on the sqlite3 command-line program unless the user explicitly asks.",
+        "For CSV/TSV files, prefer data_profile for quick profiling, then use Python scripts for deeper analysis. Reserve terminal for builds, scripts, package management, or tasks that truly need a shell.",
+    ]
     if not body.attachments:
-        return "\n".join(
-            [
-                message,
-                "",
-                f"Current DAClaw web workspace root: {workspace_root}",
-                "When inspecting local files or writing outputs, use this workspace unless the user explicitly asks for another path.",
-            ]
-        ).strip()
+        return "\n".join([message, "", *workspace_context]).strip()
 
     lines = [
         message,
         "",
-        f"Current DAClaw web workspace root: {workspace_root}",
+        *workspace_context,
         "",
         "Uploaded files available in the local workspace for this web chat:",
     ]
@@ -2638,6 +2751,7 @@ async def set_workspace_root(body: WorkspaceRootRequest):
     root = _normalize_workspace_path(body.path)
     _save_workspace_root(root)
     os.environ["TERMINAL_CWD"] = str(root)
+    os.environ["MESSAGING_CWD"] = str(root)
     return _workspace_root_payload(root)
 
 
@@ -2714,10 +2828,10 @@ def _create_web_chat_agent(
         _resolve_gateway_model,
         _resolve_runtime_agent_kwargs,
     )
-    from daclaw_cli.tools_config import _get_platform_tools
 
     workspace_root = _workspace_upload_root()
     os.environ["TERMINAL_CWD"] = str(workspace_root)
+    os.environ["MESSAGING_CWD"] = str(workspace_root)
     config = load_config()
     runtime_kwargs = _resolve_runtime_agent_kwargs()
     model = _resolve_gateway_model(config)
@@ -2727,7 +2841,12 @@ def _create_web_chat_agent(
             model = get_default_model_for_provider(runtime_kwargs.get("provider", ""))
         except Exception:
             model = ""
-    enabled_toolsets = sorted(_get_platform_tools(config, "cli"))
+    web_config = config.get("web") if isinstance(config.get("web"), dict) else {}
+    configured_toolsets = web_config.get("agent_toolsets") if isinstance(web_config, dict) else None
+    if isinstance(configured_toolsets, list) and configured_toolsets:
+        enabled_toolsets = sorted(str(item) for item in configured_toolsets if str(item).strip())
+    else:
+        enabled_toolsets = list(_WEB_AGENT_DEFAULT_TOOLSETS)
     max_iterations = int(
         (config.get("agent") or {}).get("max_turns")
         or os.getenv("DACLAW_MAX_ITERATIONS", "90")
@@ -2817,39 +2936,15 @@ async def upload_chat_file(request: Request):
     }
 
 
-@app.post("/api/chat/stream")
-async def stream_chat(body: ChatRequest):
-    """Run one DAClaw web-chat turn and stream UI events as SSE frames."""
-    if not body.message.strip() and not body.attachments:
-        raise HTTPException(status_code=400, detail="Message or attachment is required")
-
-    event_queue: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue(maxsize=_CHAT_EVENT_QUEUE_LIMIT)
-    trace: List[Dict[str, Any]] = []
-    started = time.time()
-    last_activity = started
+def _chat_run_worker(run_id: str) -> None:
+    run = _chat_run_get(run_id)
+    body: ChatRequest = run["body"]
+    started = float(run["created_at"])
     delta_buffer = ""
     last_delta_push = started
 
-    def push(event: Dict[str, Any], *, record: bool = True) -> None:
-        nonlocal last_activity
-        event.setdefault("ts", time.time())
-        last_activity = event["ts"]
-        if record and _should_record_chat_event(event):
-            trace.append(event)
-            if len(trace) > _CHAT_TRACE_LIMIT:
-                del trace[: len(trace) - _CHAT_TRACE_LIMIT]
-        try:
-            event_queue.put_nowait(event)
-        except queue.Full:
-            # Keep the UI responsive under noisy tool activity. Dropping a
-            # status frame is better than letting the producer block while a
-            # browser tab is busy or disconnected.
-            if event.get("type") in {"done", "error"}:
-                try:
-                    event_queue.get_nowait()
-                except queue.Empty:
-                    pass
-                event_queue.put_nowait(event)
+    def push(event: Dict[str, Any], *, record: bool = True) -> Dict[str, Any]:
+        return _chat_run_append(run_id, event, record=record)
 
     def flush_delta() -> None:
         nonlocal delta_buffer, last_delta_push
@@ -2915,59 +3010,108 @@ async def stream_chat(body: ChatRequest):
         event.update(_tool_summary(name, args))
         push(event)
 
-    def worker() -> None:
-        try:
-            push({"type": "run_started", "message": "DAClaw is working"})
-            agent = _create_web_chat_agent(
-                session_id=body.session_id,
-                stream_delta_callback=on_delta,
-                tool_progress_callback=on_tool_progress,
-                tool_start_callback=on_tool_start,
-                tool_complete_callback=on_tool_complete,
-                reasoning_callback=on_reasoning,
-                status_callback=on_status,
-                step_callback=on_step,
-            )
-            result = agent.run_conversation(
-                _build_chat_user_message(body),
-                conversation_history=_history_for_agent(body.history),
-            )
-            flush_delta()
-            push({
-                "type": "done",
-                "final_response": result.get("final_response") or "",
-                "session_id": getattr(agent, "session_id", None),
-                "completed": bool(result.get("completed")),
-                "api_calls": result.get("api_calls", 0),
-                "elapsed": time.time() - started,
-                "trace": trace,
-            }, record=False)
-        except Exception as exc:
-            _log.exception("POST /api/chat/stream failed")
-            push({
-                "type": "error",
-                "message": str(exc),
-                "elapsed": time.time() - started,
-            }, record=False)
-        finally:
-            try:
-                event_queue.put_nowait(None)
-            except queue.Full:
-                try:
-                    event_queue.get_nowait()
-                except queue.Empty:
-                    pass
-                event_queue.put_nowait(None)
+    try:
+        push({"type": "run_started", "message": "DAClaw is working"})
+        agent = _create_web_chat_agent(
+            session_id=body.session_id,
+            stream_delta_callback=on_delta,
+            tool_progress_callback=on_tool_progress,
+            tool_start_callback=on_tool_start,
+            tool_complete_callback=on_tool_complete,
+            reasoning_callback=on_reasoning,
+            status_callback=on_status,
+            step_callback=on_step,
+        )
+        result = agent.run_conversation(
+            _build_chat_user_message(body),
+            conversation_history=_history_for_agent(body.history),
+        )
+        flush_delta()
+        with _CHAT_RUN_LOCK:
+            trace = list(_CHAT_RUNS.get(run_id, {}).get("trace") or [])
+        push({
+            "type": "done",
+            "final_response": result.get("final_response") or "",
+            "session_id": getattr(agent, "session_id", None),
+            "completed": bool(result.get("completed")),
+            "api_calls": result.get("api_calls", 0),
+            "elapsed": time.time() - started,
+            "trace": trace,
+        }, record=False)
+    except Exception as exc:
+        _log.exception("Chat run %s failed", run_id)
+        push({
+            "type": "error",
+            "message": str(exc),
+            "elapsed": time.time() - started,
+        }, record=False)
 
-    threading.Thread(target=worker, daemon=True).start()
+
+def _start_chat_run(body: ChatRequest) -> Dict[str, Any]:
+    if not body.message.strip() and not body.attachments:
+        raise HTTPException(status_code=400, detail="Message or attachment is required")
+
+    now = time.time()
+    run_id = secrets.token_urlsafe(16)
+    run = {
+        "id": run_id,
+        "body": body,
+        "status": "queued",
+        "created_at": now,
+        "updated_at": now,
+        "next_seq": 0,
+        "session_id": body.session_id,
+        "final_response": "",
+        "error": None,
+        "trace": [],
+        "events": [],
+    }
+    with _CHAT_RUN_LOCK:
+        _CHAT_RUNS[run_id] = run
+        _chat_run_cleanup_locked()
+    threading.Thread(target=_chat_run_worker, args=(run_id,), daemon=True).start()
+    return run
+
+
+@app.post("/api/chat/runs")
+async def start_chat_run(body: ChatRequest):
+    """Start a web-chat turn that can be resumed if the page disconnects."""
+    run = _start_chat_run(body)
+    return _chat_run_payload(run)
+
+
+@app.get("/api/chat/runs/{run_id}/events")
+async def get_chat_run_events(run_id: str, after: int = -1):
+    """Return chat run events newer than the provided sequence number."""
+    return _chat_run_events(run_id, after)
+
+
+@app.post("/api/chat/stream")
+async def stream_chat(body: ChatRequest):
+    """Run one DAClaw web-chat turn and stream UI events as SSE frames."""
+    run = _start_chat_run(body)
+    run_id = run["id"]
 
     async def event_stream():
         heartbeat_seconds = _chat_heartbeat_seconds()
         total_timeout_seconds = _chat_total_timeout_seconds()
+        started = float(run["created_at"])
+        after = -1
+        last_emit = time.time()
         while True:
-            try:
-                event = await asyncio.to_thread(event_queue.get, True, heartbeat_seconds)
-            except queue.Empty:
+            payload = _chat_run_events(run_id, after)
+            events = payload["events"]
+            if events:
+                for event in events:
+                    after = int(event.get("seq", after))
+                    last_emit = time.time()
+                    yield _chat_sse(event)
+                if payload["run"].get("status") in {"completed", "failed"}:
+                    break
+                continue
+
+            await asyncio.sleep(0.35)
+            if time.time() - last_emit >= heartbeat_seconds:
                 now = time.time()
                 elapsed = now - started
                 if total_timeout_seconds and elapsed > total_timeout_seconds:
@@ -2983,14 +3127,13 @@ async def stream_chat(body: ChatRequest):
                     break
                 yield _chat_sse({
                     "type": "heartbeat",
+                    "run_id": run_id,
+                    "seq": after,
                     "message": "DAClaw is still working",
                     "elapsed": elapsed,
-                    "idle": now - last_activity,
+                    "idle": now - float(payload["run"].get("updated_at") or started),
                 })
-                continue
-            if event is None:
-                break
-            yield _chat_sse(event)
+                last_emit = now
 
     return StreamingResponse(
         event_stream(),

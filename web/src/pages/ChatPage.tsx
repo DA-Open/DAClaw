@@ -3,6 +3,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  Copy,
   FileText,
   Loader2,
   Menu,
@@ -15,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { ChatAttachment, ChatTraceEvent } from "@/lib/api";
+import type { ChatAttachment, ChatRunEvent, ChatStreamEvent, ChatStreamMessage, ChatTraceEvent } from "@/lib/api";
 import { Markdown } from "@/components/Markdown";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +31,8 @@ interface ChatMessage {
   attachments?: ChatAttachment[];
   trace?: ChatTraceEvent[];
   running?: boolean;
+  runId?: string;
+  lastSeq?: number;
 }
 
 interface Conversation {
@@ -43,6 +46,12 @@ interface Conversation {
 const STORAGE_KEY = "daclaw-web-chat-conversations";
 const TRACE_EVENT_LIMIT = 60;
 const TRACE_TEXT_LIMIT = 3000;
+const PERSISTED_MESSAGE_TEXT_LIMIT = 120_000;
+
+function isMethodNotAllowedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.startsWith("405:");
+}
 
 function makeId(prefix = "id"): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -68,7 +77,8 @@ function loadConversations(): Conversation[] {
         ...conversation,
         messages: (conversation.messages || []).map((message) => ({
           ...message,
-          running: false,
+          running: Boolean(message.running && message.runId),
+          lastSeq: typeof message.lastSeq === "number" ? message.lastSeq : -1,
           trace: sanitizeTrace(message.trace),
         })),
       }));
@@ -84,10 +94,34 @@ function persistableConversations(conversations: Conversation[]): Conversation[]
     ...conversation,
     messages: conversation.messages.map((message) => ({
       ...message,
-      running: false,
+      content: truncatePersistedMessage(message.content),
+      running: Boolean(message.running && message.runId),
+      lastSeq: typeof message.lastSeq === "number" ? message.lastSeq : -1,
       trace: sanitizeTrace(message.trace),
     })),
   }));
+}
+
+function isTerminalChatRunStatus(status: string | undefined): boolean {
+  return status === "completed" || status === "failed";
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timeout = window.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        window.clearTimeout(timeout);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
 }
 
 function titleFrom(text: string): string {
@@ -115,6 +149,11 @@ function formatBytes(size: number): string {
 function truncateText(value: string | undefined, limit = TRACE_TEXT_LIMIT): string | undefined {
   if (!value || value.length <= limit) return value;
   return `${value.slice(0, limit)}\n... [truncated ${value.length - limit} chars]`;
+}
+
+function truncatePersistedMessage(value: string): string {
+  if (value.length <= PERSISTED_MESSAGE_TEXT_LIMIT) return value;
+  return `${value.slice(0, PERSISTED_MESSAGE_TEXT_LIMIT)}\n\n... [conversation content truncated for browser storage; the original run completed successfully]`;
 }
 
 function sanitizeTraceEvent(event: ChatTraceEvent): ChatTraceEvent {
@@ -299,6 +338,10 @@ function AttachmentChip({ file }: { file: ChatAttachment }) {
 function MessageBlock({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
+  const copyMessage = () => {
+    if (!message.content.trim()) return;
+    void navigator.clipboard?.writeText(message.content);
+  };
 
   return (
     <div className={cn("flex w-full py-5", isUser ? "justify-end" : "justify-start")}>
@@ -332,8 +375,20 @@ function MessageBlock({ message }: { message: ChatMessage }) {
           ) : (
             <>
               <TracePanel trace={message.trace} running={message.running} />
-              <div className="mt-4 text-[15px] leading-7 text-foreground">
-                <Markdown content={message.content || (message.running ? "..." : "")} />
+              <div className="group/message mt-4 text-[15px] leading-7 text-foreground">
+                <div className="select-text">
+                  <Markdown content={message.content || (message.running ? "..." : "")} />
+                </div>
+                {message.content.trim() && (
+                  <button
+                    type="button"
+                    className="mt-2 inline-flex h-7 items-center gap-1 rounded-full border border-border px-2 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/message:opacity-100 focus:opacity-100"
+                    onClick={copyMessage}
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    Copy
+                  </button>
+                )}
               </div>
             </>
           )}
@@ -350,7 +405,7 @@ export default function ChatPage() {
   const [pendingFiles, setPendingFiles] = useState<ChatAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
+  const [, setRunning] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -364,22 +419,30 @@ export default function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const deltaBufferRef = useRef("");
   const deltaTimerRef = useRef<number | null>(null);
+  const legacyStreamSeqRef = useRef(0);
 
   const active = useMemo(
     () => conversations.find((item) => item.id === activeId) ?? conversations[0],
     [activeId, conversations],
   );
+  const activeRunning = Boolean(active?.messages.some((message) => message.running));
 
   useEffect(() => {
-    const handle = window.setTimeout(() => {
+    const persist = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(persistableConversations(conversations)));
+    };
+    const handle = window.setTimeout(() => {
+      persist();
     }, 800);
-    return () => window.clearTimeout(handle);
+    return () => {
+      window.clearTimeout(handle);
+      persist();
+    };
   }, [conversations]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [active?.messages, running]);
+  }, [active?.messages, activeRunning]);
 
   useEffect(() => {
     try {
@@ -389,10 +452,15 @@ export default function ChatPage() {
     }
   }, [sidebarCollapsed]);
 
-  const updateActive = (updater: (conversation: Conversation) => Conversation) => {
+  const updateConversation = (id: string, updater: (conversation: Conversation) => Conversation) => {
     setConversations((prev) =>
-      prev.map((conversation) => (conversation.id === active.id ? updater(conversation) : conversation)),
+      prev.map((conversation) => (conversation.id === id ? updater(conversation) : conversation)),
     );
+  };
+
+  const updateActive = (updater: (conversation: Conversation) => Conversation) => {
+    if (!active) return;
+    updateConversation(active.id, updater);
   };
 
   const addConversation = () => {
@@ -430,11 +498,11 @@ export default function ChatPage() {
     setPendingFiles((prev) => prev.filter((file) => file.id !== id));
   };
 
-  const flushAssistantDelta = (assistantId: string) => {
+  const flushAssistantDelta = (conversationId: string, assistantId: string) => {
     const delta = deltaBufferRef.current;
     if (!delta) return;
     deltaBufferRef.current = "";
-    updateActive((conversation) => ({
+    updateConversation(conversationId, (conversation) => ({
       ...conversation,
       messages: conversation.messages.map((message) =>
         message.id === assistantId ? { ...message, content: message.content + delta } : message,
@@ -442,18 +510,172 @@ export default function ChatPage() {
     }));
   };
 
-  const scheduleAssistantDelta = (assistantId: string, delta: string) => {
+  const scheduleAssistantDelta = (conversationId: string, assistantId: string, delta: string) => {
     deltaBufferRef.current += delta;
     if (deltaTimerRef.current !== null) return;
     deltaTimerRef.current = window.setTimeout(() => {
       deltaTimerRef.current = null;
-      flushAssistantDelta(assistantId);
+      flushAssistantDelta(conversationId, assistantId);
     }, 120);
   };
 
+  const applyRunEvent = (conversationId: string, assistantId: string, event: ChatRunEvent) => {
+    if (event.type === "assistant_delta" && "delta" in event) {
+      scheduleAssistantDelta(conversationId, assistantId, event.delta);
+      updateConversation(conversationId, (conversation) => ({
+        ...conversation,
+        updatedAt: Date.now(),
+        messages: conversation.messages.map((message) =>
+          message.id === assistantId ? { ...message, runId: event.run_id, lastSeq: event.seq } : message,
+        ),
+      }));
+      return;
+    }
+
+    if (event.type === "heartbeat") {
+      return;
+    }
+
+    if (event.type === "done" && "final_response" in event) {
+      if (deltaTimerRef.current !== null) {
+        window.clearTimeout(deltaTimerRef.current);
+        deltaTimerRef.current = null;
+      }
+      flushAssistantDelta(conversationId, assistantId);
+      updateConversation(conversationId, (conversation) => ({
+        ...conversation,
+        sessionId: event.session_id ?? conversation.sessionId,
+        updatedAt: Date.now(),
+        messages: conversation.messages.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: event.final_response || message.content,
+                trace: sanitizeTrace(event.trace),
+                running: false,
+                runId: event.run_id,
+                lastSeq: event.seq,
+              }
+            : message,
+        ),
+      }));
+      return;
+    }
+
+    if (event.type === "error") {
+      updateConversation(conversationId, (conversation) => ({
+        ...conversation,
+        updatedAt: Date.now(),
+        messages: conversation.messages.map((message) =>
+          message.id === assistantId
+            ? {
+                ...message,
+                content: message.content || `DAClaw web chat failed: ${event.message}`,
+                running: false,
+                trace: appendTraceEvent(message.trace, event),
+                runId: event.run_id,
+                lastSeq: event.seq,
+              }
+            : message,
+        ),
+      }));
+      return;
+    }
+
+    updateConversation(conversationId, (conversation) => ({
+      ...conversation,
+      updatedAt: Date.now(),
+      messages: conversation.messages.map((message) =>
+        message.id === assistantId
+          ? { ...message, trace: appendTraceEvent(message.trace, event), runId: event.run_id, lastSeq: event.seq }
+          : message,
+      ),
+    }));
+  };
+
+  const pollRun = async (
+    runId: string,
+    conversationId: string,
+    assistantId: string,
+    startAfter = -1,
+    signal?: AbortSignal,
+  ) => {
+    let after = startAfter;
+    setRunning(true);
+    while (true) {
+      if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      const payload = await api.getChatRunEvents(runId, after);
+      for (const event of payload.events) {
+        after = event.seq;
+        applyRunEvent(conversationId, assistantId, event);
+      }
+      if (isTerminalChatRunStatus(payload.run.status)) {
+        updateConversation(conversationId, (conversation) => ({
+          ...conversation,
+          sessionId: payload.run.session_id ?? conversation.sessionId,
+          messages: conversation.messages.map((message) =>
+            message.id === assistantId
+              ? {
+                  ...message,
+                  running: false,
+                  content:
+                    payload.run.status === "failed"
+                      ? message.content || `DAClaw web chat failed: ${payload.run.error || "Unknown error"}`
+                      : message.content || payload.run.final_response || "",
+                }
+              : message,
+          ),
+        }));
+        break;
+      }
+      await delay(payload.events.length > 0 ? 200 : 900, signal);
+    }
+  };
+
+  const streamChatFallback = async (
+    body: Parameters<typeof api.streamChat>[0],
+    conversationId: string,
+    assistantId: string,
+    signal?: AbortSignal,
+  ) => {
+    const runId = `legacy-stream-${Date.now().toString(36)}`;
+    await api.streamChat(
+      body,
+      (event: ChatStreamEvent) => {
+        const seq = legacyStreamSeqRef.current++;
+        applyRunEvent(conversationId, assistantId, { ...event, run_id: runId, seq } as ChatRunEvent);
+      },
+      signal,
+    );
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    for (const conversation of conversations) {
+      for (const message of conversation.messages) {
+        if (message.role !== "assistant" || !message.running || !message.runId) continue;
+        void pollRun(message.runId, conversation.id, message.id, message.lastSeq ?? -1, controller.signal).catch((error) => {
+          if (controller.signal.aborted) return;
+          const text = error instanceof Error ? error.message : String(error);
+          updateConversation(conversation.id, (current) => ({
+            ...current,
+            messages: current.messages.map((item) =>
+              item.id === message.id
+                ? { ...item, running: false, content: item.content || `DAClaw web chat failed: ${text}` }
+                : item,
+            ),
+          }));
+        });
+      }
+    }
+    return () => controller.abort();
+    // Run only on page mount. Running messages are persisted with runId/lastSeq.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const submit = async () => {
     const text = normalizeMessageText(input.trim());
-    if ((!text && pendingFiles.length === 0) || running) return;
+    if ((!text && pendingFiles.length === 0) || activeRunning || !active) return;
 
     const userMessage: ChatMessage = {
       id: makeId("msg"),
@@ -462,18 +684,19 @@ export default function ChatPage() {
       attachments: pendingFiles,
     };
     const assistantId = makeId("msg");
-    const history = active.messages
+    const conversationId = active.id;
+    const history: ChatStreamMessage[] = active.messages
       .filter((message) => message.content.trim())
       .map((message) => ({ role: message.role, content: message.content }));
 
-    updateActive((conversation) => ({
+    updateConversation(conversationId, (conversation) => ({
       ...conversation,
       title: conversation.messages.length === 0 ? titleFrom(text || pendingFiles[0]?.name || "") : conversation.title,
       updatedAt: Date.now(),
       messages: [
         ...conversation.messages,
         userMessage,
-        { id: assistantId, role: "assistant", content: "", trace: [], running: true },
+        { id: assistantId, role: "assistant", content: "", trace: [], running: true, lastSeq: -1 },
       ],
     }));
     setInput("");
@@ -483,79 +706,42 @@ export default function ChatPage() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      await api.streamChat(
-        {
-          message: userMessage.content,
-          history,
-          attachments: userMessage.attachments ?? [],
-          session_id: active.sessionId ?? null,
-        },
-        (event) => {
-          if (event.type === "assistant_delta" && "delta" in event) {
-            scheduleAssistantDelta(assistantId, event.delta);
-            return;
-          }
-
-          if (event.type === "heartbeat") {
-            return;
-          }
-
-          if (event.type === "done" && "final_response" in event) {
-            if (deltaTimerRef.current !== null) {
-              window.clearTimeout(deltaTimerRef.current);
-              deltaTimerRef.current = null;
-            }
-            flushAssistantDelta(assistantId);
-            updateActive((conversation) => ({
-              ...conversation,
-              sessionId: event.session_id ?? conversation.sessionId,
-              updatedAt: Date.now(),
-              messages: conversation.messages.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      content: event.final_response || message.content,
-                      trace: sanitizeTrace(event.trace),
-                      running: false,
-                    }
-                  : message,
-              ),
-            }));
-            return;
-          }
-
-          if (event.type === "error") {
-            updateActive((conversation) => ({
-              ...conversation,
-              messages: conversation.messages.map((message) =>
-                message.id === assistantId
-                  ? {
-                      ...message,
-                      content: `DAClaw web chat failed: ${event.message}`,
-                      running: false,
-                      trace: appendTraceEvent(message.trace, event),
-                    }
-                  : message,
-              ),
-            }));
-            return;
-          }
-
-          updateActive((conversation) => ({
-            ...conversation,
-            messages: conversation.messages.map((message) =>
-              message.id === assistantId
-                ? { ...message, trace: appendTraceEvent(message.trace, event) }
-                : message,
-            ),
-          }));
-        },
-        controller.signal,
-      );
+      const body = {
+        message: userMessage.content,
+        history,
+        attachments: userMessage.attachments ?? [],
+        session_id: active.sessionId ?? null,
+      };
+      const run = await api.startChatRun(body);
+      updateConversation(conversationId, (conversation) => ({
+        ...conversation,
+        messages: conversation.messages.map((message) =>
+          message.id === assistantId ? { ...message, runId: run.run_id, lastSeq: -1 } : message,
+        ),
+      }));
+      await pollRun(run.run_id, conversationId, assistantId, -1, controller.signal);
     } catch (error) {
+      if (!controller.signal.aborted && isMethodNotAllowedError(error)) {
+        try {
+          await streamChatFallback(
+            {
+              message: userMessage.content,
+              history,
+              attachments: userMessage.attachments ?? [],
+              session_id: active.sessionId ?? null,
+            },
+            conversationId,
+            assistantId,
+            controller.signal,
+          );
+          return;
+        } catch (fallbackError) {
+          error = fallbackError;
+        }
+      }
       if (!controller.signal.aborted) {
         const message = error instanceof Error ? error.message : String(error);
-        updateActive((conversation) => ({
+        updateConversation(conversationId, (conversation) => ({
           ...conversation,
           messages: conversation.messages.map((item) =>
             item.id === assistantId
@@ -569,7 +755,7 @@ export default function ChatPage() {
         window.clearTimeout(deltaTimerRef.current);
         deltaTimerRef.current = null;
       }
-      flushAssistantDelta(assistantId);
+      flushAssistantDelta(conversationId, assistantId);
       setRunning(false);
       abortRef.current = null;
     }
@@ -582,6 +768,12 @@ export default function ChatPage() {
       deltaTimerRef.current = null;
     }
     deltaBufferRef.current = "";
+    updateActive((conversation) => ({
+      ...conversation,
+      messages: conversation.messages.map((message) =>
+        message.running ? { ...message, running: false, content: message.content || "Stopped" } : message,
+      ),
+    }));
     setRunning(false);
   };
 
@@ -675,7 +867,7 @@ export default function ChatPage() {
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold text-muted-foreground">DAClaw</h1>
           </div>
-          {running && (
+          {activeRunning && (
             <Badge variant="secondary" className="gap-1 rounded-full">
               <Loader2 className="h-3 w-3 animate-spin" />
               Working
@@ -735,7 +927,7 @@ export default function ChatPage() {
                   variant="ghost"
                   size="icon"
                   className="h-9 w-9 shrink-0 rounded-full"
-                  disabled={uploading || running}
+                  disabled={uploading || activeRunning}
                   onClick={() => fileInputRef.current?.click()}
                   aria-label="Upload files"
                 >
@@ -753,9 +945,9 @@ export default function ChatPage() {
                   }}
                   placeholder="Ask DAClaw"
                   className="max-h-32 min-h-9 flex-1 resize-none bg-transparent py-2 text-[15px] leading-5 outline-none placeholder:text-muted-foreground"
-                  disabled={running}
+                  disabled={activeRunning}
                 />
-                {running ? (
+                {activeRunning ? (
                   <Button variant="outline" className="h-9 shrink-0 rounded-full px-4" onClick={stop}>
                     Stop
                   </Button>
