@@ -123,6 +123,12 @@ class TestWebServerEndpoints:
         assert "platform" in data
         assert "active_sessions" in data
 
+    def test_unknown_api_route_returns_json_not_spa_html(self):
+        resp = self.client.get("/api/does-not-exist")
+        assert resp.status_code == 404
+        assert resp.headers["content-type"].startswith("application/json")
+        assert resp.json()["detail"] == "API endpoint not found: /api/does-not-exist"
+
     def test_chat_upload_accepts_sqlite_database(self, tmp_path, monkeypatch):
         pytest.importorskip("multipart")
 

@@ -3473,6 +3473,12 @@ def mount_spa(application: FastAPI):
 
     @application.get("/{full_path:path}")
     async def serve_spa(full_path: str):
+        if full_path == "api" or full_path.startswith("api/"):
+            return JSONResponse(
+                {"detail": f"API endpoint not found: /{full_path}"},
+                status_code=404,
+            )
+
         file_path = WEB_DIST / full_path
         # Prevent path traversal via url-encoded sequences (%2e%2e/)
         if (

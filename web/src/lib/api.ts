@@ -9,6 +9,21 @@ declare global {
 }
 let _sessionToken: string | null = null;
 
+function compactResponsePreview(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  return normalized.length > 180 ? `${normalized.slice(0, 180)}...` : normalized;
+}
+
+function extractErrorDetail(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const record = payload as Record<string, unknown>;
+  const detail = record.detail ?? record.error ?? record.message;
+  if (typeof detail === "string") return detail;
+  if (detail !== undefined) return JSON.stringify(detail);
+  return null;
+}
+
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   // Inject the session token into all /api/ requests.
   const headers = new Headers(init?.headers);
@@ -17,11 +32,41 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     headers.set("Authorization", `Bearer ${token}`);
   }
   const res = await fetch(`${BASE}${url}`, { ...init, headers });
+  const contentType = res.headers.get("content-type") ?? "";
+  const text = await res.text();
+  const trimmed = text.trim();
+  const looksLikeJSON = trimmed.startsWith("{") || trimmed.startsWith("[");
+
+  const parsePayload = (): unknown => {
+    try {
+      return JSON.parse(text);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Invalid JSON from ${url}: ${detail}`);
+    }
+  };
+
   if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    throw new Error(`${res.status}: ${text}`);
+    if (looksLikeJSON) {
+      const payload = parsePayload();
+      throw new Error(`${res.status}: ${extractErrorDetail(payload) ?? JSON.stringify(payload)}`);
+    }
+    const preview = compactResponsePreview(text) || res.statusText;
+    throw new Error(`${res.status}: ${preview}`);
   }
-  return res.json();
+
+  if (!text) {
+    return undefined as T;
+  }
+
+  if (!contentType.includes("application/json") && !looksLikeJSON) {
+    const preview = compactResponsePreview(text);
+    throw new Error(
+      `Expected JSON from ${url}, received ${contentType || "non-JSON response"}${preview ? `: ${preview}` : ""}`,
+    );
+  }
+
+  return parsePayload() as T;
 }
 
 async function getSessionToken(): Promise<string> {
