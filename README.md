@@ -1,29 +1,14 @@
-<p align="center">
-  <img src="assets/banner.png" alt="DAClaw Agent" width="100%">
-</p>
-
 # DAClaw Agent ☤
 
 <p align="center">
   <a href="https://da-open.github.io/docs/"><img src="https://img.shields.io/badge/Docs-da--open.github.io-2DD4BF?style=for-the-badge" alt="Documentation"></a>
-  <a href="https://github.com/DA-Open/DAClaw/issues"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
   <a href="https://github.com/DA-Open/DAClaw/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
   <a href="https://github.com/DA-Open"><img src="https://img.shields.io/badge/Built%20by-DA--Open-blueviolet?style=for-the-badge" alt="Built by DA-Open"></a>
 </p>
 
-**The self-improving AI agent built by [DA-Open](https://github.com/DA-Open).** It's the only agent with a built-in learning loop — it creates skills from experience, improves them during use, nudges itself to persist knowledge, searches its own past conversations, and builds a deepening model of who you are across sessions. Run it on a $5 VPS, a GPU cluster, or serverless infrastructure that costs nearly nothing when idle. It's not tied to your laptop — talk to it from Telegram while it works on a cloud VM.
+**A self-improving, full-stack data agent built by [DA-Open](https://github.com/DA-Open).** Point it at your data and ask in plain English — it plans a transparent workflow, runs real SQL, and delivers charts, dashboards, reports, narrated data videos, dbt pipelines, and synthetic datasets. Underneath it's a complete general agent too: a built-in learning loop that turns experience into reusable skills, persistent memory, and a messaging gateway so you can talk to it from anywhere.
 
-Use any model you want — DA-Open ModelHub, [OpenRouter](https://openrouter.ai) (200+ models), [Xiaomi MiMo](https://platform.xiaomimimo.com), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), [Hugging Face](https://huggingface.co), OpenAI, or your own endpoint. Switch with `daclaw model` — no code changes, no lock-in.
-
-<table>
-<tr><td><b>A real terminal interface</b></td><td>Full TUI with multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output.</td></tr>
-<tr><td><b>Lives where you do</b></td><td>Telegram, Discord, Slack, WhatsApp, Signal, and CLI — all from a single gateway process. Voice memo transcription, cross-platform conversation continuity.</td></tr>
-<tr><td><b>A closed learning loop</b></td><td>Agent-curated memory with periodic nudges. Autonomous skill creation after complex tasks. Skills self-improve during use. FTS5 session search with LLM summarization for cross-session recall. <a href="https://github.com/plastic-labs/honcho">Honcho</a> dialectic user modeling. Compatible with the <a href="https://agentskills.io">agentskills.io</a> open standard.</td></tr>
-<tr><td><b>Scheduled automations</b></td><td>Built-in cron scheduler with delivery to any platform. Daily reports, nightly backups, weekly audits — all in natural language, running unattended.</td></tr>
-<tr><td><b>Delegates and parallelizes</b></td><td>Spawn isolated subagents for parallel workstreams. Write Python scripts that call tools via RPC, collapsing multi-step pipelines into zero-context-cost turns.</td></tr>
-<tr><td><b>Runs anywhere, not just your laptop</b></td><td>Six terminal backends — local, Docker, SSH, Daytona, Singularity, and Modal. Daytona and Modal offer serverless persistence — your agent's environment hibernates when idle and wakes on demand, costing nearly nothing between sessions. Run it on a $5 VPS or a GPU cluster.</td></tr>
-<tr><td><b>Research-ready</b></td><td>Batch trajectory generation, Atropos RL environments, trajectory compression for training the next generation of tool-calling models.</td></tr>
-</table>
+Use any model you want — DA-Open ModelHub, [OpenRouter](https://openrouter.ai) (200+ models), [z.ai/GLM](https://z.ai), [Kimi/Moonshot](https://platform.moonshot.ai), [MiniMax](https://www.minimax.io), OpenAI, or your own endpoint. Switch with `daclaw model` — no code changes, no lock-in.
 
 ---
 
@@ -50,6 +35,19 @@ Reports become **narrated, auto-advancing data videos** (TTS voice-over). The **
 </p>
 
 > Try it: `daclaw dashboard` → open **Data Analysis** → Connect database → ask *"Chart total net revenue by product department."*
+
+---
+
+## Also a complete general agent
+
+<table>
+<tr><td><b>A real terminal interface</b></td><td>Full TUI with multiline editing, slash-command autocomplete, conversation history, interrupt-and-redirect, and streaming tool output.</td></tr>
+<tr><td><b>Lives where you do</b></td><td>Telegram, Slack, WhatsApp, Signal, and CLI — all from a single gateway process. Voice memo transcription, cross-platform conversation continuity.</td></tr>
+<tr><td><b>A closed learning loop</b></td><td>Agent-curated memory with periodic nudges. Autonomous skill creation after complex tasks. Skills self-improve during use. FTS5 session search with LLM summarization for cross-session recall. Compatible with the <a href="https://agentskills.io">agentskills.io</a> open standard.</td></tr>
+<tr><td><b>Scheduled automations</b></td><td>Built-in cron scheduler with delivery to any platform — daily reports, nightly backups, weekly audits, all in natural language.</td></tr>
+<tr><td><b>Delegates and parallelizes</b></td><td>Spawn isolated subagents for parallel workstreams, and run tools concurrently to collapse multi-step pipelines.</td></tr>
+<tr><td><b>Runs anywhere</b></td><td>Local, Docker, SSH, Daytona, Singularity, and Modal backends. Serverless options hibernate when idle — run it on a $5 VPS or a GPU cluster.</td></tr>
+</table>
 
 ---
 
@@ -239,11 +237,9 @@ python -m pytest tests/ -q
 
 ## Community
 
-- 💬 [Discord](https://github.com/DA-Open/DAClaw/issues)
 - 📚 [Skills Hub](https://agentskills.io)
 - 🐛 [Issues](https://github.com/DA-Open/DAClaw/issues)
 - 💡 [Discussions](https://github.com/DA-Open/DAClaw/discussions)
-- 🔌 [DAClaw](https://github.com/AaronWong1999/daclawclaw) — Community WeChat bridge: Run DAClaw Agent and OpenClaw on the same WeChat account.
 
 ---
 
