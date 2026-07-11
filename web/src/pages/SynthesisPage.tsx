@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Wand2, Database, Loader2, Download, FileJson, FileSpreadsheet, FileText,
-  Table2, Sparkles, History, X, ChevronRight,
+  Table2, Sparkles, History, X, ChevronRight, CheckCircle2, Circle, Hash, Type, Calendar, Braces, ToggleLeft, Clock, Layers,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { DATableInfo, DASynthesizeResponse } from "@/lib/api";
@@ -14,7 +14,7 @@ import { useI18n } from "@/i18n";
 // Pick params (count, formats), run, preview + download, keep a local history.
 
 type Mode = "training" | "table";
-type Style = "text2sql" | "qa" | "instruction";
+type Style = "text2sql" | "qa" | "instruction" | "s3eval";
 type Fmt = "jsonl" | "csv" | "xlsx" | "parquet";
 
 const HISTORY_KEY = "daclaw.synth.history.v1";
@@ -33,6 +33,7 @@ const STYLE_LABEL: Record<Style, { en: string; zh: string; desc_en: string; desc
   text2sql: { en: "Text-to-SQL", zh: "Text-to-SQL", desc_en: "NL question → SQL pairs", desc_zh: "自然语言问题 → SQL 配对" },
   qa: { en: "Q&A", zh: "问答", desc_en: "grounded question/answer", desc_zh: "基于数据的问答" },
   instruction: { en: "Instruction", zh: "指令微调", desc_en: "instruction/input/output triples", desc_zh: "指令/输入/输出三元组" },
+  s3eval: { en: "SQL-Exec eval", zh: "SQL 执行评测", desc_en: "synthetic leakage-free eval (S3Eval-style)", desc_zh: "合成无泄漏评测(S3Eval 风格)" },
 };
 
 function fmtIcon(f: string) {
@@ -62,11 +63,27 @@ export default function SynthesisPage() {
   const [count, setCount] = useState(20);
   const [formats, setFormats] = useState<Fmt[]>(["jsonl"]);
   const [busy, setBusy] = useState(false);
+  const [stageIdx, setStageIdx] = useState(0);
   const [result, setResult] = useState<DASynthesizeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<SynthRun[]>(loadHistory);
   const [historyOpen, setHistoryOpen] = useState(false);
   const seq = useRef(0);
+
+  // stages shown in the live "synthesis pipeline" while generating
+  const liveStages = useMemo(() => {
+    if (mode === "table") return zh ? ["设计 schema", "生成数据行", "校验与定型", "写出文件"] : ["Design schema", "Generate rows", "Validate & type", "Write files"];
+    if (style === "s3eval") return zh ? ["构建合成表", "生成 SQL", "执行取答案", "写出文件"] : ["Build synthetic table", "Generate SQL", "Execute for answer", "Write files"];
+    return zh ? ["读取 schema", "采样事实", "生成样本", "写出文件"] : ["Read schema", "Sample facts", "Generate examples", "Write files"];
+  }, [mode, style, zh]);
+
+  // advance the animated stage while busy
+  useEffect(() => {
+    if (!busy) { setStageIdx(0); return; }
+    setStageIdx(0);
+    const iv = setInterval(() => setStageIdx((i) => Math.min(i + 1, liveStages.length - 1)), 2200);
+    return () => clearInterval(iv);
+  }, [busy, liveStages.length]);
 
   useEffect(() => { api.daTables().then((r) => setTables(r.tables)).catch(() => {}); }, []);
 
@@ -76,8 +93,9 @@ export default function SynthesisPage() {
   const canRun = useMemo(() => {
     if (busy) return false;
     if (mode === "table") return spec.trim().length > 0;
+    if (style === "s3eval") return true; // self-contained, no source needed
     return tables.length > 0 || sql.trim().length > 0;
-  }, [busy, mode, spec, tables.length, sql]);
+  }, [busy, mode, style, spec, tables.length, sql]);
 
   const run = async () => {
     if (!canRun) return;
@@ -154,7 +172,7 @@ export default function SynthesisPage() {
                 <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">{zh ? "训练数据风格" : "Training style"}</div>
                 <div className="space-y-1.5">
                   {(Object.keys(STYLE_LABEL) as Style[]).map((s) => (
-                    <button key={s} onClick={() => setStyle(s)} className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left ${style === s ? "border-[#2DD4BF] bg-[#2DD4BF]/10" : "border-white/10 hover:bg-white/5"}`}>
+                    <button key={s} onClick={() => { setStyle(s); setExtra(s === "s3eval" ? "medium" : ""); }} className={`flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left ${style === s ? "border-[#2DD4BF] bg-[#2DD4BF]/10" : "border-white/10 hover:bg-white/5"}`}>
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-semibold">{zh ? STYLE_LABEL[s].zh : STYLE_LABEL[s].en}</div>
                         <div className="text-[10px] text-slate-500">{zh ? STYLE_LABEL[s].desc_zh : STYLE_LABEL[s].desc_en}</div>
@@ -164,7 +182,8 @@ export default function SynthesisPage() {
                   ))}
                 </div>
               </div>
-              {/* source */}
+              {/* source (not needed for the self-contained s3eval style) */}
+              {style !== "s3eval" && (
               <div>
                 <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">{zh ? "数据来源" : "Source"}</div>
                 {tables.length > 0 ? (
@@ -177,6 +196,7 @@ export default function SynthesisPage() {
                 )}
                 <textarea value={sql} onChange={(e) => setSql(e.target.value)} rows={2} placeholder={zh ? "可选:参考 SQL(围绕它生成变体)" : "Optional: a reference SQL to build variations around"} className="mt-2 w-full resize-none rounded-lg border border-white/10 bg-[#141d2b] px-2.5 py-2 font-mono text-[11px]" />
               </div>
+              )}
             </>
           ) : (
             <div>
@@ -208,10 +228,24 @@ export default function SynthesisPage() {
             </div>
           </div>
 
-          <div>
-            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">{zh ? "额外要求(可选)" : "Extra guidance (optional)"}</div>
-            <input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder={zh ? "例如:只要英文、加入噪声、覆盖边界情况…" : "e.g. English only, include noise, cover edge cases…"} className="w-full rounded-lg border border-white/10 bg-[#141d2b] px-2.5 py-2 text-sm" />
-          </div>
+          {mode === "training" && style === "s3eval" ? (
+            <div>
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">{zh ? "难度" : "Difficulty"}</div>
+              <div className="flex gap-1">
+                {(["easy", "medium", "hard"] as const).map((d) => (
+                  <button key={d} onClick={() => setExtra(d)} className={`flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium ${(extra || "medium") === d ? "border-[#2DD4BF] bg-[#2DD4BF]/10 text-[#2DD4BF]" : "border-white/10 text-slate-400 hover:bg-white/5"}`}>
+                    {zh ? ({ easy: "简单", medium: "中等", hard: "困难" }[d]) : d}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-1.5 text-[10px] leading-tight text-slate-500">{zh ? "合成全新表格 + SQL 并执行得到答案,评测无泄漏(S3Eval 风格)。" : "Fresh synthetic tables + SQL executed for ground-truth answers — leakage-free eval (S3Eval-style)."}</div>
+            </div>
+          ) : (
+            <div>
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">{zh ? "额外要求(可选)" : "Extra guidance (optional)"}</div>
+              <input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder={zh ? "例如:只要英文、加入噪声、覆盖边界情况…" : "e.g. English only, include noise, cover edge cases…"} className="w-full rounded-lg border border-white/10 bg-[#141d2b] px-2.5 py-2 text-sm" />
+            </div>
+          )}
         </div>
 
         <div className="border-t border-white/5 p-3">
@@ -225,9 +259,23 @@ export default function SynthesisPage() {
       {/* result column */}
       <div className="min-w-0 flex-1 overflow-auto p-6">
         {busy && (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
-            <Loader2 className="h-8 w-8 animate-spin text-[#2DD4BF]" />
-            <div className="text-sm">{zh ? "正在合成数据…" : "Synthesizing data…"}</div>
+          <div className="flex h-full flex-col items-center justify-center gap-6 text-slate-400">
+            <div className="flex items-center gap-2">
+              <Wand2 className="h-6 w-6 animate-pulse text-[#2DD4BF]" />
+              <span className="text-sm font-semibold text-slate-200">{zh ? "正在合成数据…" : "Synthesizing data…"}</span>
+            </div>
+            {/* live synthesis pipeline */}
+            <div className="flex items-center gap-1">
+              {liveStages.map((s, i) => (
+                <div key={s} className="flex items-center">
+                  <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 transition-all ${i < stageIdx ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300" : i === stageIdx ? "border-[#2DD4BF]/60 bg-[#2DD4BF]/10 text-[#2DD4BF] shadow-[0_0_20px_rgba(45,212,191,.25)]" : "border-white/10 text-slate-600"}`}>
+                    {i < stageIdx ? <CheckCircle2 className="h-4 w-4" /> : i === stageIdx ? <Loader2 className="h-4 w-4 animate-spin" /> : <Circle className="h-4 w-4" />}
+                    <span className="text-xs font-medium">{s}</span>
+                  </div>
+                  {i < liveStages.length - 1 && <div className={`h-px w-6 ${i < stageIdx ? "bg-emerald-400/40" : "bg-white/10"}`} />}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {!busy && error && <div className="m-2 rounded-lg border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-300">{error}</div>}
@@ -248,6 +296,30 @@ export default function SynthesisPage() {
                 <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-400">{result.n_rows} {zh ? "行" : "rows"}</span>
                 {result.source && <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] text-slate-500">{result.source === "llm" ? "LLM" : (zh ? "启发式" : "heuristic")}</span>}
               </div>
+              {/* stat cards */}
+              <div className="mt-3 grid grid-cols-4 gap-2">
+                {[
+                  { icon: Layers, label: zh ? "行" : "Rows", value: (result.n_rows ?? 0).toLocaleString(), color: "#2DD4BF" },
+                  { icon: Table2, label: zh ? "列" : "Columns", value: (result.columns?.length ?? 0), color: "#6366F1" },
+                  { icon: Download, label: zh ? "格式" : "Formats", value: (result.files?.length ?? 0), color: "#F59E0B" },
+                  { icon: Clock, label: zh ? "耗时" : "Time", value: result.elapsed_ms ? `${(result.elapsed_ms / 1000).toFixed(1)}s` : "—", color: "#EC4899" },
+                ].map((s) => (
+                  <div key={s.label} className="rounded-xl border border-white/10 bg-white/[0.02] p-2.5">
+                    <s.icon className="h-3.5 w-3.5" style={{ color: s.color }} />
+                    <div className="mt-1 text-lg font-black tabular-nums text-slate-100">{s.value}</div>
+                    <div className="text-[9px] uppercase tracking-wide text-slate-500">{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              {/* difficulty distribution (s3eval) */}
+              {result.difficulty_dist && (
+                <div className="mt-2 flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <span className="uppercase tracking-wide text-slate-500">{zh ? "难度分布" : "Difficulty"}:</span>
+                  {Object.entries(result.difficulty_dist).map(([k, v]) => (
+                    <span key={k} className="rounded-full bg-white/5 px-2 py-0.5">{k} · {v}</span>
+                  ))}
+                </div>
+              )}
               {(result.files?.length ?? 0) > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   {result.files!.map((f) => (
@@ -258,6 +330,25 @@ export default function SynthesisPage() {
                 </div>
               )}
             </div>
+            {/* column schema with type badges */}
+            {(result.column_stats?.length ?? 0) > 0 && (
+              <div className="rounded-2xl border border-white/10 bg-[#212e42]/40 p-3">
+                <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">{zh ? "字段结构" : "Schema"}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {result.column_stats!.map((cs) => {
+                    const KindIcon = { number: Hash, text: Type, date: Calendar, json: Braces, bool: ToggleLeft }[cs.kind] ?? Type;
+                    const kc = { number: "#2DD4BF", text: "#94a3b8", date: "#F59E0B", json: "#6366F1", bool: "#EC4899" }[cs.kind] ?? "#94a3b8";
+                    return (
+                      <div key={cs.name} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1" title={`${cs.distinct} distinct · ${Math.round(cs.fill * 100)}% filled`}>
+                        <KindIcon className="h-3 w-3" style={{ color: kc }} />
+                        <span className="text-[11px] font-medium text-slate-200">{cs.name}</span>
+                        <span className="text-[9px] text-slate-500">{cs.distinct}u</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {/* preview table */}
             {result.preview && result.preview.length > 0 && (
               <div className="overflow-hidden rounded-2xl border border-white/10">

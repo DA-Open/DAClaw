@@ -1969,19 +1969,19 @@ def _tool_summary(name: str, args: Any = None) -> Dict[str, Any]:
         command = str(args.get("command") or "")
         lowered = command.lower()
         if ".sqlite" in lowered or ".sqlite3" in lowered or "sqlite3" in lowered:
-            label = "SQLite 检查"
+            label = "SQLite inspect"
         elif "to_csv" in lowered or ".csv" in lowered or ".html" in lowered:
-            label = "报告文件生成"
+            label = "Generate report file"
         elif "pandas" in lowered or "read_sql" in lowered or "dataframe" in lowered:
-            label = "数据分析"
+            label = "Data analysis"
         elif "python" in lowered or "python3" in lowered:
-            label = "Python 分析"
+            label = "Python analysis"
         elif re.search(r"(^|\s)(rg|find)\s", lowered):
-            label = "文件搜索"
+            label = "Search files"
         elif re.search(r"(^|\s)(head|tail|cat|sed)\s", lowered):
-            label = "文件预览"
+            label = "Preview file"
         else:
-            label = "终端命令"
+            label = "Terminal command"
         summary["summary"] = label
         preview = _single_line_preview(command)
         if preview:
@@ -1991,12 +1991,12 @@ def _tool_summary(name: str, args: Any = None) -> Dict[str, Any]:
         return summary
 
     friendly = {
-        "write_file": "文件写入",
-        "read_file": "文件读取",
-        "search_files": "文件搜索",
-        "patch": "文件修改",
-        "todo": "任务规划",
-        "skill_view": "技能查看",
+        "write_file": "Write file",
+        "read_file": "Read file",
+        "search_files": "Search files",
+        "patch": "Edit file",
+        "todo": "Plan tasks",
+        "skill_view": "View skill",
     }.get(lower_name)
     if friendly:
         summary["summary"] = friendly

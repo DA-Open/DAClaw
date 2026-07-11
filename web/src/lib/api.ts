@@ -1044,6 +1044,12 @@ export interface DASynthFile {
   n_rows: number;
   download_url?: string;
 }
+export interface DASynthColStat {
+  name: string;
+  kind: string;
+  distinct: number;
+  fill: number;
+}
 export interface DASynthesizeResponse {
   ok: boolean;
   mode?: string;
@@ -1053,6 +1059,10 @@ export interface DASynthesizeResponse {
   n_rows?: number;
   preview?: Record<string, unknown>[];
   files?: DASynthFile[];
+  column_stats?: DASynthColStat[];
+  elapsed_ms?: number;
+  stages?: string[];
+  difficulty_dist?: Record<string, number>;
   error?: string;
 }
 export interface DATableSampleResponse {

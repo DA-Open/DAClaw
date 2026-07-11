@@ -34,7 +34,7 @@ class SynthError(RuntimeError):
     pass
 
 
-TRAINING_STYLES = ("text2sql", "qa", "instruction")
+TRAINING_STYLES = ("text2sql", "qa", "instruction", "s3eval")
 FORMATS = ("jsonl", "csv", "xlsx", "parquet")
 
 
@@ -182,6 +182,10 @@ def synth_training_data(
 ) -> List[Dict[str, Any]]:
     """Generate `count` LLM-training rows in the given style."""
     style = style if style in TRAINING_STYLES else "text2sql"
+    # S3Eval: synthetic, leakage-free SQL-execution eval rows. Self-contained —
+    # builds its own random tables, so it needs no connected DB.
+    if style == "s3eval":
+        return synth_s3eval(engine, count=count, difficulty=str(extra or "medium"))
     schema = _schema_brief(engine, tables)
     if schema == "(no tables)" and not sql:
         raise SynthError("Connect a database (or provide SQL) before synthesizing training data.")
@@ -262,6 +266,83 @@ def _fallback_training(engine: DataEngine, style: str, count: int, tables: Optio
             out.append({"instruction": q + suffix, "input": "", "output": f"Use SQL: {sql}"})
         i += 1
     return out[:count]
+
+
+# ---------------------------------------------------------------------------
+# S3Eval — synthetic, leakage-free SQL-execution eval rows
+# (small nod to S3Eval, Lei et al., NAACL 2024, arXiv:2310.15147)
+# Build a fresh random table the model has never seen, generate a SQL query over
+# it, and EXECUTE it to get the ground-truth answer. Difficulty scales the query
+# (filters/aggregation/group-by).
+# ---------------------------------------------------------------------------
+
+_S3_WORDS = ["apple", "river", "cobalt", "maple", "quartz", "ember", "harbor", "willow",
+             "onyx", "cedar", "linen", "marble", "saffron", "indigo", "basalt", "cirrus"]
+
+
+def synth_s3eval(engine: DataEngine, *, count: int = 20, difficulty: str = "medium") -> List[Dict[str, Any]]:
+    """Generate `count` synthetic SQL-execution eval examples: {table, sql, answer}."""
+    rng = random.Random(20260711)
+    diff = difficulty if difficulty in ("easy", "medium", "hard") else "medium"
+    rows: List[Dict[str, Any]] = []
+    for i in range(count):
+        tname = f"s3t_{i}_{rng.randint(1000,9999)}"
+        n_rows = rng.randint(6, 14)
+        # random schema: a category, a group key, two measures
+        cats = rng.sample(_S3_WORDS, k=min(4, len(_S3_WORDS)))
+        groups = [f"g{rng.randint(1,3)}" for _ in range(3)]
+        groups = sorted(set(groups)) or ["g1"]
+        data = []
+        for r in range(n_rows):
+            data.append({
+                "id": r + 1,
+                "category": rng.choice(cats),
+                "grp": rng.choice(groups),
+                "amount": rng.randint(1, 100),
+                "score": round(rng.uniform(0, 10), 1),
+            })
+        # materialize the synthetic table
+        try:
+            with engine._lock:
+                engine.con.execute(f'DROP TABLE IF EXISTS "{tname}"')
+                engine.con.execute(f'CREATE TABLE "{tname}" (id INTEGER, category VARCHAR, grp VARCHAR, amount INTEGER, score DOUBLE)')
+                engine.con.executemany(
+                    f'INSERT INTO "{tname}" VALUES (?,?,?,?,?)',
+                    [(d["id"], d["category"], d["grp"], d["amount"], d["score"]) for d in data],
+                )
+        except Exception:
+            continue
+        # build a SQL query whose complexity depends on difficulty
+        if diff == "easy":
+            sql = f'SELECT COUNT(*) FROM "{tname}" WHERE amount > {rng.randint(20,60)}'
+        elif diff == "hard":
+            g = rng.choice(groups)
+            sql = (f'SELECT category, SUM(amount) AS total FROM "{tname}" '
+                   f"WHERE grp = '{g}' GROUP BY category HAVING SUM(amount) > {rng.randint(30,80)} "
+                   f"ORDER BY total DESC")
+        else:
+            agg = rng.choice(["SUM(amount)", "AVG(score)", "MAX(amount)", "MIN(score)"])
+            sql = f'SELECT category, {agg} AS v FROM "{tname}" GROUP BY category ORDER BY v DESC'
+        # execute for the ground-truth answer
+        try:
+            rt = engine.run_query(sql, max_rows=50)
+            answer = rt.to_records()
+        except Exception:
+            answer = []
+        # keep the table snapshot in the row so the eval is fully self-contained
+        rows.append({
+            "table": {"name": tname, "columns": ["id", "category", "grp", "amount", "score"], "rows": data},
+            "sql": sql,
+            "answer": answer,
+            "difficulty": diff,
+        })
+        # clean up the throwaway table so it doesn't clutter the workspace
+        try:
+            with engine._lock:
+                engine.con.execute(f'DROP TABLE IF EXISTS "{tname}"')
+        except Exception:
+            pass
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +439,8 @@ def run_synthesis(
     stamp: str = "0",
 ) -> Dict[str, Any]:
     """Dispatch a synthesis request and write files. Returns a result manifest."""
+    import time as _t
+    t0 = _t.time()
     mode = str(payload.get("mode") or "training")
     count = max(1, min(int(payload.get("count") or 20), 2000))
     formats = [f for f in (payload.get("formats") or ["jsonl"]) if f in FORMATS] or ["jsonl"]
@@ -366,12 +449,15 @@ def run_synthesis(
         spec = str(payload.get("spec") or "")
         res = synth_research_table(spec, count=count, extra=str(payload.get("extra") or ""))
         rows = res["rows"]
+        cols = res.get("columns") or (list(rows[0].keys()) if rows else [])
         base = f"table_{_slug(spec)}_{stamp}"
         files = _write_all(rows, out_dir, base, formats)
         return {
             "ok": True, "mode": "table", "source": res.get("source"),
-            "columns": res.get("columns") or (list(rows[0].keys()) if rows else []),
-            "n_rows": len(rows), "preview": rows[:20], "files": files,
+            "columns": cols, "n_rows": len(rows), "preview": rows[:20], "files": files,
+            "column_stats": _column_stats(rows, cols),
+            "elapsed_ms": round((_t.time() - t0) * 1000, 0),
+            "stages": ["Design schema", "Generate rows", "Validate & type", "Write files"],
         }
 
     # default: training-data mode
@@ -382,10 +468,46 @@ def run_synthesis(
         engine, style=style, count=count, tables=tables, sql=sql,
         extra=str(payload.get("extra") or ""),
     )
+    cols = list(rows[0].keys()) if rows else []
     base = f"train_{style}_{stamp}"
     files = _write_all(rows, out_dir, base, formats)
+    stages = (["Build synthetic table", "Generate SQL", "Execute for answer", "Write files"]
+              if style == "s3eval" else
+              ["Read schema", "Sample facts", "Generate examples", "Write files"])
+    extra_stats: Dict[str, Any] = {}
+    if style == "s3eval":
+        from collections import Counter
+        extra_stats["difficulty_dist"] = dict(Counter(r.get("difficulty", "?") for r in rows))
     return {
         "ok": True, "mode": "training", "style": style,
-        "columns": list(rows[0].keys()) if rows else [],
-        "n_rows": len(rows), "preview": rows[:20], "files": files,
+        "columns": cols, "n_rows": len(rows), "preview": rows[:20], "files": files,
+        "column_stats": _column_stats(rows, cols),
+        "elapsed_ms": round((_t.time() - t0) * 1000, 0),
+        "stages": stages, **extra_stats,
     }
+
+
+def _column_stats(rows: List[Dict[str, Any]], cols: List[str]) -> List[Dict[str, Any]]:
+    """Lightweight per-column stats for the result panel: type + distinct + fill."""
+    out: List[Dict[str, Any]] = []
+    n = len(rows) or 1
+    for c in cols[:12]:
+        vals = [r.get(c) for r in rows]
+        nonnull = [v for v in vals if v is not None and v != ""]
+        sample = nonnull[0] if nonnull else None
+        if isinstance(sample, bool):
+            kind = "bool"
+        elif isinstance(sample, (int, float)):
+            kind = "number"
+        elif isinstance(sample, (dict, list)):
+            kind = "json"
+        else:
+            s = str(sample or "")
+            kind = "date" if len(s) >= 8 and s[:4].isdigit() and "-" in s[:10] else "text"
+        try:
+            distinct = len({json.dumps(v, sort_keys=True, default=str) for v in nonnull})
+        except Exception:
+            distinct = len(set(str(v) for v in nonnull))
+        out.append({"name": c, "kind": kind, "distinct": distinct, "fill": round(len(nonnull) / n, 2)})
+    return out
+
