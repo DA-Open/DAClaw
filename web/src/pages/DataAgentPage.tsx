@@ -28,11 +28,12 @@ import {
   FileSearch,
   Network,
   Orbit,
+  Sparkles,
   ShieldCheck,
   Zap,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { DATableInfo, ChatRunEvent, ChatTraceEvent, DAArtifact, DAKnowledgeSource, DAWorkflow, DAWorkflowSummary, SkillInfo } from "@/lib/api";
+import type { DATableInfo, ChatRunEvent, ChatTraceEvent, DAArtifact, DAKnowledgeSource, DAWorkflow, DAWorkflowSummary, SkillInfo, SkillContent } from "@/lib/api";
 import { Markdown } from "@/components/Markdown";
 import { TracePanel, appendTraceEvent, sanitizeTrace, type SourceMode } from "@/components/AgentTrace";
 import { BotAvatar } from "@/components/BotAvatar";
@@ -210,6 +211,7 @@ export default function DataAgentPage() {
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
 
   const [tables, setTables] = useState<DATableInfo[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [source, setSource] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectMsg, setConnectMsg] = useState<string | null>(null);
@@ -233,6 +235,8 @@ export default function DataAgentPage() {
   const [skillsOpen, setSkillsOpen] = useState(true);
   const [skillSearch, setSkillSearch] = useState("");
   const [freshSkill, setFreshSkill] = useState<string | null>(null); // just-generated skill name (highlight)
+  const [viewSkill, setViewSkill] = useState<SkillContent | null>(null); // open skill viewer modal
+  const [viewSkillLoading, setViewSkillLoading] = useState<string | null>(null);
   const [draftWorkflow, setDraftWorkflow] = useState<DAWorkflow | null>(null);
   const [draftText, setDraftText] = useState("");
   const [compiling, setCompiling] = useState(false);
@@ -293,9 +297,30 @@ export default function DataAgentPage() {
   };
 
   const refreshTables = () => api.daTables().then((r) => setTables(r.tables)).catch(() => {});
+  // Recommend starter questions once tables are connected (inferred from the
+  // schema). Only fetch when there are tables but no messages yet — they're an
+  // onboarding aid for a fresh conversation, not a persistent element.
+  useEffect(() => {
+    if (tables.length === 0 || messages.length > 0) { setSuggestions([]); return; }
+    let cancelled = false;
+    api.daSuggest(4).then((r) => { if (!cancelled) setSuggestions(r.suggestions || []); }).catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tables.length, messages.length]);
   const refreshKnowledge = () => api.daKnowledge().then((r) => setKnowledge(r.sources)).catch(() => {});
   const refreshPlaybooks = () => api.daWorkflows().then((r) => setPlaybooks(r.workflows)).catch(() => {});
   const refreshSkills = () => api.getSkills().then((r) => setSkills(r)).catch(() => {});
+  const openSkill = async (name: string) => {
+    setViewSkillLoading(name);
+    try {
+      const c = await api.getSkillContent(name);
+      setViewSkill(c);
+    } catch (e) {
+      setConnectMsg(String(e));
+    } finally {
+      setViewSkillLoading(null);
+    }
+  };
   useEffect(() => {
     refreshTables();
     refreshKnowledge();
@@ -945,15 +970,16 @@ export default function DataAgentPage() {
                     return (
                       <div key={skill.name} className={`group flex items-start gap-2 rounded-lg border px-2.5 py-2 ${isFresh ? "border-amber-300/50 bg-amber-300/10" : "border-white/5 bg-white/[0.025]"}`}>
                         <Zap className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${skill.enabled ? "text-amber-300" : "text-slate-600"}`} />
-                        <div className="min-w-0 flex-1">
+                        <button onClick={() => openSkill(skill.name)} title={T.skillView} className="min-w-0 flex-1 text-left">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate text-[11px] font-semibold text-slate-200">{skill.name}</span>
+                            <span className="truncate text-[11px] font-semibold text-slate-200 group-hover:text-amber-200">{skill.name}</span>
+                            {viewSkillLoading === skill.name && <Loader2 className="h-3 w-3 shrink-0 animate-spin text-amber-300" />}
                             {isFresh && <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 text-[8px] font-black uppercase text-amber-200">{T.skillNew}</span>}
                           </div>
                           <div className="line-clamp-2 text-[9px] leading-tight text-slate-500">{skill.description}</div>
-                        </div>
+                        </button>
                         <button
-                          onClick={async () => { await api.toggleSkill(skill.name, !skill.enabled); refreshSkills(); }}
+                          onClick={async (e) => { e.stopPropagation(); await api.toggleSkill(skill.name, !skill.enabled); refreshSkills(); }}
                           title={skill.enabled ? T.skillDisable : T.skillEnable}
                           className={`mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase ${skill.enabled ? "bg-emerald-400/15 text-emerald-300" : "bg-white/5 text-slate-500"}`}
                         >
@@ -1043,6 +1069,24 @@ export default function DataAgentPage() {
 
         {/* composer */}
         <div className="border-t border-white/5 bg-[#1e2a3d]/90 p-3 backdrop-blur-xl">
+          {suggestions.length > 0 && messages.length === 0 && (
+            <div className="mb-2.5">
+              <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300/80">
+                <Sparkles className="h-3 w-3" /> {T.suggestedQuestions}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {suggestions.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => { setInput(q); setSuggestions([]); }}
+                    className="rounded-full border border-cyan-300/20 bg-cyan-300/5 px-2.5 py-1 text-left text-[11px] text-slate-200 hover:border-cyan-300/45 hover:bg-cyan-300/10"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {draftWorkflow && (
             <div className="mb-3 rounded-2xl border border-cyan-300/15 bg-[#212e42]/95 p-3 shadow-[0_20px_70px_rgba(0,0,0,.22)]">
               <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[.18em] text-cyan-300"><Network className="h-3.5 w-3.5" />{T.missionReady}</div>
@@ -1097,8 +1141,8 @@ export default function DataAgentPage() {
             <button onClick={() => fileInputRef.current?.click()} disabled={connecting} title="Upload a data file" className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-background px-3 text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50">
               <Paperclip className="h-4 w-4" />
             </button>
-            <button onClick={compileDraft} disabled={!input.trim() || busy || compiling} title={T.compilePlan} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-3 text-xs font-bold text-cyan-200 hover:bg-cyan-300/10 disabled:opacity-40">
-              {compiling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}<span className="hidden xl:inline">{T.compilePlan}</span>
+            <button onClick={compileDraft} disabled={!input.trim() || busy || compiling} title={!input.trim() ? T.compilePlanHint : T.compilePlan} className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-cyan-300/20 bg-cyan-300/5 px-3 text-xs font-bold text-cyan-200 hover:bg-cyan-300/10 disabled:opacity-40">
+              {compiling ? <Loader2 className="h-4 w-4 animate-spin" /> : <Network className="h-4 w-4" />}<span className="hidden sm:inline">{T.compilePlan}</span>
             </button>
             {busy ? (
               <button onClick={stop} title="Stop" className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-background px-4 text-sm font-medium text-foreground hover:bg-secondary">
@@ -1208,6 +1252,23 @@ export default function DataAgentPage() {
             </div>
           </aside>
         </>
+      )}
+
+      {/* Skill viewer modal — full SKILL.md rendered */}
+      {viewSkill && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onClick={() => setViewSkill(null)}>
+          <div className="flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-amber-300/20 bg-[#1a2536] shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3">
+              <Zap className="h-4 w-4 shrink-0 text-amber-300" />
+              <span className="truncate text-sm font-bold text-slate-100">{viewSkill.name}</span>
+              {viewSkill.path && <span className="hidden truncate font-mono text-[10px] text-slate-500 sm:inline">{viewSkill.path}</span>}
+              <button onClick={() => setViewSkill(null)} className="ml-auto rounded p-1 text-slate-400 hover:bg-white/5 hover:text-slate-200"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm text-slate-200">
+              <Markdown content={viewSkill.content || viewSkill.description || "(empty skill)"} />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

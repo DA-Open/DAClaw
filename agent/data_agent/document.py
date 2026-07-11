@@ -43,7 +43,11 @@ def _md_inline(text: str) -> str:
 
 def _render_narrative(text: str) -> str:
     """Render a small subset of markdown: #/## headings, - bullets, paragraphs."""
-    lines = text.split("\n")
+    # LLM output often contains literal backslash-n instead of real newlines;
+    # normalize so headings/bullets/paragraphs split correctly.
+    normalized = str(text or "").replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n").replace("\\t", " ")
+    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
     html_parts: List[str] = []
     bullets: List[str] = []
 
@@ -363,7 +367,8 @@ def export_docx(sections: List[Dict[str, Any]], title: str, out_path: str) -> Di
     for sec in sections:
         stype = sec.get("type")
         if stype == "narrative":
-            for line in sec.get("text", "").split("\n"):
+            _norm = str(sec.get("text", "") or "").replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n").replace("\\t", " ")
+            for line in _norm.split("\n"):
                 s = line.strip()
                 if not s:
                     continue

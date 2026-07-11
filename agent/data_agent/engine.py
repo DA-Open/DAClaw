@@ -686,6 +686,7 @@ class DataEngine:
     def profile_table(
         self, table: str, *, sample_rows: int = 10
     ) -> Dict[str, Any]:
+        t = _safe_ident(table)
         schema = self.table_schema(t)
         with self._lock:
             row_count = self.con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]

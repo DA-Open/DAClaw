@@ -413,6 +413,8 @@ export interface Translations {
     skillOff: string;
     skillEnable: string;
     skillDisable: string;
+    skillView: string;
+    suggestedQuestions: string;
     skillSavedTitle: string;
     skillKept: string;
     skillRejected: string;
@@ -435,6 +437,7 @@ export interface Translations {
     approveHint: string;
     editPlan: string;
     compilePlan: string;
+    compilePlanHint: string;
     launchMission: string;
     dismissPlan: string;
     missionReady: string;

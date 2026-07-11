@@ -243,6 +243,81 @@ if router is not None:
             logger.exception("da_table_sample failed")
             return {"ok": False, "error": str(exc)}
 
+    @router.get("/api/da/suggest")
+    async def da_suggest(limit: int = 4):
+        """Recommend a few starter questions inferred from the connected tables.
+
+        Tries the LLM for natural-sounding questions; always has a deterministic
+        schema-heuristic fallback (time→trend, measure→top-N, category→breakdown)
+        so it works even when no LLM is configured or it's slow.
+        """
+        try:
+            eng = _engine()
+            tables = eng.list_tables()
+        except Exception:
+            tables = []
+        if not tables:
+            return {"ok": True, "suggestions": []}
+
+        # ---- deterministic heuristic (always available) --------------------
+        def _heuristic() -> list[str]:
+            out: list[str] = []
+            for t in tables[:4]:
+                try:
+                    schema = eng.table_schema(t)
+                except Exception:
+                    continue
+                from agent.data_agent.engine import _semantic_type
+                roles: Dict[str, list] = {"time": [], "measure": [], "category": []}
+                for col in schema:
+                    r = _semantic_type(col["name"], str(col.get("type", "")).lower())
+                    if r in roles:
+                        roles[r].append(col["name"])
+                if roles["measure"] and roles["category"]:
+                    out.append(f"{roles['category'][0]} 维度下 {roles['measure'][0]} 最高的前 5 项(表 {t})")
+                if roles["measure"] and roles["time"]:
+                    out.append(f"按 {roles['time'][0]} 看 {roles['measure'][0]} 的变化趋势(表 {t})")
+                if roles["category"] and not roles["measure"]:
+                    out.append(f"{t} 按 {roles['category'][0]} 的记录数分布")
+                if len(out) >= limit:
+                    break
+            if not out and tables:
+                out.append(f"给我 {tables[0]} 的概览")
+            return out[:limit]
+
+        heuristic = _heuristic()
+
+        # ---- LLM refinement (best-effort) ----------------------------------
+        try:
+            from agent.data_agent.llm import get_llm, llm_available
+
+            if llm_available():
+                brief = []
+                for t in tables[:6]:
+                    cols = ", ".join(c["name"] for c in eng.table_schema(t))
+                    brief.append(f"- {t}({cols})")
+                schema_text = "\n".join(brief)
+                sys_msg = (
+                    "You suggest short, concrete starter analytics questions a user "
+                    "could ask about their connected database. Return ONLY JSON: "
+                    '{"questions": ["...", "..."]}. Each question must be answerable '
+                    "by SQL over the given tables, specific (name real columns/tables), "
+                    "and one line. Match the language of the schema/user (Chinese if "
+                    "the columns look Chinese, else English)."
+                )
+                user = f"TABLES:\n{schema_text}\n\nGive {limit} starter questions."
+                data = get_llm().chat_json(
+                    [{"role": "system", "content": sys_msg}, {"role": "user", "content": user}],
+                    max_output_tokens=500,
+                )
+                qs = [str(q).strip() for q in (data.get("questions") or []) if str(q).strip()]
+                if qs:
+                    return {"ok": True, "suggestions": qs[:limit], "source": "llm"}
+        except Exception:
+            logger.info("da_suggest LLM refinement unavailable; using heuristic")
+
+        return {"ok": True, "suggestions": heuristic, "source": "heuristic"}
+
     @router.post("/api/da/query")
     async def da_query(payload: Dict[str, Any] = Body(...)):
         from agent.data_agent.engine import DataEngineError
@@ -267,6 +342,26 @@ if router is not None:
             return {"ok": False, "error": str(exc)}
 
     # ---------------- ETL / auto-dbt --------------------------------------
+    @router.post("/api/da/synthesize")
+    async def da_synthesize(payload: Dict[str, Any] = Body(...)):
+        """Synthesize LLM training data (from schema/SQL) or a research table
+        (from a prompt). Writes files to the workspace and returns download URLs."""
+        import time as _time
+        from agent.data_agent import synth
+
+        try:
+            out_dir = _da_output_dir()
+            stamp = str(int(_time.time()))[-6:]
+            res = synth.run_synthesis(_engine(), payload, out_dir, stamp=stamp)
+            for f in res.get("files", []):
+                f["download_url"] = f"/api/da/download/{f['file']}"
+            return res
+        except synth.SynthError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            logger.exception("synthesize failed")
+            return {"ok": False, "error": str(exc)}
+
     @router.post("/api/da/dbt/build")
     async def da_dbt_build(payload: Dict[str, Any] = Body(...)):
         """NL goal -> layered dbt-style pipeline, executed against the engine."""

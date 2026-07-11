@@ -3757,6 +3757,29 @@ async def toggle_skill(body: SkillToggle):
     return {"ok": True, "name": body.name, "enabled": body.enabled}
 
 
+@app.get("/api/skills/{name}/content")
+async def get_skill_content(name: str):
+    """Return one skill's full SKILL.md body so the UI can display it."""
+    import json as _json
+    from tools.skills_tool import skill_view
+
+    try:
+        raw = skill_view(name)
+        data = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=f"skill_view failed: {exc}")
+    if not data.get("success"):
+        raise HTTPException(status_code=404, detail=data.get("error") or "skill not found")
+    return {
+        "ok": True,
+        "name": data.get("name") or name,
+        "description": data.get("description") or "",
+        "content": data.get("content") or "",
+        "tags": data.get("tags") or [],
+        "path": data.get("path") or "",
+    }
+
+
 @app.get("/api/tools/toolsets")
 async def get_toolsets():
     from daclaw_cli.tools_config import (

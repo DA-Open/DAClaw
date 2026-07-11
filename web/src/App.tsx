@@ -25,6 +25,7 @@ import SkillsPage from "@/pages/SkillsPage";
 import DataAgentPage from "@/pages/DataAgentPage";
 import LeaderboardPage from "@/pages/LeaderboardPage";
 import ResearchPage from "@/pages/ResearchPage";
+import SynthesisPage from "@/pages/SynthesisPage";
 import EtlPage from "@/pages/EtlPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { useI18n } from "@/i18n";
@@ -57,7 +58,7 @@ const SHELL_LABELS = {
       workspace: "Workspace",
       dataAgent: "Data Analysis",
       etl: "Data Engineering",
-      research: "Benchmark",
+      research: "Research",
       leaderboard: "Leaderboard",
       analyze: "Chat",
       sessions: "Sessions",
@@ -82,7 +83,7 @@ const SHELL_LABELS = {
       workspace: "工作区",
       dataAgent: "数据分析",
       etl: "数据工程",
-      research: "评测",
+      research: "科研",
       leaderboard: "榜单",
       analyze: "对话",
       sessions: "会话",
@@ -208,6 +209,7 @@ export default function App() {
           <Route path="/research" element={<ResearchPage />}>
             <Route index element={<Navigate to="/research/leaderboard" replace />} />
             <Route path="leaderboard" element={<LeaderboardPage />} />
+            <Route path="synthesis" element={<SynthesisPage />} />
           </Route>
           {/* back-compat: old direct leaderboard link */}
           <Route path="/leaderboard" element={<Navigate to="/research/leaderboard" replace />} />

@@ -14,8 +14,22 @@ def _esc(value: Any) -> str:
     return html.escape("" if value is None else str(value))
 
 
+def _normalize_newlines(text: str) -> str:
+    """Turn escaped line breaks into real ones.
+
+    LLM output frequently contains LITERAL backslash-n (two chars: ``\\`` + ``n``)
+    instead of an actual newline, which would otherwise render as visible ``\\n``
+    in the story. Normalize the common escape forms to real newlines.
+    """
+    s = str(text or "")
+    s = s.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n").replace("\\t", " ")
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    return s
+
+
 def _narrative(text: str) -> str:
-    paragraphs = [part.strip() for part in str(text or "").split("\n") if part.strip()]
+    normalized = _normalize_newlines(text)
+    paragraphs = [part.strip() for part in normalized.split("\n") if part.strip()]
     return "".join(f"<p>{_esc(part)}</p>" for part in paragraphs)
 
 

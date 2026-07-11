@@ -1081,7 +1081,11 @@ def _synthesize_narration(text: str, out_path: Path) -> bool:
     Reuses the shared TTS tool (config `tts.provider`; `neutts` is offline).
     Degrades gracefully — if TTS is unavailable the story just plays silently.
     """
-    text = (text or "").strip()
+    from agent.data_agent.story import _normalize_newlines
+
+    # LLM narration may contain literal "\n"; turn escapes into spaces so the
+    # voice doesn't read them out and reads as one flowing sentence.
+    text = " ".join(_normalize_newlines(text).split()).strip()
     if not text:
         return False
     try:

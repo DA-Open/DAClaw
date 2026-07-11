@@ -1,21 +1,21 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { Trophy, FlaskConical } from "lucide-react";
+import { Trophy, FlaskConical, Wand2 } from "lucide-react";
 import { useI18n } from "@/i18n";
 
-// Subsections of the "Data Agent Research" area. Add more entries here as the
-// research surface grows (e.g. datasets, eval runs) — the leaderboard is one.
+// Subsections of the "Research" area: the benchmark leaderboard + data synthesis.
 const RESEARCH_SUBSECTIONS = [
-  { path: "/research/leaderboard", en: "Leaderboard", zh: "榜单", icon: Trophy },
+  { path: "/research/leaderboard", en: "Benchmark", zh: "评测", icon: Trophy },
+  { path: "/research/synthesis", en: "Data Synthesis", zh: "数据合成", icon: Wand2 },
 ] as const;
 
 export default function ResearchPage() {
   const { locale } = useI18n();
   const zh = locale === "zh";
   return (
-    <div className="mission-shell flex h-full flex-col bg-[#07111f] text-slate-100">
-      <div className="flex items-center gap-3 border-b border-white/5 bg-[#081321]/88 px-5 py-3 backdrop-blur-xl">
+    <div className="mission-shell flex h-full flex-col bg-[#1a2536] text-slate-100">
+      <div className="flex items-center gap-3 border-b border-white/5 bg-[#1e2a3d]/88 px-5 py-3 backdrop-blur-xl">
         <FlaskConical className="h-5 w-5 text-[#2DD4BF]" />
-        <span className="text-sm font-semibold">{zh ? "评测" : "Benchmark"}</span>
+        <span className="text-sm font-semibold">{zh ? "科研" : "Research"}</span>
         <div className="ml-4 flex items-center gap-1">
           {RESEARCH_SUBSECTIONS.map(({ path, en, zh: zhLabel, icon: Icon }) => (
             <NavLink

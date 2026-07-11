@@ -221,6 +221,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, enabled }),
     }),
+  getSkillContent: (name: string) =>
+    fetchJSON<SkillContent>(`/api/skills/${encodeURIComponent(name)}/content`),
   getToolsets: () => fetchJSON<ToolsetInfo[]>("/api/tools/toolsets"),
 
   // Session search (FTS5)
@@ -463,6 +465,14 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ answer }),
     }),
+  daSuggest: (limit = 4) =>
+    fetchJSON<{ ok: boolean; suggestions: string[]; source?: string }>(`/api/da/suggest?limit=${limit}`),
+  daSynthesize: (payload: Record<string, unknown>) =>
+    fetchJSON<DASynthesizeResponse>("/api/da/synthesize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
 
   // ---- ETL / auto-dbt ----
   dbtBuild: (goal: string) =>
@@ -698,6 +708,15 @@ export interface SkillInfo {
   description: string;
   category: string;
   enabled: boolean;
+}
+
+export interface SkillContent {
+  ok: boolean;
+  name: string;
+  description: string;
+  content: string;
+  tags: string[];
+  path: string;
 }
 
 export interface ToolsetInfo {
@@ -1018,6 +1037,23 @@ export interface DATableInfo {
   table: string;
   schema: DAColumn[];
   row_count?: number | null;
+}
+export interface DASynthFile {
+  format: string;
+  file: string;
+  n_rows: number;
+  download_url?: string;
+}
+export interface DASynthesizeResponse {
+  ok: boolean;
+  mode?: string;
+  style?: string;
+  source?: string;
+  columns?: string[];
+  n_rows?: number;
+  preview?: Record<string, unknown>[];
+  files?: DASynthFile[];
+  error?: string;
 }
 export interface DATableSampleResponse {
   ok: boolean;
