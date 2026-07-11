@@ -235,6 +235,13 @@ _PARALLEL_SAFE_TOOLS = frozenset({
     "vision_analyze",
     "web_extract",
     "web_search",
+    # Data Agent: deterministic planner/knowledge retrieval can overlap with a
+    # single grounded read-only query. DataEngine serializes DuckDB access; the
+    # surrounding knowledge lookup still runs concurrently.
+    "data_workflow_plan",
+    "data_knowledge_search",
+    "data_profile",
+    "data_query",
 })
 
 # File tools can run concurrently when they target independent paths.
@@ -278,6 +285,10 @@ def _should_parallelize_tool_batch(tool_calls) -> bool:
 
     tool_names = [tc.function.name for tc in tool_calls]
     if any(name in _NEVER_PARALLEL_TOOLS for name in tool_names):
+        return False
+    # data_query persists evidence into the active AnalysisRun. More than one
+    # writer in the same batch could race on query numbering/manifest writes.
+    if tool_names.count("data_query") > 1:
         return False
 
     reserved_paths: list[Path] = []

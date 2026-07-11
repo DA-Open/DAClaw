@@ -2,6 +2,121 @@
 
 Instructions for AI coding assistants and developers working on the daclaw-agent codebase.
 
+## Current Data-Agent Demo Context (2026-07-10)
+
+This worktree contains a large, uncommitted demo implementation inherited from Claude session
+`1f86e93e-8f1d-4bcb-bda5-404f02967f51`. Do not discard or overwrite the dirty worktree. The full
+Claude project memory was migrated to:
+
+```text
+/Users/bytedance/.codex/memory/claude/projects/-Users-bytedance-workspace/
+```
+
+Start with its `MEMORY.md`, then read the linked topic files when working in those areas.
+
+### Product Direction
+
+DAClaw is being turned into a Data-Agent-first EMNLP 2026 system demo with three primary boards:
+
+- `/data-agent`: one agentic chat for uploaded DuckDB/SQLite/CSV/Parquet/Excel data. The agent
+  decides when to query, visualize, create a report, generate/edit Excel, or build/fix formulas.
+- `/etl`: natural language to an executable, layered auto-dbt pipeline with `source()`/`ref()`
+  lineage, topological execution, model previews, and export to a real dbt project layout.
+- `/research`: the Data Agent research area; `/research/leaderboard` is the current subsection.
+
+Legacy Workspace and Chat pages were intentionally absorbed into Data Agent and deleted. Data
+Agent now owns multi-conversation history, localStorage persistence, artifact history, preview,
+download/delete, stop, and copy controls.
+
+### Implemented Architecture
+
+- Data service: `agent/data_agent/` (DuckDB engine, artifacts, charts, reports, Excel operations,
+  formula recalculation/audit, NL-to-SQL, auto-dbt, leaderboard, and LLM adapter).
+- Agent tools: `tools/data_agent_tools.py`; the scoped `data-agent-chat` toolset is defined in
+  `toolsets.py`. Tool discovery requires literal top-level `registry.register(...)` calls.
+- Web API: `daclaw_cli/data_agent_web.py` plus agent-run/artifact integration in
+  `daclaw_cli/web_server.py`.
+- Frontend: `web/src/pages/DataAgentPage.tsx`, `EtlPage.tsx`, `ResearchPage.tsx`, and
+  `LeaderboardPage.tsx`; tool traces live in `web/src/components/AgentTrace.tsx`.
+- Generated chart/report HTML is self-contained and uses inline ECharts. Excel artifacts expose a
+  multi-sheet preview and retain full `.xlsx` download.
+- Excel formula work uses the pure-Python `formulas` package for offline recalculation and error
+  detection. It supports formula-driven models and verified repair of errors such as `#DIV/0!`.
+
+### Runtime And Verification
+
+Use the conda interpreter below; the macOS system Python 3.9 is too old:
+
+```bash
+PY=/Users/bytedance/miniconda3/envs/agent/bin/python
+```
+
+Standard launcher:
+
+```bash
+cd /Users/bytedance/workspace/DAClaw
+bash scripts/demo/start.sh
+# UI: http://localhost:5173/data-agent
+# stop: bash scripts/demo/stop.sh
+```
+
+The web agent and the legacy Data Agent LLM path are intended to use `gpt-5.5-2026-04-24`.
+The gateway reads `~/.daclaw/config.yaml`; credentials are loaded from `~/.daclaw/.env`. Keep
+`DACLAW_HOME` on `~/.daclaw`, otherwise the gateway loses its auth/config and reports
+`No inference provider configured`. Model switching is available through
+`scripts/demo/set-model.sh`, but gpt-5.5 is the required default.
+
+### Current Handoff State
+
+The final Claude turns added SQL code-block formatting/highlighting to generated chart/report HTML
+and the ETL model inspector, then migrated Data Agent, ETL, and tool-trace UI strings into the
+shared i18n dictionaries. `tsc --noEmit` passed. Browser checks confirmed that English mode renders
+the Data Agent labels, the `Tool calls` trace heading, and the ETL `Data Engineering · Auto-DBT`
+page correctly. A final combined screenshot command was prepared but has no recorded result because
+the session ended immediately after the tool call. Codex reran `npm run build` on 2026-07-10; the
+production build passed with only Vite's existing large-chunk warning.
+
+Useful demo fixtures and test prompts live under `scripts/demo/`, including
+`TEST_CASES.md` and `TEST_CASES_HARD.md`. Generated test files are expected at
+`~/Downloads/daclaw_demo.duckdb`, `~/Downloads/daclaw_demo.xlsx`, and
+`~/Downloads/broken_finance.xlsx` when present.
+
+### DeepEye-Parity Upgrade (2026-07-11)
+
+The Data Agent now includes a real workflow and knowledge layer rather than only
+linear chat orchestration:
+
+- `agent/data_agent/workflow.py`: deterministic typed workflow drafts, compile,
+  cycle/dependency validation, topological execution layers, parallelism metadata,
+  and a profile-scoped reusable playbook store under `$DACLAW_HOME/workflows/`.
+- `agent/data_agent/knowledge.py`: local PDF/DOCX/Markdown/JSON/HTML extraction,
+  chunking, search, source management, and joint structured/unstructured analysis.
+- `agent/data_agent/story.py`: self-contained animated Data Story artifacts with
+  grounded charts/tables, autoplay, and keyboard navigation.
+- New tools: `data_workflow_plan`, `data_knowledge_connect`,
+  `data_knowledge_search`, and `data_story`. Independent knowledge retrieval and
+  a single read-only SQL call may execute concurrently; DuckDB access is locked.
+- The web UI uses a dark mission-control visual language. Data Analysis supports
+  compile-before-run review, visible workflow layers/status, knowledge sources,
+  reusable playbooks, authenticated artifact downloads, and a responsive mobile
+  data-source drawer. ETL and Benchmark share the same cockpit design.
+
+Security constraints added with this upgrade:
+
+- Browser-uploaded SQLite/DuckDB and knowledge documents must resolve inside the
+  web workspace and match an allowed suffix.
+- Agent-invoked data/knowledge reads are limited to the current project,
+  `$DACLAW_HOME/web_uploads`, or `$DACLAW_HOME/demo_data`.
+- Remote database credentials are URL-encoded and connection errors are redacted.
+- DuckDB extension installation requires `DACLAW_ALLOW_DUCKDB_INSTALL=1`; remote
+  SQLAlchemy imports are bounded by `DACLAW_DB_IMPORT_MAX_ROWS` (default 200000).
+
+Verification on 2026-07-11: frontend production build passed; Data Agent plus
+web-server regression tests passed; workflow/knowledge/story API smoke tests and
+desktop/mobile Playwright screenshots passed. `uv lock` remains blocked by the
+pre-existing inaccessible `DA-Open/atropos` Git dependency, so `uv.lock` was not
+regenerated.
+
 ## Development Environment
 
 ```bash

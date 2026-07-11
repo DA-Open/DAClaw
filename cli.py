@@ -5596,6 +5596,8 @@ class DAClawCLI:
             self._handle_skin_command(cmd_original)
         elif canonical == "voice":
             self._handle_voice_command(cmd_original)
+        elif canonical == "data":
+            self._handle_data_command(cmd_original)
         else:
             # Check for user-defined quick commands (bypass agent loop, no LLM call)
             base_cmd = cmd_lower.split()[0]
@@ -7132,6 +7134,92 @@ class DAClawCLI:
         else:
             _cprint(f"Unknown voice subcommand: {subcommand}")
             _cprint("Usage: /voice [on|off|tts|status]")
+
+    def _handle_data_command(self, command: str):
+        """Handle /data [demo-seed|runs|artifacts <id>|sources] — DataAgent utilities."""
+        parts = command.strip().split()
+        sub = parts[1].lower() if len(parts) > 1 else ""
+
+        if sub in ("", "help"):
+            _cprint("DataAgent commands:")
+            _cprint("  /data demo-seed [dir]   Generate the reproducible demo dataset (CSV/SQLite/Parquet/Excel)")
+            _cprint("  /data runs              List past analysis runs")
+            _cprint("  /data artifacts <id>    Show queries/charts/reports for a run")
+            _cprint("  /data sources           List data sources connected this session")
+            _cprint("")
+            _cprint(f"{_DIM}Then just chat: 'connect <file> and show me an overview dashboard'.{_RST}")
+            return
+
+        if sub == "demo-seed":
+            target = parts[2] if len(parts) > 2 else str(Path.cwd() / "daclaw_demo_data")
+            try:
+                from agent.data_agent import seed
+                _cprint(f"{_DIM}Generating demo dataset (fixed seed)…{_RST}")
+                manifest = seed.write_dataset(target)
+                _cprint(f"Demo data written to: {manifest['dir']}")
+                for fmt, files in manifest.get("formats", {}).items():
+                    _cprint(f"  {fmt}: {len(files)} file(s)")
+                rc = manifest.get("row_counts", {})
+                _cprint(f"  rows: " + ", ".join(f"{k}={v}" for k, v in rc.items()))
+                _cprint(f"{_DIM}Try: connect {manifest['dir']}/ecommerce.sqlite and build an overview dashboard.{_RST}")
+            except Exception as exc:
+                _cprint(f"\033[1;31mdemo-seed failed: {exc}{_RST}")
+            return
+
+        if sub == "runs":
+            try:
+                from agent.data_agent.artifacts import get_store
+                runs = get_store().list_runs()
+                if not runs:
+                    _cprint("No analysis runs yet.")
+                    return
+                for r in runs:
+                    _cprint(f"  {r['run_id']}  [{r['status']}]  {r['queries']}q {r['charts']}c {r['reports']}r  — {r['task'][:50]}")
+            except Exception as exc:
+                _cprint(f"\033[1;31m/data runs failed: {exc}{_RST}")
+            return
+
+        if sub == "artifacts":
+            if len(parts) < 3:
+                _cprint("Usage: /data artifacts <run_id>")
+                return
+            try:
+                from agent.data_agent.artifacts import get_store
+                run = get_store().get_run(parts[2])
+                if not run:
+                    _cprint(f"Run not found: {parts[2]}")
+                    return
+                m = run.meta
+                _cprint(f"Run {m['run_id']}  [{m.get('status')}]  task: {m.get('task')}")
+                _cprint(f"  dir: {run.dir}")
+                for q in m.get("queries", []):
+                    _cprint(f"  query  {q['artifact_id']}  {q['query_ref']}  ({q['row_count']} rows)")
+                for c in m.get("charts", []):
+                    _cprint(f"  chart  {c['artifact_id']}  {c['path']}  — {c.get('title','')}")
+                for rep in m.get("reports", []):
+                    _cprint(f"  report {rep['artifact_id']}  {rep['path']}  — {rep.get('title','')}")
+            except Exception as exc:
+                _cprint(f"\033[1;31m/data artifacts failed: {exc}{_RST}")
+            return
+
+        if sub == "sources":
+            try:
+                from agent.data_agent.engine import get_engine, engine_available
+                if not engine_available():
+                    _cprint("DuckDB not available; data engine disabled.")
+                    return
+                eng = get_engine()
+                if not eng.sources:
+                    _cprint("No sources connected in this session.")
+                    return
+                for slug, desc in eng.sources.items():
+                    _cprint(f"  {slug}  [{desc['kind']}]  tables: {', '.join(desc['tables'])}")
+            except Exception as exc:
+                _cprint(f"\033[1;31m/data sources failed: {exc}{_RST}")
+            return
+
+        _cprint(f"Unknown data subcommand: {sub}")
+        _cprint("Usage: /data [demo-seed|runs|artifacts <id>|sources]")
 
     def _enable_voice_mode(self):
         """Enable voice mode after checking requirements."""

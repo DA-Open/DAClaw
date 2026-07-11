@@ -1,18 +1,17 @@
-import { useMemo, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import {
   Activity,
   BarChart3,
-  Bot,
+  Boxes,
   ChevronDown,
   Clock,
-  Database,
   FileText,
   KeyRound,
-  Menu,
   MessageSquare,
-  Package,
   Settings,
+  Sparkles,
+  Trophy,
   X,
 } from "lucide-react";
 import StatusPage from "@/pages/StatusPage";
@@ -23,17 +22,28 @@ import LogsPage from "@/pages/LogsPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import CronPage from "@/pages/CronPage";
 import SkillsPage from "@/pages/SkillsPage";
-import ChatPage from "@/pages/ChatPage";
-import WorkspacePage from "@/pages/WorkspacePage";
+import DataAgentPage from "@/pages/DataAgentPage";
+import LeaderboardPage from "@/pages/LeaderboardPage";
+import ResearchPage from "@/pages/ResearchPage";
+import SynthesisPage from "@/pages/SynthesisPage";
+import EtlPage from "@/pages/EtlPage";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { useI18n } from "@/i18n";
 import { useThemePreference } from "@/lib/theme";
 
-const NAV_ITEMS = [
-  { path: "/workspace", key: "workspace", icon: Database },
+// Two primary destinations shown in the top bar.
+const PRIMARY_NAV = [
+  { path: "/data-agent", key: "dataAgent", icon: Sparkles },
+  { path: "/etl", key: "etl", icon: Boxes },
+  { path: "/research", key: "research", icon: Trophy },
+] as const;
+
+// Everything else lives under the "菜单 / Menu" dropdown.
+// NOTE: Skills moved into the Data Analysis left panel (see DataAgentPage) and
+// were removed from this dropdown to avoid a duplicate entry point.
+const MORE_NAV = [
   { path: "/sessions", key: "sessions", icon: MessageSquare },
   { path: "/analytics", key: "usage", icon: BarChart3 },
-  { path: "/skills", key: "skills", icon: Package },
   { path: "/status", key: "status", icon: Activity },
   { path: "/logs", key: "logs", icon: FileText },
   { path: "/cron", key: "cron", icon: Clock },
@@ -41,10 +51,15 @@ const NAV_ITEMS = [
   { path: "/env", key: "keys", icon: KeyRound },
 ] as const;
 
+
 const SHELL_LABELS = {
   en: {
     nav: {
       workspace: "Workspace",
+      dataAgent: "Data Analysis",
+      etl: "Data Engineering",
+      research: "Research",
+      leaderboard: "Leaderboard",
       analyze: "Chat",
       sessions: "Sessions",
       usage: "Usage",
@@ -56,6 +71,7 @@ const SHELL_LABELS = {
       keys: "Keys",
     },
     menu: "Menu",
+    more: "More",
     assistant: "Assistant",
     newChat: "New chat",
     threadPrefix: "Thread",
@@ -65,6 +81,10 @@ const SHELL_LABELS = {
   zh: {
     nav: {
       workspace: "工作区",
+      dataAgent: "数据分析",
+      etl: "数据工程",
+      research: "科研",
+      leaderboard: "榜单",
       analyze: "对话",
       sessions: "会话",
       usage: "用量",
@@ -76,6 +96,7 @@ const SHELL_LABELS = {
       keys: "密钥",
     },
     menu: "菜单",
+    more: "更多",
     assistant: "助手",
     newChat: "新会话",
     threadPrefix: "主题",
@@ -83,14 +104,6 @@ const SHELL_LABELS = {
     local: "本地优先",
   },
 };
-
-function useActiveTitle(labels: (typeof SHELL_LABELS)["en"]) {
-  const location = useLocation();
-  return useMemo(() => {
-    const active = NAV_ITEMS.find((item) => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`));
-    return active ? labels.nav[active.key] : labels.nav.workspace;
-  }, [labels, location.pathname]);
-}
 
 function AppMenu({
   open,
@@ -119,11 +132,10 @@ function AppMenu({
           </button>
         </div>
         <nav className="grid p-2">
-          {NAV_ITEMS.map(({ path, key, icon: Icon }) => (
+          {MORE_NAV.map(({ path, key, icon: Icon }) => (
             <NavLink
               key={path}
               to={path}
-              end={path === "/workspace"}
               onClick={onClose}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 text-sm font-medium transition-colors ${
@@ -145,100 +157,63 @@ export default function App() {
   const { locale } = useI18n();
   useThemePreference();
   const labels = SHELL_LABELS[locale];
-  const title = useActiveTitle(labels);
   const [menuOpen, setMenuOpen] = useState(false);
-  const navigate = useNavigate();
-
-  const openWorkspaceAssistant = () => {
-    navigate(`/workspace?assistant=1&t=${Date.now()}`);
-  };
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-background text-foreground">
-      <header className="sticky top-0 z-30 border-b border-border bg-card/95 backdrop-blur">
+    <div className="mission-app min-h-screen overflow-x-hidden bg-[#1a2536] text-slate-100">
+      <header className="sticky top-0 z-30 border-b border-cyan-300/10 bg-[#1a2536]/90 backdrop-blur-xl">
         <div className="flex h-12 items-center gap-3 px-3 sm:px-5">
-          <NavLink
-            to="/workspace"
-            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-1.5 pr-3 text-sm font-semibold tracking-tight hover:bg-secondary"
-            aria-label="DAClaw"
+          <button
+            type="button"
+            className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border border-cyan-300/15 bg-white/[0.035] pl-1.5 pr-2.5 text-sm font-semibold tracking-tight shadow-[0_8px_30px_rgba(0,0,0,.18)] hover:border-cyan-300/30 hover:bg-cyan-300/5"
+            onClick={() => setMenuOpen((value) => !value)}
+            aria-label="DAClaw menu"
           >
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-foreground text-[11px] font-bold text-background">
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-cyan-300 text-[11px] font-black text-[#041817] shadow-[0_0_20px_rgba(77,211,255,.25)]">
               DA
             </span>
             <span className="hidden sm:inline">DAClaw</span>
-          </NavLink>
-
-          <button
-            type="button"
-            className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-background px-3 text-sm font-medium hover:bg-secondary"
-            onClick={() => setMenuOpen((value) => !value)}
-          >
-            <Menu className="h-4 w-4" />
-            {labels.menu}
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
 
-          <div className="flex h-9 items-center overflow-hidden rounded-full border border-border bg-background p-0.5">
-            <NavLink
-              to="/workspace"
-              end
-              className={({ isActive }) =>
-                `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors ${
-                  isActive ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
-                }`
-              }
-            >
-              <Database className="h-4 w-4" />
-              <span className="hidden sm:inline">{labels.nav.workspace}</span>
-            </NavLink>
-            <NavLink
-              to="/chat"
-              className={({ isActive }) =>
-                `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors ${
-                  isActive ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground"
-                }`
-              }
-            >
-              <Bot className="h-4 w-4" />
-              <span className="hidden sm:inline">{labels.nav.analyze}</span>
-            </NavLink>
+          <div className="flex h-9 items-center overflow-hidden rounded-xl border border-white/7 bg-white/[0.025] p-0.5">
+            {PRIMARY_NAV.map(({ path, key, icon: Icon }) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) =>
+                  `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-semibold transition-colors ${
+                    isActive ? "bg-gradient-to-r from-blue-500/90 to-cyan-400/90 text-white shadow-[0_0_22px_rgba(63,174,255,.28)]" : "text-slate-200 hover:bg-white/5 hover:text-white"
+                  }`
+                }
+              >
+                <Icon className="h-4 w-4" />
+                <span className="hidden sm:inline">{labels.nav[key]}</span>
+              </NavLink>
+            ))}
           </div>
 
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-sm font-semibold">{title}</span>
-              <span className="hidden truncate text-xs text-muted-foreground sm:inline">
-                {labels.threadPrefix}: {labels.thread}
-              </span>
-            </div>
-          </div>
+          <div className="min-w-0 flex-1" />
 
-          <div className="hidden items-center gap-3 text-xs text-muted-foreground md:flex">
-            <span>{labels.local}</span>
-            <span className="h-2 w-2 bg-emerald-500" />
-          </div>
           <LanguageSwitcher />
-          <button
-            type="button"
-            onClick={openWorkspaceAssistant}
-            className="inline-flex h-9 items-center gap-2 rounded-full bg-foreground px-3 text-sm font-medium text-background hover:bg-foreground/90 sm:px-4"
-            title={labels.assistant}
-            aria-label={labels.assistant}
-          >
-            <Bot className="h-4 w-4" />
-            <span className="hidden sm:inline">{labels.assistant}</span>
-          </button>
         </div>
       </header>
 
       <AppMenu open={menuOpen} onClose={() => setMenuOpen(false)} labels={labels} />
 
-      <main className="h-[calc(100vh-3rem)] w-full overflow-auto">
+      <main className="h-[calc(100vh-3rem)] w-full overflow-auto bg-[radial-gradient(circle_at_50%_-20%,rgba(53,119,255,.14),transparent_40%)]">
         <Routes>
-          <Route path="/" element={<Navigate to="/workspace" replace />} />
-          <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/" element={<Navigate to="/data-agent" replace />} />
+          <Route path="/data-agent" element={<DataAgentPage />} />
+          <Route path="/etl" element={<EtlPage />} />
+          <Route path="/research" element={<ResearchPage />}>
+            <Route index element={<Navigate to="/research/leaderboard" replace />} />
+            <Route path="leaderboard" element={<LeaderboardPage />} />
+            <Route path="synthesis" element={<SynthesisPage />} />
+          </Route>
+          {/* back-compat: old direct leaderboard link */}
+          <Route path="/leaderboard" element={<Navigate to="/research/leaderboard" replace />} />
           <Route path="/status" element={<StatusPage />} />
-          <Route path="/chat" element={<ChatPage />} />
           <Route path="/sessions" element={<SessionsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/logs" element={<LogsPage />} />
@@ -246,7 +221,7 @@ export default function App() {
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/config" element={<ConfigPage />} />
           <Route path="/env" element={<EnvPage />} />
-          <Route path="*" element={<Navigate to="/workspace" replace />} />
+          <Route path="*" element={<Navigate to="/data-agent" replace />} />
         </Routes>
       </main>
     </div>

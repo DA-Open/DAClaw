@@ -88,7 +88,23 @@ function apiHeaders(init?: HeadersInit): Headers {
   return headers;
 }
 
+async function downloadApiFile(url: string, filename: string): Promise<void> {
+  const res = await fetch(`${BASE}${url}`, { headers: apiHeaders() });
+  if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 export const api = {
+  downloadWorkspaceFile: (fileId: string, filename: string) =>
+    downloadApiFile(`/api/workspace/files/${encodeURIComponent(fileId)}/download`, filename),
   getStatus: () => fetchJSON<StatusResponse>("/api/status"),
   getSessions: (limit = 20, offset = 0) =>
     fetchJSON<PaginatedSessions>(`/api/sessions?limit=${limit}&offset=${offset}`),
@@ -205,6 +221,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, enabled }),
     }),
+  getSkillContent: (name: string) =>
+    fetchJSON<SkillContent>(`/api/skills/${encodeURIComponent(name)}/content`),
   getToolsets: () => fetchJSON<ToolsetInfo[]>("/api/tools/toolsets"),
 
   // Session search (FTS5)
@@ -344,6 +362,142 @@ export const api = {
       },
     );
   },
+
+  // ---- DataAgent workbench (Part 1) ----
+  daConnect: (source: string, name?: string) =>
+    fetchJSON<DAConnectResponse>("/api/da/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, name }),
+    }),
+  daDbTypes: () => fetchJSON<{ types: DADbType[] }>("/api/da/db-types"),
+  daConnectDb: (params: Record<string, unknown>) =>
+    fetchJSON<DAConnectResponse>("/api/da/connect-db", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }),
+  daTables: () => fetchJSON<{ tables: DATableInfo[] }>("/api/da/tables"),
+  daKnowledge: () => fetchJSON<{ sources: DAKnowledgeSource[] }>("/api/da/knowledge"),
+  daKnowledgeConnect: (source: string, name?: string) =>
+    fetchJSON<DAKnowledgeConnectResponse>("/api/da/knowledge/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source, name }),
+    }),
+  daKnowledgeDelete: (sourceId: string) =>
+    fetchJSON<{ ok: boolean }>(`/api/da/knowledge/${encodeURIComponent(sourceId)}`, { method: "DELETE" }),
+  daKnowledgeSearch: (query: string, sourceIds?: string[]) =>
+    fetchJSON<DAKnowledgeSearchResponse>("/api/da/knowledge/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, source_ids: sourceIds }),
+    }),
+  daWorkflowPlan: (goal: string, tables?: string[]) =>
+    fetchJSON<DAWorkflowPlanResponse>("/api/da/workflow/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, tables }),
+    }),
+  daWorkflows: () => fetchJSON<{ workflows: DAWorkflowSummary[] }>("/api/da/workflows"),
+  daWorkflowCompile: (workflow: DAWorkflow) =>
+    fetchJSON<DAWorkflowPlanResponse>("/api/da/workflow/compile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(workflow),
+    }),
+  daQuery: (sql: string) =>
+    fetchJSON<DAQueryResponse>("/api/da/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql }),
+    }),
+  daNl2sql: (request: string) =>
+    fetchJSON<DANl2sqlResponse>("/api/da/nl2sql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request }),
+    }),
+  daVisualize: (sql: string, title: string, chartType?: string) =>
+    fetchJSON<DAVizResponse>("/api/da/visualize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql, title, chart_type: chartType }),
+    }),
+  daDashboard: (table: string, title?: string) =>
+    fetchJSON<DAVizResponse>("/api/da/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ table, title }),
+    }),
+  daExcel: (payload: Record<string, unknown>) =>
+    fetchJSON<DAExcelResponse>("/api/da/excel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+  daChat: (messages: { role: string; content: string }[]) =>
+    fetchJSON<DAChatResponse>("/api/da/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    }),
+  // Scoped Data Agent chat (agentic, tool-calling). Events are read via the
+  // shared getChatRunEvents endpoint.
+  startDaAgentRun: (body: {
+    message: string;
+    history?: { role: string; content: string }[];
+    session_id?: string | null;
+    workflow?: DAWorkflow | null;
+  }) =>
+    fetchJSON<ChatRunResponse>("/api/da/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ history: [], ...body }),
+    }),
+  daTableSample: (table: string, limit = 25) =>
+    fetchJSON<DATableSampleResponse>(
+      `/api/da/table/${encodeURIComponent(table)}/sample?limit=${encodeURIComponent(String(limit))}`,
+    ),
+  daClarify: (runId: string, answer: string) =>
+    fetchJSON<{ ok: boolean; error?: string }>(`/api/da/clarify/${encodeURIComponent(runId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer }),
+    }),
+  daSuggest: (limit = 4) =>
+    fetchJSON<{ ok: boolean; suggestions: string[]; source?: string }>(`/api/da/suggest?limit=${limit}`),
+  daSynthesize: (payload: Record<string, unknown>) =>
+    fetchJSON<DASynthesizeResponse>("/api/da/synthesize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }),
+
+  // ---- ETL / auto-dbt ----
+  dbtBuild: (goal: string) =>
+    fetchJSON<DbtBuildResponse>("/api/da/dbt/build", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal }),
+    }),
+  dbtModel: (name: string, limit = 50) =>
+    fetchJSON<DbtModelResponse>(
+      `/api/da/dbt/model/${encodeURIComponent(name)}?limit=${encodeURIComponent(String(limit))}`,
+    ),
+
+  // ---- Leaderboard (Part 2) ----
+  lbOverview: () => fetchJSON<LeaderboardOverview>("/api/lb/overview"),
+  lbRaw: () => fetchJSON<LeaderboardRaw>("/api/lb/raw"),
+  lbEvaluate: (payload: { model: string; harness: string; benchmark: string; split?: string }) =>
+    fetchJSON<{ ok: boolean; entry?: LeaderboardEntry; note?: string; error?: string }>(
+      "/api/lb/evaluate",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      },
+    ),
 };
 
 export interface PlatformStatus {
@@ -556,6 +710,15 @@ export interface SkillInfo {
   enabled: boolean;
 }
 
+export interface SkillContent {
+  ok: boolean;
+  name: string;
+  description: string;
+  content: string;
+  tags: string[];
+  path: string;
+}
+
 export interface ToolsetInfo {
   name: string;
   label: string;
@@ -598,6 +761,26 @@ export interface ChatStreamRequest {
   session_id?: string | null;
 }
 
+export interface DAArtifact {
+  kind: "chart" | "dashboard" | "document" | "story" | "excel" | string;
+  workspace_file: string;
+  file_id: string;
+  preview_url: string;
+  download_url: string;
+  artifact_id?: string | null;
+  title?: string | null;
+  row_count?: number | null;
+}
+
+export interface DASkillEvent {
+  action: string;
+  name: string;
+  category: string;
+  kept: boolean;
+  quality_status: string;
+  score?: number | null;
+  summary?: string;
+}
 export interface ChatTraceEvent {
   type: string;
   ts?: number;
@@ -614,6 +797,8 @@ export interface ChatTraceEvent {
   result?: string;
   duration?: number | null;
   is_error?: boolean;
+  artifact?: DAArtifact;
+  skill?: DASkillEvent;
 }
 
 export type ChatStreamEvent =
@@ -730,4 +915,318 @@ export interface OAuthPollResponse {
   status: "pending" | "approved" | "denied" | "expired" | "error";
   error_message?: string | null;
   expires_at?: number | null;
+}
+
+// ---- DataAgent workbench types (Part 1) ----
+export interface DAColumn {
+  name: string;
+  type: string;
+}
+
+export interface DAWorkflowNode {
+  id: string;
+  kind: string;
+  label: string;
+  description: string;
+  depends_on: string[];
+  tool: string;
+  output_type: string;
+  status: "planned" | "running" | "completed" | "error" | string;
+  meta?: Record<string, unknown>;
+}
+export interface DAWorkflow {
+  workflow_id: string;
+  goal: string;
+  nodes: DAWorkflowNode[];
+  edges: { from: string; to: string }[];
+  execution_layers: string[][];
+  selected_tables: string[];
+  knowledge_sources: string[];
+  validation: {
+    ok: boolean;
+    issues: { code: string; message: string }[];
+    warnings: { code: string; message: string }[];
+  };
+  optimizer: {
+    parallel_layers: number;
+    max_parallelism: number;
+    critical_path_nodes: number;
+    total_nodes: number;
+  };
+}
+export type DAWorkflowPlanResponse = DAWorkflow & { ok: boolean };
+export interface DAWorkflowSummary {
+  workflow_id: string;
+  goal: string;
+  status: string;
+  saved_at: number;
+  nodes: number;
+  layers: number;
+  validation_ok: boolean;
+}
+export interface DAKnowledgeSource {
+  source_id: string;
+  name: string;
+  path: string;
+  kind: string;
+  size: number;
+  characters: number;
+  updated_at: number;
+}
+export interface DAKnowledgeConnectResponse extends DAKnowledgeSource {
+  ok: boolean;
+  chunk_count?: number;
+  error?: string;
+}
+export interface DAKnowledgeSearchResponse {
+  ok: boolean;
+  query: string;
+  sources: number;
+  results: { source_id: string; source: string; kind: string; chunk: number; score: number; text: string }[];
+}
+
+// ---- ETL / auto-dbt types ----
+export interface DbtModel {
+  name: string;
+  layer: "staging" | "intermediate" | "marts" | string;
+  materialized?: string;
+  description?: string;
+  sql?: string;
+  compiled_sql?: string;
+  order?: number;
+  status: "ok" | "error" | "skipped" | string;
+  row_count?: number;
+  columns?: string[];
+  preview?: unknown[][];
+  error?: string;
+}
+export interface DbtDagNode {
+  id: string;
+  kind: "model" | "source" | string;
+  layer: string;
+  label: string;
+  description?: string;
+  materialized?: string;
+}
+export interface DbtBuildResponse {
+  ok: boolean;
+  project?: string;
+  goal?: string;
+  explanation?: string;
+  models?: DbtModel[];
+  dag?: { nodes: DbtDagNode[]; edges: { from: string; to: string }[] };
+  layers?: string[];
+  final?: string | null;
+  final_result?: { table: string; columns: string[]; rows: unknown[][]; row_count: number } | null;
+  n_models?: number;
+  n_ok?: number;
+  export?: { root: string; n_files: number };
+  error?: string;
+}
+export interface DbtModelResponse {
+  ok: boolean;
+  table?: string;
+  columns?: string[];
+  rows?: unknown[][];
+  row_count?: number;
+  error?: string;
+}
+
+
+export interface DATableInfo {
+  table: string;
+  schema: DAColumn[];
+  row_count?: number | null;
+}
+export interface DASynthFile {
+  format: string;
+  file: string;
+  n_rows: number;
+  download_url?: string;
+}
+export interface DASynthColStat {
+  name: string;
+  kind: string;
+  distinct: number;
+  fill: number;
+}
+export interface DASynthesizeResponse {
+  ok: boolean;
+  mode?: string;
+  style?: string;
+  source?: string;
+  columns?: string[];
+  n_rows?: number;
+  preview?: Record<string, unknown>[];
+  files?: DASynthFile[];
+  column_stats?: DASynthColStat[];
+  elapsed_ms?: number;
+  stages?: string[];
+  difficulty_dist?: Record<string, number>;
+  error?: string;
+}
+export interface DATableSampleResponse {
+  ok: boolean;
+  table?: string;
+  row_count?: number | null;
+  columns?: string[] | null;
+  sample_rows?: Record<string, unknown>[] | null;
+  column_stats?: Record<string, unknown> | null;
+  error?: string;
+}
+export interface DAConnectResponse {
+  ok: boolean;
+  connected?: string;
+  kind?: string;
+  dbtype?: string;
+  via?: string;
+  tables?: DATableInfo[];
+  all_tables?: string[];
+  error?: string;
+}
+export interface DADbType {
+  id: string;
+  label: string;
+  fields: string[];
+  default_port?: number;
+  hint?: string;
+}
+export interface DAQueryResponse {
+  ok: boolean;
+  columns?: DAColumn[];
+  row_count?: number;
+  sample_rows?: unknown[][];
+  error?: string;
+}
+export interface DAPipelineStage {
+  name: string;
+  purpose: string;
+  sql: string;
+  status: string;
+  row_count?: number;
+  columns?: string[];
+  preview?: unknown[][];
+  error?: string;
+  order: number;
+}
+export interface DADagNode {
+  id: string;
+  kind: string;
+  label: string;
+  purpose?: string;
+}
+export interface DANl2sqlResponse {
+  ok: boolean;
+  request?: string;
+  explanation?: string;
+  stages?: DAPipelineStage[];
+  dag?: { nodes: DADagNode[]; edges: { from: string; to: string }[] };
+  final?: string;
+  final_result?: { table: string; columns: string[]; rows: unknown[][]; row_count: number };
+  n_stages?: number;
+  n_ok?: number;
+  error?: string;
+}
+export interface DAVizResponse {
+  ok: boolean;
+  html?: string;
+  chart_type?: string;
+  charts?: number;
+  row_count?: number;
+  check?: { ok: boolean; issues: string[] };
+  error?: string;
+}
+export interface DAExcelResponse {
+  ok: boolean;
+  file?: string;
+  path?: string;
+  download_url?: string;
+  sheets?: number;
+  charts?: number;
+  error?: string;
+}
+export interface DAChatResponse {
+  ok: boolean;
+  reply?: string;
+  schema_tables?: string[];
+  error?: string;
+}
+
+// ---- Leaderboard types (Part 2) ----
+export interface LeaderboardHarness {
+  id: string;
+  name: string;
+  vendor: string;
+}
+export interface LeaderboardBenchmark {
+  id: string;
+  name: string;
+  paper: string;
+  splits: string[];
+  metric: string;
+  sota_ceiling: number;
+  level?: string;
+}
+export interface LeaderboardLevel {
+  id: string;
+  name: string;
+  desc: string;
+  color: string;
+}
+export interface LeaderboardEntry {
+  model: string;
+  harness: string;
+  benchmark: string;
+  split: string;
+  score: number;
+  metric: string;
+  date: string;
+  source: string;
+}
+export interface LeaderboardModel {
+  id: string;
+  name: string;
+  creator: string;
+  license: "open" | "proprietary";
+  index: number;
+}
+export interface ModelRankRow {
+  id: string;
+  name: string;
+  creator: string;
+  license: "open" | "proprietary";
+  index: number;
+  agentic_score: number;
+  best_harness: string;
+}
+export interface LeaderboardRaw {
+  version: number;
+  harnesses: LeaderboardHarness[];
+  benchmarks: LeaderboardBenchmark[];
+  levels?: LeaderboardLevel[];
+  models: LeaderboardModel[];
+  entries: LeaderboardEntry[];
+}
+export interface HarnessRankRow {
+  harness: string;
+  name: string;
+  vendor: string;
+  overall: number;
+}
+export interface BestCombo {
+  model: string;
+  harness: string;
+  mean_score: number;
+  n: number;
+}
+export interface LeaderboardOverview {
+  matrix: {
+    harnesses: LeaderboardHarness[];
+    benchmarks: LeaderboardBenchmark[];
+    levels?: LeaderboardLevel[];
+    matrix: Record<string, Record<string, number>>;
+    ranking: HarnessRankRow[];
+  };
+  best_combos: BestCombo[];
+  model_ranking: ModelRankRow[];
 }
