@@ -27,6 +27,32 @@ Use any model you want — DA-Open ModelHub, [OpenRouter](https://openrouter.ai)
 
 ---
 
+## 🪄 The Data Agent
+
+Connect a database (Postgres / MySQL / SQLite / DuckDB) or drop a CSV / Excel, then just ask. DAClaw plans a transparent, human-approvable workflow, runs read-only SQL, and turns results into **charts, dashboards, reports, narrated data videos, and formula-driven Excel models** — every number traced back to a real query. Four boards:
+
+### 📊 Data Analysis — ask in plain English, get grounded answers
+Agentic chat that auto-runs SQL, draws charts, and writes reports. A live **node inspector** shows the exact SQL per step; **independent queries run in parallel**; ambiguous asks trigger a clarifying question; solved tasks can be saved as quality-validated **skills**.
+
+<p align="center"><img src="assets/feat-data-analysis.png" alt="Data Analysis" width="90%"></p>
+
+### 🔧 Data Engineering — natural language → dbt warehouse
+Describe a goal; DAClaw designs a layered **dbt-style pipeline** (staging → intermediate → marts), materializes it, and renders the **lineage DAG**. Click any model to inspect its SQL, preview, and jump straight into analysis.
+
+<p align="center"><img src="assets/feat-data-engineering.png" alt="Data Engineering" width="90%"></p>
+
+### 🎬 Data video, 🧪 Benchmark & 🪄 Data Synthesis
+Reports become **narrated, auto-advancing data videos** (TTS voice-over). The **Research** section hosts a model × harness × benchmark **leaderboard** and a **Data Synthesis** studio that turns a schema/SQL into **LLM training data** (text-to-SQL / Q&A / instruction, plus leakage-free SQL-eval rows) or fabricates **research-grade synthetic tables** — downloadable as JSONL / CSV / XLSX / Parquet.
+
+<p align="center">
+  <img src="assets/feat-benchmark.png" alt="Benchmark leaderboard" width="49%">
+  <img src="assets/feat-synthesis.png" alt="Data Synthesis" width="49%">
+</p>
+
+> Try it: `daclaw dashboard` → open **Data Analysis** → Connect database → ask *"Chart total net revenue by product department."*
+
+---
+
 ## Quick Install
 
 ```bash
