@@ -236,3 +236,101 @@ code {
     transition-duration: 0.01ms !important;
   }
 }
+
+@media (max-width: 760px) {
+  .mission-shell > .data-sidebar {
+    position: absolute !important;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(86vw, 340px) !important;
+    transform: translateX(-104%);
+    transition: transform .28s cubic-bezier(.2,.8,.2,1);
+    box-shadow: 28px 0 90px rgba(0,0,0,.5);
+  }
+  .data-sidebar-open { transform: translateX(0); }
+  .mission-shell > .data-sidebar-backdrop { position: fixed !important; }
+  .data-sidebar-backdrop, .data-sidebar-close, .data-mobile-menu { display: inline-flex; }
+  .data-resizer { display: none; }
+  .data-center { width: 100%; min-width: 0; }
+  .mission-shell > .data-artifact {
+    position: absolute !important;
+    inset: 0;
+    z-index: 70;
+    width: 100% !important;
+    border-left: 0;
+  }
+  .mission-hero { margin-top: 5vh; padding-inline: 12px; }
+  .mission-title { font-size: clamp(2.4rem, 13vw, 4rem); }
+}
+
+/* ETL lineage edges — subtle flowing dash */
+.etl-edge {
+  stroke-dasharray: 6 5;
+  animation: etl-flow 0.9s linear infinite;
+}
+@keyframes etl-flow {
+  to { stroke-dashoffset: -11; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Data intelligence mission-control surface                           */
+/* ------------------------------------------------------------------ */
+.mission-app,
+.mission-shell {
+  --color-background: #07111f;
+  --color-foreground: #edf7ff;
+  --color-card: #0b192a;
+  --color-card-foreground: #edf7ff;
+  --color-secondary: #112239;
+  --color-secondary-foreground: #eaf5ff;
+  --color-muted: #112239;
+  --color-muted-foreground: #8497b3;
+  --color-accent: #152942;
+  --color-accent-foreground: #f4fbff;
+  --color-border: #20334f;
+  --color-input: #2a4262;
+  --color-ring: #54e6d1;
+  --color-popover: #0b192a;
+  --color-popover-foreground: #edf7ff;
+}
+.mission-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(73, 111, 165, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(73, 111, 165, .055) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, black, transparent 94%);
+  opacity: .75;
+}
+.mission-shell > * { position: relative; z-index: 1; }
+.mission-sidebar { box-shadow: 22px 0 80px rgba(0, 0, 0, .18); }
+.mission-primary {
+  background: linear-gradient(115deg, #4f8cff, #54e6d1 72%);
+  box-shadow: 0 10px 34px rgba(79, 140, 255, .2), 0 0 0 1px rgba(111, 241, 225, .16) inset;
+  transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
+}
+.mission-primary:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 15px 44px rgba(79, 140, 255, .3); }
+.mission-title {
+  background: linear-gradient(110deg, #ffffff 4%, #7fb4ff 45%, #8cf3e4 76%, #b59cff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 20px 80px rgba(79, 140, 255, .16);
+}
+.mission-node { border-color: rgba(120, 151, 196, .12); background: rgba(255,255,255,.018); }
+.mission-node-running { border-color: rgba(84,230,209,.45); background: rgba(84,230,209,.08); box-shadow: 0 0 24px rgba(84,230,209,.08); }
+.mission-node-completed { border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.055); }
+.mission-node-error { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.08); }
+.mission-workflow { animation: mission-rise .45s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes mission-rise { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
+.mission-canvas { box-shadow: inset 0 0 100px rgba(1,8,20,.38); }
+.mission-canvas .bg-card { background-color: rgba(11,25,42,.94); }
+.mission-canvas .border-border { border-color: rgba(65,91,129,.58); }
+.mission-shell iframe { border-radius: 0 0 18px 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-workflow, .mission-primary, .etl-edge { animation: none !important; transition: none !important; }
+}

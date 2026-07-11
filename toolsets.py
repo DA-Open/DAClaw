@@ -31,6 +31,10 @@ from typing import List, Dict, Any, Set, Optional
 _DACLAW_CORE_TOOLS = [
     # Data analysis
     "data_profile", "data_catalog", "analysis_audit",
+    # DataAgent: connect sources, query, and produce beautiful visuals/reports
+    "data_workflow_plan", "data_connect", "data_knowledge_connect",
+    "data_knowledge_search", "data_query", "data_visualize", "data_dashboard",
+    "data_document", "data_story",
     # Web
     "web_search", "web_extract",
     # Terminal + process management
@@ -92,7 +96,45 @@ TOOLSETS = {
         "tools": ["data_profile", "data_catalog", "analysis_audit"],
         "includes": []
     },
-    
+
+    "data-agent": {
+        "description": (
+            "Full DataAgent workflow: connect local data sources (CSV/Excel/"
+            "Parquet/SQLite/DuckDB), run SQL, and produce beautiful self-"
+            "contained visualizations, dashboards, and reports with an evidence "
+            "chain back to real queries."
+        ),
+        "tools": [
+            "data_workflow_plan", "data_connect", "data_knowledge_connect",
+            "data_knowledge_search", "data_query", "data_visualize",
+            "data_dashboard", "data_document", "data_story",
+            # reuse the existing lightweight data tools
+            "data_profile", "data_catalog", "analysis_audit",
+            # general-purpose helpers commonly needed mid-analysis
+            "read_file", "write_file", "execute_code",
+        ],
+        "includes": ["file"]
+    },
+
+    "data-agent-chat": {
+        "description": (
+            "Tightly data-focused chat agent: connect a local data source "
+            "(CSV/Excel/Parquet/SQLite/DuckDB), run read-only SQL, and produce "
+            "self-contained charts, dashboards, and analysis documents. No "
+            "generic file/code tools — every action is connect / query / "
+            "visualize / dashboard / document, with an evidence chain back to "
+            "real queries."
+        ),
+        "tools": [
+            "data_workflow_plan", "data_connect", "data_knowledge_connect",
+            "data_knowledge_search", "data_query", "data_visualize",
+            "data_dashboard", "data_document", "data_story", "data_excel",
+            "data_excel_edit", "data_excel_formula", "data_excel_fix",
+            "data_dbt", "data_profile",
+        ],
+        "includes": []
+    },
+
     "image_gen": {
         "description": "Creative generation tools (images)",
         "tools": ["image_generate"],

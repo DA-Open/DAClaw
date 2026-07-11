@@ -79,6 +79,22 @@ termux = [
 dingtalk = ["dingtalk-stream>=0.1.0,<1"]
 feishu = ["lark-oapi>=1.5.3,<2"]
 web = ["fastapi>=0.104.0,<1", "uvicorn[standard]>=0.24.0,<1", "python-multipart>=0.0.9,<1"]
+data = [
+  # DataAgent: DuckDB is the unified SQL engine; pandas/openpyxl bridge Excel &
+  # SQLite; pyarrow enables Parquet. Charts inline vendored ECharts (no dep).
+  "duckdb>=0.10.0,<2",
+  "pandas>=1.5.0,<3",
+  "openpyxl>=3.1.0,<4",
+  "pyarrow>=14.0.0",
+  # formulas: offline Excel formula evaluation (recalc / #DIV0 audit / model verify)
+  "formulas>=1.2,<2",
+  "sqlalchemy>=2.0,<3",
+  "pypdf>=5.0,<7",
+  "psycopg2-binary>=2.9,<3",
+  "pymysql>=1.1,<2",
+  "snowflake-sqlalchemy>=1.7,<2",
+  "pyodbc>=5.0,<6",
+]
 rl = [
   "atroposlib @ git+https://github.com/DA-Open/atropos.git@c20c85256e5a45ad31edf8b7276e9c5ee1995a30",
   "tinker @ git+https://github.com/thinking-machines-lab/tinker.git@30517b667f18a3dfb7ef33fb56cf686d5820ba2b",
@@ -112,6 +128,7 @@ all = [
   "daclaw-agent[mistral]",
   "daclaw-agent[bedrock]",
   "daclaw-agent[web]",
+  "daclaw-agent[data]",
 ]
 
 [project.scripts]
@@ -124,9 +141,10 @@ py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajector
 
 [tool.setuptools.package-data]
 daclaw_cli = ["web_dist/**/*"]
+"agent.data_agent" = ["assets/*.js"]
 
 [tool.setuptools.packages.find]
-include = ["agent", "tools", "tools.*", "daclaw_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*"]
+include = ["agent", "agent.*", "tools", "tools.*", "daclaw_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

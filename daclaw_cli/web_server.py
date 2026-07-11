@@ -76,8 +76,49 @@ app = FastAPI(title="DAClaw Agent", version=__version__)
 # Session token for protecting sensitive endpoints (reveal).
 # Generated fresh on every server start — dies when the process exits.
 # Injected into the SPA HTML so only the legitimate web UI can use it.
+# In development you can pin a fixed token via DACLAW_WEB_DEV_TOKEN so the Vite
+# dev server (npm run dev) can attach the same token in its /api proxy. In
+# production leave it unset — a fresh random token is generated per process.
 # ---------------------------------------------------------------------------
-_SESSION_TOKEN = secrets.token_urlsafe(32)
+_SESSION_TOKEN = os.environ.get("DACLAW_WEB_DEV_TOKEN", "").strip() or secrets.token_urlsafe(32)
+
+
+# Load ~/.daclaw/.env into the process environment at startup so the agent's
+# inference provider (e.g. ARK_API_KEY for custom:volcengine-ark) is available
+# when the web server is launched directly (uvicorn / start.sh) rather than
+# through the CLI. Existing real environment variables always win.
+#
+# Note: the demo launcher sets DACLAW_HOME=~/.daclaw_demo, but the installer
+# writes API keys to the canonical ~/.daclaw/.env. We therefore load BOTH the
+# DACLAW_HOME-scoped .env (via load_env) and the canonical ~/.daclaw/.env so the
+# key is found regardless of which home the process is scoped to.
+def _load_daclaw_env_into_environ() -> None:
+    merged: Dict[str, str] = {}
+    # 1) DACLAW_HOME-scoped .env (whatever load_env resolves to)
+    try:
+        merged.update(load_env() or {})
+    except Exception:
+        pass
+    # 2) canonical ~/.daclaw/.env (parsed directly, independent of DACLAW_HOME)
+    try:
+        canonical = Path.home() / ".daclaw" / ".env"
+        if canonical.is_file():
+            for raw in canonical.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                k, v = k.strip(), v.strip().strip('"').strip("'")
+                if k:
+                    merged.setdefault(k, v)
+    except Exception:
+        pass
+    for _k, _v in merged.items():
+        if _k and _k not in os.environ:
+            os.environ[_k] = _v
+
+
+_load_daclaw_env_into_environ()
 
 # Simple rate limiter for the reveal endpoint
 _reveal_timestamps: List[float] = []
@@ -123,7 +164,10 @@ def _require_token(request: Request) -> None:
 async def auth_middleware(request: Request, call_next):
     """Require the session token on all /api/ routes except the public list."""
     path = request.url.path
-    if path.startswith("/api/") and path not in _PUBLIC_API_PATHS:
+    # DataAgent artifact downloads are opened via plain browser links (no auth
+    # header), and only serve files from a sandboxed output dir — allow them.
+    _is_da_download = path.startswith("/api/da/download/")
+    if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and not _is_da_download:
         auth = request.headers.get("authorization", "")
         expected = f"Bearer {_SESSION_TOKEN}"
         if not hmac.compare_digest(auth.encode(), expected.encode()):
@@ -1803,6 +1847,14 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
 
 
+class DaAgentRequest(BaseModel):
+    """Request for the scoped Data Agent chat (/api/da/agent)."""
+    message: str
+    history: List[ChatMessage] = Field(default_factory=list)
+    session_id: Optional[str] = None
+    workflow: Optional[Dict[str, Any]] = None
+
+
 class WorkspaceRootRequest(BaseModel):
     path: str
 
@@ -2244,11 +2296,20 @@ def _build_chat_user_message(body: ChatRequest) -> str:
         "use the Terminal path above. Do not search the filesystem root for uploaded files."
     )
     lines.append(
-        "For data-analysis tasks in web chat, prefer creating a self-contained HTML report "
-        "in the same upload directory when useful, with readable sections, tables, and "
-        "lightweight charts using embedded HTML/CSS/SVG. Also summarize the key findings "
-        "in the chat response and link the generated report path. Use Markdown tables for "
-        "tabular summaries and avoid raw LaTeX delimiters when a plain-text formula is enough."
+        "For data-analysis tasks in web chat, you have a dedicated DataAgent toolchain — "
+        "PREFER IT over hand-writing HTML/SVG:\n"
+        "  1. data_connect(source=<the upload path>) to load a CSV/Excel/Parquet/SQLite/DuckDB file.\n"
+        "  2. When a table is first uploaded, call data_dashboard(title=..., table=<table>) to "
+        "instantly produce a beautiful overview dashboard (KPIs + trend + category charts).\n"
+        "  3. To answer a specific question WITH a chart, call data_visualize(sql=..., title=...) — "
+        "chart type auto-selects; the result is a self-contained interactive ECharts HTML that "
+        "previews directly in the workspace.\n"
+        "  4. To produce a full report, call data_document(title=..., sections=[...]) — it returns a "
+        "polished self-contained HTML report (and optional PDF/DOCX via format=).\n"
+        "Every number MUST come from a real data_query/data_visualize result — never estimate. "
+        "These tools write their HTML into the workspace automatically, so tell the user the "
+        "generated file name and summarize findings in chat. Only fall back to hand-written "
+        "HTML/CSS/SVG if the DataAgent tools are unavailable."
     )
     return "\n".join(lines).strip()
 
@@ -2707,10 +2768,62 @@ def _workspace_preview_sqlite(path: Path) -> Dict[str, Any]:
     return {"type": "database", "tables": tables}
 
 
+def _workspace_preview_xlsx(path: Path) -> Dict[str, Any]:
+    """Preview an .xlsx as a multi-sheet 'database': each sheet → a table with
+    its header row + a few sample rows. Reuses the engine's header detection so
+    title banners don't get mistaken for headers."""
+    try:
+        import pandas as pd
+    except Exception:
+        return {"type": "unsupported", "message": "Excel preview needs pandas + openpyxl."}
+    try:
+        from agent.data_agent.engine import _reheader_excel_sheet  # header detection
+    except Exception:
+        _reheader_excel_sheet = None
+
+    tables: List[Dict[str, Any]] = []
+    try:
+        raw_sheets = pd.read_excel(path, sheet_name=None, header=None)
+    except Exception as exc:
+        return {"type": "unsupported", "message": f"Could not read workbook: {exc}"}
+
+    for sheet_name, raw in list(raw_sheets.items())[:20]:
+        df = _reheader_excel_sheet(raw) if _reheader_excel_sheet else raw
+        if df is None or df.empty:
+            tables.append({"name": str(sheet_name), "type": "sheet",
+                           "columns": [], "row_count": 0, "sample": []})
+            continue
+        columns = [{"name": str(c), "type": ""} for c in df.columns]
+        sample: List[Dict[str, Any]] = []
+        for _, row in df.head(8).iterrows():
+            rec = {}
+            for c in df.columns:
+                v = row[c]
+                if pd.isna(v):
+                    v = None
+                elif hasattr(v, "item"):
+                    try:
+                        v = v.item()
+                    except Exception:
+                        v = str(v)
+                rec[str(c)] = v
+            sample.append(rec)
+        tables.append({
+            "name": str(sheet_name),
+            "type": "sheet",
+            "columns": columns,
+            "row_count": int(len(df)),
+            "sample": sample,
+        })
+    return {"type": "database", "tables": tables}
+
+
 def _workspace_preview_file(path: Path) -> Dict[str, Any]:
     suffix = path.suffix.lower()
     if suffix in _WORKSPACE_TABLE_SUFFIXES:
         return _workspace_preview_delimited(path)
+    if suffix in {".xlsx", ".xls", ".xlsm"}:
+        return _workspace_preview_xlsx(path)
     if suffix in _SQLITE_SUFFIXES:
         return _workspace_preview_sqlite(path)
     if suffix in _WORKSPACE_HTML_SUFFIXES:
@@ -2820,8 +2933,14 @@ def _create_web_chat_agent(
     reasoning_callback=None,
     status_callback=None,
     step_callback=None,
+    enabled_toolsets_override: Optional[List[str]] = None,
 ):
-    """Create an AIAgent for the dashboard chat without changing core logic."""
+    """Create an AIAgent for the dashboard chat without changing core logic.
+
+    ``enabled_toolsets_override`` pins a specific toolset (e.g. the Data Agent
+    chat uses ``["data-agent-chat"]``) instead of the configured/default web
+    toolsets — used by the scoped /api/da/agent surface.
+    """
     from run_agent import AIAgent
     from gateway.run import (
         GatewayRunner,
@@ -2841,12 +2960,15 @@ def _create_web_chat_agent(
             model = get_default_model_for_provider(runtime_kwargs.get("provider", ""))
         except Exception:
             model = ""
-    web_config = config.get("web") if isinstance(config.get("web"), dict) else {}
-    configured_toolsets = web_config.get("agent_toolsets") if isinstance(web_config, dict) else None
-    if isinstance(configured_toolsets, list) and configured_toolsets:
-        enabled_toolsets = sorted(str(item) for item in configured_toolsets if str(item).strip())
+    if enabled_toolsets_override:
+        enabled_toolsets = list(enabled_toolsets_override)
     else:
-        enabled_toolsets = list(_WEB_AGENT_DEFAULT_TOOLSETS)
+        web_config = config.get("web") if isinstance(config.get("web"), dict) else {}
+        configured_toolsets = web_config.get("agent_toolsets") if isinstance(web_config, dict) else None
+        if isinstance(configured_toolsets, list) and configured_toolsets:
+            enabled_toolsets = sorted(str(item) for item in configured_toolsets if str(item).strip())
+        else:
+            enabled_toolsets = list(_WEB_AGENT_DEFAULT_TOOLSETS)
     max_iterations = int(
         (config.get("agent") or {}).get("max_turns")
         or os.getenv("DACLAW_MAX_ITERATIONS", "90")
@@ -2885,6 +3007,148 @@ def _create_web_chat_agent(
     # call after the data work has already succeeded.
     agent._disable_analysis_audit = True
     return agent
+
+
+def _da_agent_system_prompt() -> str:
+    """Build the Data Agent system prompt with the live connected schema.
+
+    Injected as ``system_message`` on the scoped /api/da/agent run so the model
+    knows exactly which tables exist and is instructed to ground every number in
+    a real query.
+    """
+    try:
+        from agent.data_agent.engine import get_engine
+        eng = get_engine()
+        lines = []
+        for t in eng.list_tables():
+            try:
+                cols = ", ".join(f'{c["name"]} {c["type"]}' for c in eng.table_schema(t))
+                lines.append(f"- {t}({cols})")
+            except Exception:
+                lines.append(f"- {t}")
+        schema = "\n".join(lines)
+    except Exception:
+        schema = ""
+    if not schema:
+        schema = "(no data connected yet — ask the user to upload a file first)"
+    try:
+        from agent.data_agent.knowledge import list_sources
+
+        sources = list_sources()
+        knowledge = "\n".join(f"- {item['name']} ({item['kind']}, id={item['source_id']})" for item in sources)
+    except Exception:
+        knowledge = ""
+    if not knowledge:
+        knowledge = "(no knowledge documents connected)"
+    workspace_root = _workspace_upload_root()
+    return (
+        "You are DAClaw's Data Agent — a tightly data-focused analyst. You act "
+        "ONLY through your data tools: data_workflow_plan, data_connect, "
+        "data_knowledge_connect, data_knowledge_search, data_query, data_visualize, "
+        "data_dashboard, data_document, data_story, data_excel, data_excel_edit, "
+        "data_excel_formula, data_excel_fix, data_dbt (and data_profile). You never write "
+        "arbitrary files or run shell/Python.\n\n"
+        f"Currently connected tables:\n{schema}\n\n"
+        f"Connected knowledge documents:\n{knowledge}\n\n"
+        "Rules:\n"
+        "- Answer questions by running SQL via data_query (or data_visualize for "
+        "a chart). Every number MUST come from a real query result — never "
+        "estimate or invent values.\n"
+        "- When the user wants a chart/plot, call data_visualize; for a "
+        "multi-panel overview call data_dashboard. When they want a written "
+        "analysis or report, call data_document. When they want a NEW Excel / "
+        "spreadsheet file (.xlsx), call data_excel. When they want to EDIT the "
+        "workbook they uploaded (add a summary sheet, restyle/repair), call "
+        "data_excel_edit — it preserves the original sheets.\n"
+        "- When the request relies on policy documents, research, metric definitions, "
+        "or market context, call data_knowledge_search and cite the returned source "
+        "name alongside the structured-data evidence.\n"
+        "- When the user asks for a presentation, narrated walkthrough, executive "
+        "story, or data video, call data_story. It creates an animated, interactive "
+        "HTML story from real query results.\n"
+        "- When the user wants a FORMULA-DRIVEN, computable model (DCF, LBO, "
+        "M&A accretion/dilution, sensitivity tables, any 'build a model with "
+        "real formulas'), call data_excel_formula — it writes real Excel "
+        "formulas and recalculates offline to PROVE the numbers compute. "
+        "CRITICAL: the model must be fully live — ONLY input assumptions may be "
+        "literal numbers; EVERY calculated cell (including sensitivity/scenario "
+        "grids and every period of a cash-flow projection) MUST be a formula "
+        "that references assumption cells. Never paste a pre-computed number "
+        "into a calculated cell, and never bury a constant inside a formula — "
+        "put it in a labeled assumption cell and reference it. "
+        "When the user wants to FIX formula errors in an uploaded workbook "
+        "(#REF!, #DIV/0!, #NUM!, broken cross-sheet refs, hardcoded numbers, "
+        "circular refs), call data_excel_fix — first with no 'fixes' to AUDIT, "
+        "then again with 'fixes' to repair and verify the errors are gone.\n"
+        "- Use correct DuckDB SQL dialect. Quote identifiers with double quotes "
+        "when they contain non-ASCII or spaces. Keep answers concise and "
+        "reference the SQL you ran.\n"
+        f"- Generated artifacts are saved under {workspace_root}/data_agent/.\n"
+    )
+
+
+def _da_artifact_from_result(name: str, result: Any) -> Optional[Dict[str, Any]]:
+    """Turn a data_visualize/dashboard/document tool result into a structured
+    artifact descriptor the frontend right-panel can render directly.
+
+    Returns None for other tools, or when the artifact file cannot be resolved
+    under the workspace root (in which case the trace still shows, but no panel
+    opens — a graceful degradation that keeps the demo alive).
+    """
+    if name not in {"data_visualize", "data_dashboard", "data_document", "data_story", "data_excel", "data_excel_edit", "data_excel_formula", "data_excel_fix"}:
+        return None
+    # Tool handlers return a JSON *string* (tools.registry.tool_result), which is
+    # what reaches this callback. Parse it; also tolerate a dict or a
+    # {"result": ...} envelope in case the caller changes.
+    payload: Any = result
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            return None
+    if isinstance(payload, dict) and "result" in payload and isinstance(payload["result"], (str, dict)):
+        inner = payload["result"]
+        if isinstance(inner, str):
+            try:
+                inner = json.loads(inner)
+            except Exception:
+                inner = None
+        if isinstance(inner, dict):
+            payload = inner
+    if not isinstance(payload, dict):
+        return None
+    # data_excel returns excel_path; the html-producing tools return html_path.
+    file_path = payload.get("html_path") or payload.get("excel_path")
+    workspace_file = payload.get("workspace_file")
+    if not file_path or not workspace_file:
+        return None
+    try:
+        file_id = _workspace_encode_file_id(Path(file_path))
+    except Exception:
+        # file is not under the workspace root — skip the panel.
+        return None
+    kind = {
+        "data_visualize": "chart",
+        "data_dashboard": "dashboard",
+        "data_document": "document",
+        "data_story": "story",
+        "data_excel": "excel",
+        "data_excel_edit": "excel",
+        "data_excel_formula": "excel",
+        "data_excel_fix": "excel",
+    }[name]
+    return {
+        "kind": kind,
+        "workspace_file": workspace_file,
+        "file_id": file_id,
+        # .xlsx cannot render in an iframe; the frontend shows a download card
+        # for kind == "excel" and ignores preview_url.
+        "preview_url": f"/api/workspace/files/{file_id}/preview",
+        "download_url": f"/api/workspace/files/{file_id}/download",
+        "artifact_id": payload.get("artifact_id"),
+        "title": payload.get("title") or workspace_file,
+        "row_count": payload.get("row_count"),
+    }
 
 
 @app.post("/api/chat/upload")
@@ -3008,6 +3272,9 @@ def _chat_run_worker(run_id: str) -> None:
             "result": _compact_value(result, 800) if _detect_lightweight_result(result) else "",
         }
         event.update(_tool_summary(name, args))
+        art = _da_artifact_from_result(name, result)
+        if art:
+            event["artifact"] = art
         push(event)
 
     try:
@@ -3021,10 +3288,12 @@ def _chat_run_worker(run_id: str) -> None:
             reasoning_callback=on_reasoning,
             status_callback=on_status,
             step_callback=on_step,
+            enabled_toolsets_override=run.get("enabled_toolsets"),
         )
         result = agent.run_conversation(
             _build_chat_user_message(body),
             conversation_history=_history_for_agent(body.history),
+            system_message=run.get("system_message"),
         )
         flush_delta()
         with _CHAT_RUN_LOCK:
@@ -3047,7 +3316,12 @@ def _chat_run_worker(run_id: str) -> None:
         }, record=False)
 
 
-def _start_chat_run(body: ChatRequest) -> Dict[str, Any]:
+def _start_chat_run(
+    body: ChatRequest,
+    *,
+    enabled_toolsets: Optional[List[str]] = None,
+    system_message: Optional[str] = None,
+) -> Dict[str, Any]:
     if not body.message.strip() and not body.attachments:
         raise HTTPException(status_code=400, detail="Message or attachment is required")
 
@@ -3065,6 +3339,8 @@ def _start_chat_run(body: ChatRequest) -> Dict[str, Any]:
         "error": None,
         "trace": [],
         "events": [],
+        "enabled_toolsets": enabled_toolsets,
+        "system_message": system_message,
     }
     with _CHAT_RUN_LOCK:
         _CHAT_RUNS[run_id] = run
@@ -3077,6 +3353,36 @@ def _start_chat_run(body: ChatRequest) -> Dict[str, Any]:
 async def start_chat_run(body: ChatRequest):
     """Start a web-chat turn that can be resumed if the page disconnects."""
     run = _start_chat_run(body)
+    return _chat_run_payload(run)
+
+
+@app.post("/api/da/agent")
+async def start_da_agent_run(body: DaAgentRequest):
+    """Start a scoped Data Agent turn: agentic chat pinned to the
+    ``data-agent-chat`` toolset, grounded in the connected-table schema.
+
+    Reuses the same run store + polling endpoint as /api/chat/runs; read
+    events via GET /api/chat/runs/{run_id}/events.
+    """
+    chat_body = ChatRequest(
+        message=body.message,
+        history=body.history,
+        attachments=[],
+        session_id=body.session_id,
+    )
+    system_message = _da_agent_system_prompt()
+    if body.workflow:
+        try:
+            from agent.data_agent.workflow import workflow_prompt
+
+            system_message += "\n\n" + workflow_prompt(body.workflow)
+        except Exception:
+            pass
+    run = _start_chat_run(
+        chat_body,
+        enabled_toolsets=["data-agent-chat"],
+        system_message=system_message,
+    )
     return _chat_run_payload(run)
 
 
@@ -3490,6 +3796,15 @@ def mount_spa(application: FastAPI):
             return FileResponse(file_path)
         return _serve_index()
 
+
+# Register DataAgent demo routes (Part 1 workbench + Part 2 leaderboard)
+# BEFORE mounting the SPA catch-all, so /api/da/* and /api/lb/* resolve.
+try:
+    from daclaw_cli.data_agent_web import register as _register_data_agent_routes
+
+    _register_data_agent_routes(app)
+except Exception as _da_exc:  # pragma: no cover - demo routes are optional
+    _log.warning("DataAgent demo routes not registered: %s", _da_exc)
 
 mount_spa(app)
 
