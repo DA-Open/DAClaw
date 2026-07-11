@@ -323,7 +323,7 @@ export default function EtlPage() {
   const selectedModel = selected ? modelByName.get(selected) : null;
 
   return (
-    <div className="mission-shell relative flex h-full flex-col overflow-hidden bg-[#07111f] text-slate-100">
+    <div className="mission-shell relative flex h-full flex-col overflow-hidden bg-[#1a2536] text-slate-100">
       <ConnectDbDialog
         open={dbDialogOpen}
         onClose={() => setDbDialogOpen(false)}
@@ -341,7 +341,7 @@ export default function EtlPage() {
         </div>
       )}
       {/* header + NL input */}
-      <div className="border-b border-white/5 bg-[#081321]/88 px-5 py-4 backdrop-blur-xl">
+      <div className="border-b border-white/5 bg-[#1e2a3d]/88 px-5 py-4 backdrop-blur-xl">
         <div className="mb-3 flex items-center gap-2">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-violet-300/20 bg-violet-300/10 text-violet-200"><Boxes className="h-5 w-5" /></span>
           <div><span className="text-sm font-black text-slate-50">{T.pipelineStudio}</span><div className="text-[10px] uppercase tracking-[.16em] text-slate-500">{T.etlSubtitle}</div></div>
@@ -431,7 +431,7 @@ export default function EtlPage() {
             </div>
           </aside>
         )}
-        <div ref={scrollRef} className="mission-canvas min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle,rgba(115,155,215,0.16)_1px,transparent_1px)] [background-size:22px_22px]">
+        <div ref={scrollRef} className="mission-canvas min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle,rgba(115,155,215,0.08)_1px,transparent_1px)] [background-size:26px_26px]">
           {building && (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
               <Loader2 className="h-8 w-8 animate-spin text-[#2DD4BF]" />

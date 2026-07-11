@@ -20,7 +20,7 @@ import threading
 import time
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from agent.data_agent.artifacts import ResultTable, _short_hash, _slugify
 from daclaw_constants import get_daclaw_home
@@ -626,11 +626,66 @@ class DataEngine:
             stats={"elapsed_ms": elapsed_ms, "null_counts": null_counts},
         )
 
+    def run_queries_parallel(
+        self, sqls: Sequence[str], *, max_rows: int = 100_000
+    ) -> List["ResultTable"]:
+        """Run several INDEPENDENT read-only queries concurrently.
+
+        Each query gets its own DuckDB cursor (``self.con.cursor()``) so they can
+        execute on separate threads sharing the same in-memory catalog — this is
+        the safe DuckDB concurrency pattern (the shared ``self.con`` is NOT safe
+        to use from multiple threads at once). Results come back in input order.
+        Persistence into the AnalysisRun is the caller's job and must happen
+        serially after this returns (the run manifest is not thread-safe).
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        sql_list = [str(s) for s in sqls]
+        for sql in sql_list:
+            if not _is_readonly(sql):
+                raise DataEngineError(
+                    "Only read-only queries can run in parallel (SELECT / WITH / "
+                    "DESCRIBE / SHOW / PRAGMA / EXPLAIN)."
+                )
+        if not sql_list:
+            return []
+
+        def _one(sql: str) -> "ResultTable":
+            t0 = time.perf_counter()
+            cur = self.con.cursor()  # independent connection, shared catalog
+            try:
+                cur.execute(sql)
+                description = cur.description or []
+                columns = [{"name": d[0], "type": _duck_type(d)} for d in description]
+                rows = cur.fetchmany(max_rows)
+            except Exception as exc:
+                raise DataEngineError(f"Query failed: {exc}") from exc
+            finally:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+            norm_rows = [[_json_safe(v) for v in row] for row in rows]
+            elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+            null_counts: Dict[str, int] = {}
+            for idx, col in enumerate(columns):
+                null_counts[col["name"]] = sum(1 for r in norm_rows if r[idx] is None)
+            return ResultTable(
+                artifact_id=f"res_{_short_hash(sql)}",
+                kind="sql_result",
+                columns=columns,
+                rows=norm_rows,
+                row_count=len(norm_rows),
+                stats={"elapsed_ms": elapsed_ms, "null_counts": null_counts},
+            )
+
+        workers = min(len(sql_list), 8)
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            return list(ex.map(_one, sql_list))
+
     def profile_table(
         self, table: str, *, sample_rows: int = 10
     ) -> Dict[str, Any]:
-        """Return a structured profile for one attached table."""
-        t = _safe_ident(table)
         schema = self.table_schema(t)
         with self._lock:
             row_count = self.con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]

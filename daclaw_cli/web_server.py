@@ -164,9 +164,10 @@ def _require_token(request: Request) -> None:
 async def auth_middleware(request: Request, call_next):
     """Require the session token on all /api/ routes except the public list."""
     path = request.url.path
-    # DataAgent artifact downloads are opened via plain browser links (no auth
-    # header), and only serve files from a sandboxed output dir — allow them.
-    _is_da_download = path.startswith("/api/da/download/")
+    # DataAgent artifact downloads/views are opened via plain browser links (no
+    # auth header — an <iframe src>/<audio src> can't send one), and only serve
+    # files from a sandboxed output dir — allow them.
+    _is_da_download = path.startswith("/api/da/download/") or path.startswith("/api/da/view/")
     if path.startswith("/api/") and path not in _PUBLIC_API_PATHS and not _is_da_download:
         auth = request.headers.get("authorization", "")
         expected = f"Bearer {_SESSION_TOKEN}"
@@ -2933,6 +2934,7 @@ def _create_web_chat_agent(
     reasoning_callback=None,
     status_callback=None,
     step_callback=None,
+    clarify_callback=None,
     enabled_toolsets_override: Optional[List[str]] = None,
 ):
     """Create an AIAgent for the dashboard chat without changing core logic.
@@ -2997,6 +2999,7 @@ def _create_web_chat_agent(
         reasoning_callback=reasoning_callback,
         status_callback=status_callback,
         step_callback=step_callback,
+        clarify_callback=clarify_callback,
         session_db=session_db,
         fallback_model=GatewayRunner._load_fallback_model(),
     )
@@ -3044,9 +3047,11 @@ def _da_agent_system_prompt() -> str:
     return (
         "You are DAClaw's Data Agent — a tightly data-focused analyst. You act "
         "ONLY through your data tools: data_workflow_plan, data_connect, "
-        "data_knowledge_connect, data_knowledge_search, data_query, data_visualize, "
-        "data_dashboard, data_document, data_story, data_excel, data_excel_edit, "
-        "data_excel_formula, data_excel_fix, data_dbt (and data_profile). You never write "
+        "data_knowledge_connect, data_knowledge_search, data_query, data_parallel_query, "
+        "data_visualize, data_dashboard, data_document, data_story, data_excel, data_excel_edit, "
+        "data_excel_formula, data_excel_fix, data_dbt (and data_profile). You may "
+        "also call clarify (ask the user) and skills_list / skill_view / "
+        "skill_manage (save a reusable skill). You never write "
         "arbitrary files or run shell/Python.\n\n"
         f"Currently connected tables:\n{schema}\n\n"
         f"Connected knowledge documents:\n{knowledge}\n\n"
@@ -3054,6 +3059,11 @@ def _da_agent_system_prompt() -> str:
         "- Answer questions by running SQL via data_query (or data_visualize for "
         "a chart). Every number MUST come from a real query result — never "
         "estimate or invent values.\n"
+        "- RUN INDEPENDENT QUERIES IN PARALLEL: when a request needs several "
+        "queries that DON'T depend on each other (e.g. revenue by region AND by "
+        "month AND top products), issue them together via data_parallel_query so "
+        "the independent branches execute concurrently instead of one-by-one. Use "
+        "data_query for a single or dependent query.\n"
         "- When the user wants a chart/plot, call data_visualize; for a "
         "multi-panel overview call data_dashboard. When they want a written "
         "analysis or report, call data_document. When they want a NEW Excel / "
@@ -3083,8 +3093,58 @@ def _da_agent_system_prompt() -> str:
         "- Use correct DuckDB SQL dialect. Quote identifiers with double quotes "
         "when they contain non-ASCII or spaces. Keep answers concise and "
         "reference the SQL you ran.\n"
+        "- CLARIFY when ambiguous: if the request is genuinely ambiguous (unclear "
+        "which table/metric/time range, or multiple reasonable interpretations "
+        "with different results), call clarify with a specific question and up to "
+        "4 concrete choices BEFORE doing heavy work. For low-stakes ambiguity, "
+        "pick a sensible default and state it instead of asking.\n"
+        "- SAVE A SKILL: after you solve a non-trivial, repeatable task (a multi-"
+        "step analysis, a reusable pipeline, a modeling recipe), call skill_manage "
+        "with action='create' to capture it as a reusable skill. It is quality-"
+        "validated automatically and only kept if it passes — so write a clear, "
+        "step-by-step SKILL.md with a verification section. Do this at most once "
+        "per conversation, for genuinely reusable know-how (not one-off answers).\n"
         f"- Generated artifacts are saved under {workspace_root}/data_agent/.\n"
     )
+
+
+def _da_skill_from_result(name: str, args: Any, result: Any) -> Optional[Dict[str, Any]]:
+    """Turn a skill_manage(create/edit) result into a structured 'skill' event
+    field the frontend can render as a "skill self-generated" card.
+
+    Surfaces the quality-validation outcome: kept (passed) vs rejected (failed),
+    plus the judge score/summary. Returns None for other tools/actions.
+    """
+    if name != "skill_manage":
+        return None
+    action = ""
+    skill_name = ""
+    if isinstance(args, dict):
+        action = str(args.get("action", "")).lower()
+        skill_name = str(args.get("name", "") or "")
+    if action not in {"create", "edit"}:
+        return None
+    payload: Any = result
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    quality = payload.get("quality_validation") if isinstance(payload.get("quality_validation"), dict) else {}
+    success = bool(payload.get("success"))
+    # kept only when the create/edit succeeded (quality gate rejects on failure)
+    descriptor: Dict[str, Any] = {
+        "action": action,
+        "name": payload.get("name") or skill_name or "skill",
+        "category": payload.get("category") or (args.get("category") if isinstance(args, dict) else "") or "",
+        "kept": success,
+        "quality_status": quality.get("status") or ("passed" if success else "failed"),
+        "score": quality.get("score"),
+        "summary": quality.get("summary") or payload.get("error") or "",
+    }
+    return descriptor
 
 
 def _da_artifact_from_result(name: str, result: Any) -> Optional[Dict[str, Any]]:
@@ -3275,7 +3335,49 @@ def _chat_run_worker(run_id: str) -> None:
         art = _da_artifact_from_result(name, result)
         if art:
             event["artifact"] = art
+        skill = _da_skill_from_result(name, args, result)
+        if skill:
+            event["skill"] = skill
         push(event)
+
+    def on_clarify(question: str, choices) -> str:
+        """Blocking clarify: park the run until the user answers.
+
+        Emits a 'clarify' event to the run's stream (which the polling frontend
+        renders as a question card), then blocks this worker thread on a
+        per-run threading.Event until POST /api/da/clarify/{run_id} supplies the
+        answer. Other in-flight tool calls in this turn have already returned
+        (the agent loop calls clarify serially), so this cleanly pauses THIS
+        turn while the browser keeps polling and the rest of the app stays live.
+        """
+        gate = threading.Event()
+        with _CHAT_RUN_LOCK:
+            run_obj = _CHAT_RUNS.get(run_id)
+            if run_obj is not None:
+                run_obj["clarify_gate"] = gate
+                run_obj["clarify_answer"] = None
+        push({
+            "type": "clarify",
+            "question": question,
+            "choices": list(choices) if choices else [],
+        })
+        # Wait for the answer. Poll the gate so a cancelled/expired run doesn't
+        # block forever; cap at the total turn timeout.
+        deadline = time.time() + _chat_total_timeout_seconds()
+        while not gate.wait(timeout=1.0):
+            if time.time() > deadline:
+                return "(no response — proceed with your best assumption)"
+            with _CHAT_RUN_LOCK:
+                run_obj = _CHAT_RUNS.get(run_id)
+                if run_obj is None or run_obj.get("status") in {"failed", "cancelled", "completed"}:
+                    return "(no response — proceed with your best assumption)"
+        with _CHAT_RUN_LOCK:
+            run_obj = _CHAT_RUNS.get(run_id)
+            answer = (run_obj or {}).get("clarify_answer")
+            if run_obj is not None:
+                run_obj["clarify_gate"] = None
+                run_obj["clarify_answer"] = None
+        return str(answer) if answer is not None else "(no response — proceed with your best assumption)"
 
     try:
         push({"type": "run_started", "message": "DAClaw is working"})
@@ -3288,6 +3390,7 @@ def _chat_run_worker(run_id: str) -> None:
             reasoning_callback=on_reasoning,
             status_callback=on_status,
             step_callback=on_step,
+            clarify_callback=on_clarify,
             enabled_toolsets_override=run.get("enabled_toolsets"),
         )
         result = agent.run_conversation(
@@ -3384,6 +3487,29 @@ async def start_da_agent_run(body: DaAgentRequest):
         system_message=system_message,
     )
     return _chat_run_payload(run)
+
+
+class DaClarifyAnswer(BaseModel):
+    answer: str
+
+
+@app.post("/api/da/clarify/{run_id}")
+async def answer_da_clarify(run_id: str, body: DaClarifyAnswer):
+    """Supply the user's answer to a parked clarify() call, unblocking the run.
+
+    The worker thread is waiting on ``run['clarify_gate']``; we store the answer
+    and set the gate so the blocked clarify callback returns it to the agent.
+    """
+    with _CHAT_RUN_LOCK:
+        run = _CHAT_RUNS.get(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Chat run not found")
+        gate = run.get("clarify_gate")
+        if gate is None:
+            return {"ok": False, "error": "no pending clarification"}
+        run["clarify_answer"] = body.answer
+    gate.set()
+    return {"ok": True}
 
 
 @app.get("/api/chat/runs/{run_id}/events")

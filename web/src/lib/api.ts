@@ -457,6 +457,12 @@ export const api = {
     fetchJSON<DATableSampleResponse>(
       `/api/da/table/${encodeURIComponent(table)}/sample?limit=${encodeURIComponent(String(limit))}`,
     ),
+  daClarify: (runId: string, answer: string) =>
+    fetchJSON<{ ok: boolean; error?: string }>(`/api/da/clarify/${encodeURIComponent(runId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer }),
+    }),
 
   // ---- ETL / auto-dbt ----
   dbtBuild: (goal: string) =>
@@ -747,6 +753,15 @@ export interface DAArtifact {
   row_count?: number | null;
 }
 
+export interface DASkillEvent {
+  action: string;
+  name: string;
+  category: string;
+  kept: boolean;
+  quality_status: string;
+  score?: number | null;
+  summary?: string;
+}
 export interface ChatTraceEvent {
   type: string;
   ts?: number;
@@ -764,6 +779,7 @@ export interface ChatTraceEvent {
   duration?: number | null;
   is_error?: boolean;
   artifact?: DAArtifact;
+  skill?: DASkillEvent;
 }
 
 export type ChatStreamEvent =

@@ -9,7 +9,6 @@ import {
   FileText,
   KeyRound,
   MessageSquare,
-  Package,
   Settings,
   Sparkles,
   Trophy,
@@ -39,10 +38,11 @@ const PRIMARY_NAV = [
 ] as const;
 
 // Everything else lives under the "菜单 / Menu" dropdown.
+// NOTE: Skills moved into the Data Analysis left panel (see DataAgentPage) and
+// were removed from this dropdown to avoid a duplicate entry point.
 const MORE_NAV = [
   { path: "/sessions", key: "sessions", icon: MessageSquare },
   { path: "/analytics", key: "usage", icon: BarChart3 },
-  { path: "/skills", key: "skills", icon: Package },
   { path: "/status", key: "status", icon: Activity },
   { path: "/logs", key: "logs", icon: FileText },
   { path: "/cron", key: "cron", icon: Clock },
@@ -159,8 +159,8 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <div className="mission-app min-h-screen overflow-x-hidden bg-[#07111f] text-slate-100">
-      <header className="sticky top-0 z-30 border-b border-cyan-300/10 bg-[#07111f]/90 backdrop-blur-xl">
+    <div className="mission-app min-h-screen overflow-x-hidden bg-[#1a2536] text-slate-100">
+      <header className="sticky top-0 z-30 border-b border-cyan-300/10 bg-[#1a2536]/90 backdrop-blur-xl">
         <div className="flex h-12 items-center gap-3 px-3 sm:px-5">
           <button
             type="button"
@@ -181,8 +181,8 @@ export default function App() {
                 key={path}
                 to={path}
                 className={({ isActive }) =>
-                  `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-medium transition-colors ${
-                    isActive ? "bg-gradient-to-r from-blue-500/90 to-cyan-400/90 text-[#041817] shadow-[0_0_22px_rgba(63,174,255,.18)]" : "text-slate-500 hover:text-slate-100"
+                  `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm font-semibold transition-colors ${
+                    isActive ? "bg-gradient-to-r from-blue-500/90 to-cyan-400/90 text-white shadow-[0_0_22px_rgba(63,174,255,.28)]" : "text-slate-200 hover:bg-white/5 hover:text-white"
                   }`
                 }
               >

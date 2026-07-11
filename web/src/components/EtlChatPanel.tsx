@@ -218,7 +218,11 @@ export function EtlChatPanel({
           )}
           <div className="min-h-0 flex-1">
             {artifactHtml ? (
-              <iframe title={artifact.title ?? "artifact"} srcDoc={artifactHtml} sandbox="allow-same-origin allow-scripts" className="h-full w-full border-0 bg-white" />
+              artifact.kind === "story" ? (
+                <iframe title={artifact.title ?? "artifact"} src={`/api/da/view/${encodeURIComponent(artifact.workspace_file)}`} sandbox="allow-same-origin allow-scripts" className="h-full w-full border-0 bg-white" />
+              ) : (
+                <iframe title={artifact.title ?? "artifact"} srcDoc={artifactHtml} sandbox="allow-same-origin allow-scripts" className="h-full w-full border-0 bg-white" />
+              )
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {T.renderingPreview}</div>
             )}

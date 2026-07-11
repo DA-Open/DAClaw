@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Copy, Check } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Copy, Check, Zap } from "lucide-react";
 import type { ChatTraceEvent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
@@ -80,6 +80,29 @@ function extractSql(event: ChatTraceEvent): string | null {
   return null;
 }
 
+// Collapse consecutive events that render to the same step so the panel doesn't
+// become a noisy stack of identical "Read data source" rows. Adjacent events
+// sharing a key (type + tool name + summary) merge into one, carrying a count
+// and keeping the last event's body (freshest result/duration).
+type TraceGroup = { event: ChatTraceEvent; count: number; index: number };
+function groupTrace(items: ChatTraceEvent[]): TraceGroup[] {
+  const groups: TraceGroup[] = [];
+  items.forEach((event, index) => {
+    const key = `${event.type}|${event.name || event.event || ""}|${event.summary || ""}|${event.is_error ? "e" : ""}`;
+    const prev = groups[groups.length - 1];
+    const prevKey = prev ? `${prev.event.type}|${prev.event.name || prev.event.event || ""}|${prev.event.summary || ""}|${prev.event.is_error ? "e" : ""}` : null;
+    // don't merge rows that carry a distinct SQL body — each query is worth showing
+    const hasDistinctSql = Boolean(extractSql(event));
+    if (prev && prevKey === key && !hasDistinctSql) {
+      prev.count += 1;
+      prev.event = event; // keep freshest body/duration
+    } else {
+      groups.push({ event, count: 1, index });
+    }
+  });
+  return groups;
+}
+
 export function TracePanel({
   trace = [],
   running = false,
@@ -92,10 +115,10 @@ export function TracePanel({
   const [open, setOpen] = useState(running);
   const { t } = useI18n();
   const tr = t.da;
-  const items = trace;
-  const toolCount = items.filter((item) => item.type.includes("tool")).length;
+  const groups = groupTrace(trace);
+  const toolCount = trace.filter((item) => item.type.includes("tool")).length;
 
-  if (!running && items.length === 0) return null;
+  if (!running && trace.length === 0) return null;
 
   return (
     <div className="mt-1 overflow-hidden rounded-2xl border border-border bg-muted/40">
@@ -113,10 +136,10 @@ export function TracePanel({
       {open && (
         <div className="border-t border-border">
           <div className="divide-y divide-border">
-            {items.map((event, index) => (
-              <TraceEvent key={`${event.type}-${index}`} event={event} sourceMode={sourceMode} tr={tr} />
+            {groups.map((g) => (
+              <TraceEvent key={`${g.event.type}-${g.index}`} event={g.event} count={g.count} sourceMode={sourceMode} tr={tr} />
             ))}
-            {running && <TraceActiveRow trace={trace} visibleItems={items} sourceMode={sourceMode} tr={tr} />}
+            {running && <TraceActiveRow trace={trace} visibleItems={trace} sourceMode={sourceMode} tr={tr} />}
           </div>
         </div>
       )}
@@ -200,7 +223,7 @@ function SqlCard({ sql, emphasized, tr }: { sql: string; emphasized: boolean; tr
   );
 }
 
-function TraceEvent({ event, sourceMode, tr }: { event: ChatTraceEvent; sourceMode: SourceMode; tr: DaT }) {
+function TraceEvent({ event, count = 1, sourceMode, tr }: { event: ChatTraceEvent; count?: number; sourceMode: SourceMode; tr: DaT }) {
   const isSqlTool = SQL_TOOLS.has(event.name || "");
   const sql = isSqlTool ? extractSql(event) : null;
   // In database mode, a SQL card is prominent → default open. In table mode,
@@ -245,8 +268,12 @@ function TraceEvent({ event, sourceMode, tr }: { event: ChatTraceEvent; sourceMo
           {traceStatusLabel(event, tr)}
         </span>
         <span className="min-w-0 flex-1 truncate text-foreground">{label}</span>
+        {count > 1 && (
+          <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[0.62rem] font-semibold text-muted-foreground">×{count}</span>
+        )}
         {meta && <span className="text-muted-foreground">{meta}</span>}
       </button>
+      {event.skill && <SkillCard skill={event.skill} tr={tr} />}
       {open && hasBody && (
         <div className="space-y-2 px-6 pb-3 text-xs">
           {sql && <SqlCard sql={sql} emphasized={sourceMode === "database"} tr={tr} />}
@@ -256,6 +283,32 @@ function TraceEvent({ event, sourceMode, tr }: { event: ChatTraceEvent; sourceMo
           {event.result && <TraceText label="result" value={event.result} mono />}
         </div>
       )}
+    </div>
+  );
+}
+
+function SkillCard({ skill, tr }: { skill: NonNullable<ChatTraceEvent["skill"]>; tr: DaT }) {
+  const kept = skill.kept;
+  return (
+    <div className={cn("mx-4 mb-2 overflow-hidden rounded-lg border", kept ? "border-amber-300/40 bg-amber-300/5" : "border-border bg-muted/40")}>
+      <div className="flex items-center gap-2 px-3 py-2">
+        <Zap className={cn("h-3.5 w-3.5 shrink-0", kept ? "text-amber-400" : "text-muted-foreground")} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[0.72rem] font-bold text-foreground">{tr.skillSavedTitle}</span>
+            <span className="font-mono text-[0.68rem] text-muted-foreground">{skill.name}</span>
+          </div>
+          <div className="text-[0.66rem] text-muted-foreground">
+            {kept ? tr.skillKept : tr.skillRejected}
+            {skill.summary ? ` · ${skill.summary}` : ""}
+          </div>
+        </div>
+        {skill.score != null && (
+          <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[0.62rem] font-black", kept ? "bg-amber-400/15 text-amber-300" : "bg-secondary text-muted-foreground")}>
+            {tr.skillQuality} {skill.score}/10
+          </span>
+        )}
+      </div>
     </div>
   );
 }

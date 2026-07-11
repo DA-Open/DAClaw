@@ -15,13 +15,17 @@ function systemTheme(): ResolvedTheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+// The Data Agent surfaces are designed for a dark slate look; default to dark
+// (instead of following the OS) so the shell theme vars match the panels and a
+// light-mode OS doesn't produce a half-light/half-dark mismatch. Users can
+// still override via the stored preference.
 export function getStoredThemePreference(): ThemePreference {
-  if (typeof localStorage === "undefined") return "system";
+  if (typeof localStorage === "undefined") return "dark";
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(stored) ? stored : "system";
+    return isThemePreference(stored) ? stored : "dark";
   } catch {
-    return "system";
+    return "dark";
   }
 }
 

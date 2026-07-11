@@ -382,6 +382,20 @@ if router is not None:
             raise HTTPException(status_code=404, detail="file not found")
         return FileResponse(str(target), filename=safe)
 
+    @router.get("/api/da/view/{filename}")
+    async def da_view(filename: str):
+        """Serve a data_agent artifact INLINE (not as an attachment) so it can be
+        rendered in an <iframe src> and its relative sub-resources (e.g. per-slide
+        narration audio in a data-story) resolve against this same path."""
+        from fastapi.responses import FileResponse
+        from fastapi import HTTPException
+
+        safe = Path(filename).name
+        target = _da_output_dir() / safe
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="file not found")
+        return FileResponse(str(target), content_disposition_type="inline")
+
     @router.post("/api/da/chat")
     async def da_chat(payload: Dict[str, Any] = Body(...)):
         """A lightweight chatbot turn grounded in the connected data.

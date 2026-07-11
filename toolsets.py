@@ -123,14 +123,18 @@ TOOLSETS = {
             "self-contained charts, dashboards, and analysis documents. No "
             "generic file/code tools — every action is connect / query / "
             "visualize / dashboard / document, with an evidence chain back to "
-            "real queries."
+            "real queries. Can also ask the user a clarifying question when the "
+            "request is ambiguous, and save a reusable, quality-validated skill "
+            "after solving a non-trivial task."
         ),
         "tools": [
             "data_workflow_plan", "data_connect", "data_knowledge_connect",
-            "data_knowledge_search", "data_query", "data_visualize",
-            "data_dashboard", "data_document", "data_story", "data_excel",
-            "data_excel_edit", "data_excel_formula", "data_excel_fix",
+            "data_knowledge_search", "data_query", "data_parallel_query",
+            "data_visualize", "data_dashboard", "data_document", "data_story",
+            "data_excel", "data_excel_edit", "data_excel_formula", "data_excel_fix",
             "data_dbt", "data_profile",
+            # ask-the-user + self-generated skills (quality-gated)
+            "clarify", "skills_list", "skill_view", "skill_manage",
         ],
         "includes": []
     },

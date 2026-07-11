@@ -25,8 +25,16 @@ def render_story_html(
     *,
     subtitle: str = "",
     inline_echarts: bool = True,
+    audio_srcs: List[str] | None = None,
 ) -> str:
-    """Build a cinematic HTML presentation with keyboard and autoplay controls."""
+    """Build a cinematic HTML presentation with keyboard and autoplay controls.
+
+    When ``audio_srcs`` is provided (one entry per scene INCLUDING the intro at
+    index 0, empty string = no audio for that scene), each scene gets a narration
+    ``<audio>`` element and autoplay advances when the narration finishes — i.e.
+    a real narrated "data video" rather than a fixed 5s-per-slide slideshow.
+    """
+    audio_srcs = audio_srcs or []
     rendered: List[str] = []
     chart_scripts: List[str] = []
     for index, slide in enumerate(slides):
@@ -60,12 +68,23 @@ def render_story_html(
             ) + "</div>"
         else:
             body = f'<div class="narrative">{_narrative(slide.get("text") or slide.get("body") or "")}</div>'
+        # narration audio for this scene (scene index in the DOM is index+1 because
+        # of the intro scene at data-index="-1"; audio_srcs[0] is the intro).
+        audio_el = ""
+        aud = audio_srcs[index + 1] if index + 1 < len(audio_srcs) else ""
+        if aud:
+            audio_el = f'<audio class="scene-audio" data-scene="{index}" src="{_esc(aud)}" preload="auto"></audio>'
         rendered.append(
             f'<section class="scene" data-index="{index}"><div class="scene-inner">'
             f'<div class="scene-copy"><span class="kicker">{kicker}</span><h2>{heading}</h2>'
             f'{_narrative(slide.get("summary") or "")}</div><div class="scene-visual">{body}</div>'
-            f'</div></section>'
+            f'</div>{audio_el}</section>'
         )
+
+    intro_audio = ""
+    if audio_srcs and audio_srcs[0]:
+        intro_audio = f'<audio class="scene-audio" data-scene="-1" src="{_esc(audio_srcs[0])}" preload="auto"></audio>'
+    has_audio = "true" if any(audio_srcs) else "false"
 
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -87,11 +106,16 @@ h1,h2{{margin:18px 0 14px;letter-spacing:-.045em;line-height:.98}} h1{{font-size
 @media(max-width:800px){{.scene{{padding:12vh 22px 14vh;overflow:auto}}.scene-inner{{grid-template-columns:1fr;gap:20px}}.scene-visual{{min-height:42vh}}.story-chart{{height:42vh}}}}
 </style></head><body>
 <div class="topbar"><div class="brand">DAClaw <i>Story</i></div><div class="sub">{_esc(subtitle)}</div><div class="count"><span id="current">01</span> / {len(rendered):02d}</div></div>
-<main class="story"><section class="scene active" data-index="-1"><div class="scene-inner"><div class="scene-copy"><span class="kicker">Executive data story</span><h1>{_esc(title)}</h1><p>{_esc(subtitle or 'Grounded analysis, transformed into a cinematic narrative.')}</p></div><div class="scene-visual"><div class="narrative"><p>Use the controls below or the arrow keys to move through evidence, insights, and recommendations.</p></div></div></div></section>{''.join(rendered)}</main>
-<div class="controls"><button id="prev">←</button><button id="play">Play</button><div class="progress"><span id="bar"></span></div><button id="next">→</button></div>
+<main class="story"><section class="scene active" data-index="-1"><div class="scene-inner"><div class="scene-copy"><span class="kicker">Executive data story</span><h1>{_esc(title)}</h1><p>{_esc(subtitle or 'Grounded analysis, transformed into a cinematic narrative.')}</p></div><div class="scene-visual"><div class="narrative"><p>Use the controls below or the arrow keys to move through evidence, insights, and recommendations.</p></div></div></div>{intro_audio}</section>{''.join(rendered)}</main>
+<div class="controls"><button id="prev">←</button><button id="play">▶ Play</button><div class="progress"><span id="bar"></span></div><button id="next">→</button></div>
 <script>
-const scenes=[...document.querySelectorAll('.scene')],charts=[];let index=0,timer=null;{''.join(chart_scripts)}
-function show(next){{index=(next+scenes.length)%scenes.length;scenes.forEach((s,i)=>s.classList.toggle('active',i===index));document.getElementById('current').textContent=String(index+1).padStart(2,'0');document.getElementById('bar').style.width=((index+1)/scenes.length*100)+'%';setTimeout(()=>charts.forEach(c=>c.resize()),180)}}
-document.getElementById('prev').onclick=()=>show(index-1);document.getElementById('next').onclick=()=>show(index+1);document.getElementById('play').onclick=(e)=>{{if(timer){{clearInterval(timer);timer=null;e.target.textContent='Play'}}else{{timer=setInterval(()=>show(index+1),5000);e.target.textContent='Pause'}}}};document.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' ')show(index+1);if(e.key==='ArrowLeft')show(index-1)}});window.addEventListener('resize',()=>charts.forEach(c=>c.resize()));show(0);
+const scenes=[...document.querySelectorAll('.scene')],charts=[],HAS_AUDIO={has_audio};let index=0,timer=null,playing=false;{''.join(chart_scripts)}
+const audios=[...document.querySelectorAll('.scene-audio')];
+function audioFor(i){{const s=scenes[i];return s?s.querySelector('.scene-audio'):null;}}
+function stopAllAudio(){{audios.forEach(a=>{{try{{a.pause();a.currentTime=0;a.onended=null;}}catch(e){{}}}});}}
+function show(next){{index=(next+scenes.length)%scenes.length;scenes.forEach((s,i)=>s.classList.toggle('active',i===index));document.getElementById('current').textContent=String(index+1).padStart(2,'0');document.getElementById('bar').style.width=((index+1)/scenes.length*100)+'%';setTimeout(()=>charts.forEach(c=>c.resize()),180);if(playing)narrate();}}
+function narrate(){{stopAllAudio();const a=audioFor(index);if(HAS_AUDIO&&a){{a.currentTime=0;a.onended=()=>{{if(playing)show(index+1);}};a.play().catch(()=>{{if(playing){{if(timer)clearTimeout(timer);timer=setTimeout(()=>{{if(playing)show(index+1);}},5000);}}}});}}else if(playing){{if(timer)clearTimeout(timer);timer=setTimeout(()=>{{if(playing)show(index+1);}},5000);}}}}
+function setPlay(on){{playing=on;document.getElementById('play').textContent=on?'⏸ Pause':'▶ Play';if(on){{narrate();}}else{{stopAllAudio();if(timer){{clearTimeout(timer);timer=null;}}}}}}
+document.getElementById('prev').onclick=()=>show(index-1);document.getElementById('next').onclick=()=>show(index+1);document.getElementById('play').onclick=()=>setPlay(!playing);document.addEventListener('keydown',e=>{{if(e.key==='ArrowRight'||e.key===' ')show(index+1);if(e.key==='ArrowLeft')show(index-1)}});window.addEventListener('resize',()=>charts.forEach(c=>c.resize()));show(0);
 </script></body></html>"""
 

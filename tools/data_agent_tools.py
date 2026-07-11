@@ -288,6 +288,77 @@ def _handle_data_query(args, **_kwargs):
 
 
 # ---------------------------------------------------------------------------
+# data_parallel_query — run INDEPENDENT queries concurrently (real parallelism)
+# ---------------------------------------------------------------------------
+
+DATA_PARALLEL_QUERY_SCHEMA: Dict[str, Any] = {
+    "name": "data_parallel_query",
+    "description": (
+        "Run 2–8 INDEPENDENT read-only SQL queries CONCURRENTLY (each on its own "
+        "DuckDB cursor) and get all results back at once. Use this when a step has "
+        "several queries that don't depend on each other (e.g. revenue by region "
+        "AND by month AND top products) — it executes the independent branches of "
+        "your plan in parallel instead of one-by-one. Do NOT use for dependent "
+        "queries; use data_query for those."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "queries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "label": {"type": "string", "description": "Short name for this branch."},
+                        "sql": {"type": "string", "description": "Read-only SELECT/WITH query (DuckDB SQL)."},
+                    },
+                    "required": ["sql"],
+                },
+                "minItems": 2,
+                "maxItems": 8,
+                "description": "The independent queries to run in parallel.",
+            },
+            "max_rows": {"type": "integer", "description": "Max rows per query (default 100000).", "default": 100000},
+        },
+        "required": ["queries"],
+    },
+}
+
+
+def _handle_data_parallel_query(args, **_kwargs):
+    from agent.data_agent.engine import DataEngineError
+
+    try:
+        items = args.get("queries") or []
+        sqls = [str(it.get("sql", "")) for it in items]
+        labels = [str(it.get("label") or f"branch_{i+1}") for i, it in enumerate(items)]
+        eng = _engine()
+        # concurrent execution (per-thread cursors)
+        results = eng.run_queries_parallel(sqls, max_rows=int(args.get("max_rows", 100000)))
+        # persist serially AFTER the parallel run (run manifest is not thread-safe)
+        run = _active_run()
+        branches = []
+        total_ms = 0.0
+        for label, sql, rt in zip(labels, sqls, results):
+            run.save_query(sql, rt)
+            env = rt.envelope()
+            total_ms += float(rt.stats.get("elapsed_ms", 0) or 0)
+            branches.append({"label": label, **env})
+        return tool_result({
+            "kind": "parallel_result",
+            "n_branches": len(branches),
+            "ran_in_parallel": True,
+            "sum_query_ms": round(total_ms, 1),
+            "branches": branches,
+        })
+    except DataEngineError as exc:
+        return tool_error(str(exc))
+    except Exception as exc:  # pragma: no cover
+        logger.exception("data_parallel_query failed")
+        return tool_error(f"data_parallel_query failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # data_visualize
 # ---------------------------------------------------------------------------
 
@@ -962,16 +1033,24 @@ def _handle_data_excel_fix(args, **_kwargs):
 DATA_STORY_SCHEMA: Dict[str, Any] = {
     "name": "data_story",
     "description": (
-        "Create a cinematic, self-contained interactive Data Story. Each slide can "
-        "be narrative, KPI cards, a real SQL-backed chart, or a real SQL-backed "
-        "table. The result has autoplay and keyboard navigation and is ideal for "
-        "executive presentations or demo narration."
+        "Create a cinematic, self-contained interactive Data Story / data video. "
+        "Each slide can be narrative, KPI cards, a real SQL-backed chart, or a real "
+        "SQL-backed table. Provide a short spoken 'narration' per slide (1-2 "
+        "sentences) and set narrate=true to synthesize voice-over so it plays as a "
+        "narrated data VIDEO that auto-advances when each narration ends. The result "
+        "has autoplay + keyboard navigation, ideal for executive presentations."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "title": {"type": "string"},
             "subtitle": {"type": "string"},
+            "narrate": {
+                "type": "boolean",
+                "description": "Synthesize voice-over narration (TTS) so it plays as a narrated data video. Default false.",
+                "default": False,
+            },
+            "intro_narration": {"type": "string", "description": "Spoken narration for the opening title scene."},
             "slides": {
                 "type": "array",
                 "items": {
@@ -981,6 +1060,7 @@ DATA_STORY_SCHEMA: Dict[str, Any] = {
                         "title": {"type": "string"},
                         "kicker": {"type": "string"},
                         "summary": {"type": "string"},
+                        "narration": {"type": "string", "description": "Spoken voice-over for this slide (1-2 sentences); used when narrate=true."},
                         "text": {"type": "string"},
                         "items": {"type": "array", "items": {"type": "object"}},
                         "sql": {"type": "string"},
@@ -993,6 +1073,27 @@ DATA_STORY_SCHEMA: Dict[str, Any] = {
         "required": ["title", "slides"],
     },
 }
+
+
+def _synthesize_narration(text: str, out_path: Path) -> bool:
+    """Best-effort TTS: text → audio file at out_path. Returns True on success.
+
+    Reuses the shared TTS tool (config `tts.provider`; `neutts` is offline).
+    Degrades gracefully — if TTS is unavailable the story just plays silently.
+    """
+    text = (text or "").strip()
+    if not text:
+        return False
+    try:
+        from tools.tts_tool import text_to_speech_tool
+        import json as _json
+
+        raw = text_to_speech_tool(text, output_path=str(out_path))
+        data = _json.loads(raw) if isinstance(raw, str) else (raw or {})
+        return bool(data.get("success")) and out_path.exists()
+    except Exception:
+        logger.info("data_story narration TTS unavailable; continuing silently")
+        return False
 
 
 def _handle_data_story(args, **_kwargs):
@@ -1010,10 +1111,32 @@ def _handle_data_story(args, **_kwargs):
                 run.save_query(item["sql"], result)
                 item["result"] = result
             resolved.append(item)
+
+        # Optional voice-over → a real narrated "data video". audio_srcs[0] is the
+        # intro scene; audio_srcs[i+1] aligns with resolved slide i.
+        narrate = bool(args.get("narrate"))
+        audio_srcs: list[str] = []
+        narrated = 0
+        if narrate:
+            slug = _slugify(args["title"])
+            out_dir = _output_dir()
+            intro_text = args.get("intro_narration") or args.get("subtitle") or args["title"]
+            intro_file = out_dir / f"story_{slug}_scene_intro.mp3"
+            audio_srcs.append(intro_file.name if _synthesize_narration(intro_text, intro_file) else "")
+            for i, item in enumerate(resolved):
+                ntext = item.get("narration") or item.get("summary") or ""
+                af = out_dir / f"story_{slug}_scene_{i}.mp3"
+                if _synthesize_narration(ntext, af):
+                    audio_srcs.append(af.name)
+                    narrated += 1
+                else:
+                    audio_srcs.append("")
+
         html = story.render_story_html(
             args["title"],
             resolved,
             subtitle=args.get("subtitle", ""),
+            audio_srcs=audio_srcs or None,
         )
         rec = run.save_report(args["title"] + " story", html)
         out = _output_dir() / f"story_{_slugify(args['title'])}.html"
@@ -1025,6 +1148,8 @@ def _handle_data_story(args, **_kwargs):
                 "workspace_file": out.name,
                 "title": args["title"],
                 "slides": len(resolved),
+                "narrated": narrated,
+                "is_video": narrated > 0,
             }
         )
     except Exception as exc:  # pragma: no cover
@@ -1131,6 +1256,15 @@ registry.register(
     toolset="data-agent",
     schema=DATA_QUERY_SCHEMA,
     handler=_handle_data_query,
+    check_fn=_check_engine,
+    emoji="DATA",
+    max_result_size_chars=200_000,
+)
+registry.register(
+    name="data_parallel_query",
+    toolset="data-agent",
+    schema=DATA_PARALLEL_QUERY_SCHEMA,
+    handler=_handle_data_parallel_query,
     check_fn=_check_engine,
     emoji="DATA",
     max_result_size_chars=200_000,

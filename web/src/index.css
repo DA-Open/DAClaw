@@ -55,26 +55,28 @@
 html.dark,
 html[data-theme="dark"] {
   color-scheme: dark;
-  --color-background: #0b0f14;
+  /* Softer "dim slate" dark theme — lifted off near-black so it reads lighter
+     and less heavy while keeping good contrast and the teal accent. */
+  --color-background: #131922;
   --color-foreground: #eef2f7;
-  --color-card: #11161d;
+  --color-card: #1a212c;
   --color-card-foreground: #eef2f7;
   --color-primary: #14b8a6;
   --color-primary-foreground: #041312;
-  --color-secondary: #171d26;
+  --color-secondary: #232c39;
   --color-secondary-foreground: #eef2f7;
-  --color-muted: #171d26;
-  --color-muted-foreground: #9aa4b2;
-  --color-accent: #1d2632;
+  --color-muted: #232c39;
+  --color-muted-foreground: #a3adbb;
+  --color-accent: #2a3543;
   --color-accent-foreground: #f8fafc;
   --color-destructive: #f87171;
   --color-destructive-foreground: #190707;
   --color-success: #34d399;
   --color-warning: #fbbf24;
-  --color-border: #27313f;
-  --color-input: #3b4655;
+  --color-border: #313c4b;
+  --color-input: #3f4a5a;
   --color-ring: #2dd4bf;
-  --color-popover: #11161d;
+  --color-popover: #1a212c;
   --color-popover-foreground: #eef2f7;
 }
 
@@ -277,21 +279,21 @@ code {
 /* ------------------------------------------------------------------ */
 .mission-app,
 .mission-shell {
-  --color-background: #07111f;
-  --color-foreground: #edf7ff;
-  --color-card: #0b192a;
-  --color-card-foreground: #edf7ff;
-  --color-secondary: #112239;
-  --color-secondary-foreground: #eaf5ff;
-  --color-muted: #112239;
-  --color-muted-foreground: #8497b3;
-  --color-accent: #152942;
-  --color-accent-foreground: #f4fbff;
-  --color-border: #20334f;
-  --color-input: #2a4262;
+  --color-background: #1a2536;
+  --color-foreground: #eef5fb;
+  --color-card: #212e42;
+  --color-card-foreground: #eef5fb;
+  --color-secondary: #2a3a52;
+  --color-secondary-foreground: #eaf3fb;
+  --color-muted: #2a3a52;
+  --color-muted-foreground: #9fb0c8;
+  --color-accent: #32445f;
+  --color-accent-foreground: #f4faff;
+  --color-border: #384964;
+  --color-input: #445d80;
   --color-ring: #54e6d1;
-  --color-popover: #0b192a;
-  --color-popover-foreground: #edf7ff;
+  --color-popover: #212e42;
+  --color-popover-foreground: #eef5fb;
 }
 .mission-shell::before {
   content: "";
@@ -326,8 +328,8 @@ code {
 .mission-node-error { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.08); }
 .mission-workflow { animation: mission-rise .45s cubic-bezier(.2,.8,.2,1) both; }
 @keyframes mission-rise { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
-.mission-canvas { box-shadow: inset 0 0 100px rgba(1,8,20,.38); }
-.mission-canvas .bg-card { background-color: rgba(11,25,42,.94); }
+.mission-canvas { box-shadow: inset 0 0 90px rgba(10,20,38,.18); }
+.mission-canvas .bg-card { background-color: rgba(33,46,66,.94); }
 .mission-canvas .border-border { border-color: rgba(65,91,129,.58); }
 .mission-shell iframe { border-radius: 0 0 18px 18px; }
 

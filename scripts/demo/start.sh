@@ -89,9 +89,9 @@ wait_for_http() {
 
 # --- 1. backend deps (first run) -------------------------------------------
 echo "▸ Checking backend dependencies…"
-if ! "$PY" -c "import duckdb, pandas, openpyxl, fastapi, uvicorn, multipart, yaml, formulas, sqlalchemy, pypdf" 2>/dev/null; then
-  echo "  installing backend deps (data engine, documents, FastAPI, SQLAlchemy + common DB drivers)…"
-  "$PY" -m pip install -q duckdb pandas openpyxl pyarrow fastapi "uvicorn[standard]" python-multipart pyyaml formulas sqlalchemy pypdf psycopg2-binary pymysql snowflake-sqlalchemy pyodbc || {
+if ! "$PY" -c "import duckdb, pandas, openpyxl, fastapi, uvicorn, multipart, yaml, formulas, sqlalchemy, pypdf, edge_tts" 2>/dev/null; then
+  echo "  installing backend deps (data engine, documents, FastAPI, SQLAlchemy + common DB drivers, TTS narration)…"
+  "$PY" -m pip install -q duckdb pandas openpyxl pyarrow fastapi "uvicorn[standard]" python-multipart pyyaml formulas sqlalchemy pypdf psycopg2-binary pymysql snowflake-sqlalchemy pyodbc edge-tts || {
     echo "✗ backend dependency install failed" >&2; exit 1; }
 else
   echo "  ok"

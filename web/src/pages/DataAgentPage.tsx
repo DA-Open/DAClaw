@@ -32,20 +32,25 @@ import {
   Zap,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { DATableInfo, ChatRunEvent, ChatTraceEvent, DAArtifact, DAKnowledgeSource, DAWorkflow, DAWorkflowSummary } from "@/lib/api";
+import type { DATableInfo, ChatRunEvent, ChatTraceEvent, DAArtifact, DAKnowledgeSource, DAWorkflow, DAWorkflowSummary, SkillInfo } from "@/lib/api";
 import { Markdown } from "@/components/Markdown";
 import { TracePanel, appendTraceEvent, sanitizeTrace, type SourceMode } from "@/components/AgentTrace";
 import { BotAvatar } from "@/components/BotAvatar";
 import { ConnectDbDialog } from "@/components/ConnectDbDialog";
 import { WorkflowMission } from "@/components/WorkflowMission";
 import { useI18n } from "@/i18n";
+import type { Translations } from "@/i18n";
 
+type DaT = Translations["da"];
+
+type ClarifyPrompt = { runId: string; question: string; choices: string[] };
 type ChatMsg = {
   role: "user" | "assistant";
   content: string;
   trace?: ChatTraceEvent[];
   running?: boolean;
   workflow?: DAWorkflow | null;
+  clarify?: ClarifyPrompt | null;
 };
 
 type Conversation = {
@@ -121,6 +126,52 @@ function artifactIcon(kind: string) {
   return <BarChart3 className="h-3.5 w-3.5 text-[#2DD4BF]" />;
 }
 
+/** Clarify question card — shown in-chat when the agent needs the user to
+ *  disambiguate. Answering resumes the parked run on the server. */
+function ClarifyCard({ prompt, onAnswer, T }: { prompt: ClarifyPrompt; onAnswer: (answer: string) => void; T: DaT }) {
+  const [other, setOther] = useState("");
+  return (
+    <div className="mt-2 overflow-hidden rounded-2xl border border-cyan-300/30 bg-cyan-300/5">
+      <div className="flex items-center gap-2 border-b border-cyan-300/15 px-4 py-2.5">
+        <BrainCircuit className="h-4 w-4 text-cyan-300" />
+        <span className="text-xs font-bold text-cyan-200">{T.clarifyTitle}</span>
+      </div>
+      <div className="space-y-2.5 p-4">
+        <div className="text-sm text-slate-200">{prompt.question}</div>
+        {prompt.choices.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {prompt.choices.map((choice) => (
+              <button
+                key={choice}
+                onClick={() => onAnswer(choice)}
+                className="rounded-lg border border-cyan-300/25 bg-cyan-300/5 px-3 py-1.5 text-xs font-medium text-slate-100 hover:border-cyan-300/50 hover:bg-cyan-300/10"
+              >
+                {choice}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <input
+            value={other}
+            onChange={(e) => setOther(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && other.trim()) onAnswer(other); }}
+            placeholder={T.clarifyOther}
+            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-600"
+          />
+          <button
+            onClick={() => other.trim() && onAnswer(other)}
+            disabled={!other.trim()}
+            className="rounded-lg bg-cyan-400 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:opacity-90 disabled:opacity-40"
+          >
+            {T.clarifySend}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Compact sample-rows table for the left DB browser. */
 function SampleTable({ columns, rows }: { columns: string[]; rows: Record<string, unknown>[] }) {
   return (
@@ -176,6 +227,12 @@ export default function DataAgentPage() {
   const [knowledgeBusy, setKnowledgeBusy] = useState(false);
   const [playbooks, setPlaybooks] = useState<DAWorkflowSummary[]>([]);
   const [playbooksOpen, setPlaybooksOpen] = useState(true);
+  // skills — the full library, shown in the left panel (moved out of the top-nav
+  // dropdown). Agent-generated skills that pass quality validation appear here.
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [skillsOpen, setSkillsOpen] = useState(true);
+  const [skillSearch, setSkillSearch] = useState("");
+  const [freshSkill, setFreshSkill] = useState<string | null>(null); // just-generated skill name (highlight)
   const [draftWorkflow, setDraftWorkflow] = useState<DAWorkflow | null>(null);
   const [draftText, setDraftText] = useState("");
   const [compiling, setCompiling] = useState(false);
@@ -185,6 +242,10 @@ export default function DataAgentPage() {
   const [sample, setSample] = useState<{ columns: string[]; rows: Record<string, unknown>[] } | null>(null);
   const [sampleLoading, setSampleLoading] = useState(false);
   const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  // which tables have their column chips expanded (collapsed by default to cut scrolling)
+  const [colsOpen, setColsOpen] = useState<Set<string>>(new Set());
+  const toggleCols = (table: string) =>
+    setColsOpen((s) => { const n = new Set(s); n.has(table) ? n.delete(table) : n.add(table); return n; });
 
   // right artifact panel (preview state, derived from active conversation's activeArtifact)
   const [artifactHtml, setArtifactHtml] = useState<string | null>(null);
@@ -192,11 +253,11 @@ export default function DataAgentPage() {
     { name: string; columns: { name: string }[]; row_count: number | null; sample: Record<string, unknown>[] }[] | null
   >(null);
   const [artifactOpen, setArtifactOpen] = useState(true);
-  // Default the artifact panel to roughly half the space left of the sidebar so
-  // the chat column (2nd) and the artifact column (3rd) start about equal in
-  // width. Still fully drag-resizable via the handle below.
+  // Default the artifact panel to ~44% of the space right of the sidebar so the
+  // chat column keeps a slight majority (it felt cramped at a full 50/50 split).
+  // Still fully drag-resizable via the handle below.
   const [artifactWidth, setArtifactWidth] = useState(() =>
-    Math.min(900, Math.max(380, Math.round((window.innerWidth - 300) / 2)))
+    Math.min(860, Math.max(360, Math.round((window.innerWidth - 300) * 0.44)))
   );
   const [artifactResizing, setArtifactResizing] = useState(false);
   const [activeSheet, setActiveSheet] = useState(0);
@@ -234,10 +295,12 @@ export default function DataAgentPage() {
   const refreshTables = () => api.daTables().then((r) => setTables(r.tables)).catch(() => {});
   const refreshKnowledge = () => api.daKnowledge().then((r) => setKnowledge(r.sources)).catch(() => {});
   const refreshPlaybooks = () => api.daWorkflows().then((r) => setPlaybooks(r.workflows)).catch(() => {});
+  const refreshSkills = () => api.getSkills().then((r) => setSkills(r)).catch(() => {});
   useEffect(() => {
     refreshTables();
     refreshKnowledge();
     refreshPlaybooks();
+    refreshSkills();
   }, []);
   // Handoff from the Data Engineering page: preselect a model to analyze.
   useEffect(() => {
@@ -470,15 +533,41 @@ export default function DataAgentPage() {
     if (convoId === activeId) { setArtifactOpen(true); setShowArtifactList(false); }
   };
 
-  const applyEvent = (convoId: string, idx: number, event: ChatRunEvent) => {
+  const onSkillEvent = (skill: NonNullable<ChatTraceEvent["skill"]>) => {
+    // A skill_manage create/edit completed. If it was kept (passed quality
+    // validation), refresh the left library and briefly highlight the new one.
+    if (skill.kept) {
+      refreshSkills();
+      setFreshSkill(skill.name);
+      setTimeout(() => setFreshSkill((cur) => (cur === skill.name ? null : cur)), 30_000);
+    }
+  };
+
+  // Answer a parked clarify() question; the run resumes on the server.
+  const answerClarify = (convoId: string, idx: number, prompt: ClarifyPrompt, answer: string) => {
+    const text = answer.trim();
+    if (!text || !prompt.runId) return;
+    setConvoMessages(convoId, (m) => m.map((msg, i) => (i === idx ? { ...msg, clarify: null } : msg)));
+    api.daClarify(prompt.runId, text).catch(() => {});
+  };
+
+  const applyEvent = (convoId: string, idx: number, event: ChatRunEvent, runId?: string) => {
     if (event.type === "assistant_delta" && "delta" in event) { scheduleDelta(convoId, idx, event.delta); return; }
     if (event.type === "heartbeat") return;
+    if (event.type === "clarify") {
+      // Agent asked a clarifying question; park a question card on the message.
+      const ev = event as unknown as { question?: string; choices?: string[] };
+      setConvoMessages(convoId, (m) => m.map((msg, i) => (i === idx ? { ...msg, clarify: { runId: runId || "", question: ev.question || "", choices: ev.choices || [] } } : msg)));
+      return;
+    }
     if (event.type === "tool_complete" && (event as ChatTraceEvent).artifact) addArtifact(convoId, (event as ChatTraceEvent).artifact!);
+    if (event.type === "tool_complete" && (event as ChatTraceEvent).skill) onSkillEvent((event as ChatTraceEvent).skill!);
     if (event.type === "done" && "final_response" in event) {
       if (deltaTimerRef.current !== null) { window.clearTimeout(deltaTimerRef.current); deltaTimerRef.current = null; }
       flushDelta(convoId, idx);
       (event.trace || []).filter((t) => t.artifact).forEach((t) => addArtifact(convoId, t.artifact!));
-      setConvoMessages(convoId, (m) => m.map((msg, i) => (i === idx ? { ...msg, content: event.final_response || msg.content, trace: sanitizeTrace(event.trace), running: false } : msg)));
+      (event.trace || []).filter((t) => t.skill).forEach((t) => onSkillEvent(t.skill!));
+      setConvoMessages(convoId, (m) => m.map((msg, i) => (i === idx ? { ...msg, content: event.final_response || msg.content, trace: sanitizeTrace(event.trace), running: false, clarify: null } : msg)));
       return;
     }
     if (event.type === "error") {
@@ -559,7 +648,7 @@ export default function DataAgentPage() {
       while (true) {
         if (ctrl.signal.aborted) throw new DOMException("Aborted", "AbortError");
         const payload = await api.getChatRunEvents(run.run_id, after);
-        for (const event of payload.events) { after = event.seq ?? after; applyEvent(convoId, idx, event); }
+        for (const event of payload.events) { after = event.seq ?? after; applyEvent(convoId, idx, event, run.run_id); }
         if (isTerminal(payload.run.status)) break;
         await delay(payload.events.length > 0 ? 200 : 900);
       }
@@ -614,7 +703,7 @@ export default function DataAgentPage() {
   };
 
   return (
-    <div className="mission-shell relative flex h-full overflow-hidden bg-[#07111f] text-slate-100">
+    <div className="mission-shell relative flex h-full overflow-hidden bg-[#1a2536] text-slate-100">
       <ConnectDbDialog
         open={dbDialogOpen}
         onClose={() => setDbDialogOpen(false)}
@@ -632,7 +721,7 @@ export default function DataAgentPage() {
 
       {/* Left: conversations + data sources */}
       {mobileSidebarOpen && <button type="button" aria-label="Close data panel" onClick={() => setMobileSidebarOpen(false)} className="data-sidebar-backdrop fixed inset-0 z-50 hidden bg-black/55 backdrop-blur-sm" />}
-      <aside style={{ width: sidebarWidth }} className={`data-sidebar mission-sidebar flex shrink-0 flex-col border-r border-cyan-300/10 bg-[#091524]/95 ${mobileSidebarOpen ? "data-sidebar-open" : ""}`}>
+      <aside style={{ width: sidebarWidth }} className={`data-sidebar mission-sidebar flex shrink-0 flex-col border-r border-cyan-300/10 bg-[#212e42]/95 ${mobileSidebarOpen ? "data-sidebar-open" : ""}`}>
         {/* conversations */}
         <div className="border-b border-border">
           <div className="flex items-center gap-2 px-4 pt-4 pb-2">
@@ -734,10 +823,25 @@ export default function DataAgentPage() {
                       <BarChart3 className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-1 px-2.5 pb-2">
-                    {t.schema.slice(0, 12).map((c) => (
-                      <span key={c.name} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">{c.name}</span>
-                    ))}
+                  <div className="px-2.5 pb-2" onClick={(e) => e.stopPropagation()}>
+                    {colsOpen.has(t.table) ? (
+                      <div className="flex flex-wrap gap-1">
+                        {t.schema.map((c) => (
+                          <span key={c.name} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">{c.name}</span>
+                        ))}
+                        {t.schema.length > 0 && (
+                          <button onClick={() => toggleCols(t.table)} className="rounded px-1.5 py-0.5 text-[10px] font-medium text-[#2DD4BF] hover:bg-secondary">{T.collapseCols}</button>
+                        )}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => toggleCols(t.table)}
+                        className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground"
+                      >
+                        <span className="font-medium">{t.schema.length}</span> {T.columns}
+                        <ChevronRight className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                   {openTable === t.table && (
                     <div className="border-t border-border p-2" onClick={(e) => e.stopPropagation()}>
@@ -813,6 +917,55 @@ export default function DataAgentPage() {
             </div>
           )}
         </div>
+
+        {/* skills library (moved here from the top-nav dropdown) */}
+        <div className="border-t border-white/5">
+          <button onClick={() => setSkillsOpen((value) => !value)} className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-bold text-slate-200">
+            {skillsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            <Zap className="h-4 w-4 text-amber-300" /> {T.skillsTitle}
+            <span className="ml-auto rounded-full bg-amber-300/10 px-2 py-0.5 text-[9px] font-black text-amber-200">{skills.filter((s) => s.enabled).length}/{skills.length}</span>
+          </button>
+          {skillsOpen && (
+            <div className="px-3 pb-3">
+              {skills.length > 8 && (
+                <input
+                  value={skillSearch}
+                  onChange={(e) => setSkillSearch(e.target.value)}
+                  placeholder={T.skillsSearch}
+                  className="mb-2 w-full rounded-md border border-white/7 bg-white/[0.025] px-2 py-1 text-[11px] text-slate-200 placeholder:text-slate-600"
+                />
+              )}
+              <div className="max-h-52 space-y-1 overflow-y-auto">
+                {skills.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-amber-300/15 px-3 py-3 text-[10px] leading-relaxed text-slate-600">{T.skillsEmpty}</div>
+                ) : skills
+                  .filter((s) => !skillSearch || s.name.toLowerCase().includes(skillSearch.toLowerCase()) || (s.description || "").toLowerCase().includes(skillSearch.toLowerCase()))
+                  .map((skill) => {
+                    const isFresh = skill.name === freshSkill;
+                    return (
+                      <div key={skill.name} className={`group flex items-start gap-2 rounded-lg border px-2.5 py-2 ${isFresh ? "border-amber-300/50 bg-amber-300/10" : "border-white/5 bg-white/[0.025]"}`}>
+                        <Zap className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${skill.enabled ? "text-amber-300" : "text-slate-600"}`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-[11px] font-semibold text-slate-200">{skill.name}</span>
+                            {isFresh && <span className="shrink-0 rounded-full bg-amber-400/20 px-1.5 text-[8px] font-black uppercase text-amber-200">{T.skillNew}</span>}
+                          </div>
+                          <div className="line-clamp-2 text-[9px] leading-tight text-slate-500">{skill.description}</div>
+                        </div>
+                        <button
+                          onClick={async () => { await api.toggleSkill(skill.name, !skill.enabled); refreshSkills(); }}
+                          title={skill.enabled ? T.skillDisable : T.skillEnable}
+                          className={`mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase ${skill.enabled ? "bg-emerald-400/15 text-emerald-300" : "bg-white/5 text-slate-500"}`}
+                        >
+                          {skill.enabled ? T.skillOn : T.skillOff}
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+        </div>
       </aside>
 
       <div onMouseDown={() => setSidebarResizing(true)} className="data-resizer group relative z-20 flex h-full w-1.5 shrink-0 cursor-col-resize items-center justify-center">
@@ -823,7 +976,7 @@ export default function DataAgentPage() {
       <div className="data-center flex min-w-0 flex-1 flex-col bg-[radial-gradient(circle_at_50%_-10%,rgba(47,117,255,.17),transparent_38%)]">
         <div className="mission-topbar flex items-center gap-3 border-b border-white/5 px-5 py-3">
           <button onClick={() => setMobileSidebarOpen(true)} className="data-mobile-menu hidden rounded-xl border border-cyan-300/15 bg-cyan-300/5 p-2 text-cyan-200"><Database className="h-4 w-4" /></button>
-          <span className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200"><Orbit className="h-5 w-5" /><span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#091524] bg-emerald-400" /></span>
+          <span className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-cyan-300/20 bg-cyan-300/10 text-cyan-200"><Orbit className="h-5 w-5" /><span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#212e42] bg-emerald-400" /></span>
           <div>
             <div className="flex items-center gap-2"><span className="font-black tracking-tight text-slate-50">{T.missionControl}</span><span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[.14em] text-emerald-300">{T.missionOnline}</span></div>
             <div className="text-[10px] uppercase tracking-[.16em] text-slate-500">{sourceMode === "table" ? T.subtitleTable : T.subtitleAsk}</div>
@@ -861,7 +1014,7 @@ export default function DataAgentPage() {
               )}
               <div className={`min-w-0 max-w-[78%] ${m.role === "user" ? "" : "flex-1"}`}>
                 {m.role === "assistant" && m.workflow && <WorkflowMission workflow={m.workflow} trace={m.trace} running={m.running} />}
-                <div className={`rounded-2xl px-4 py-2.5 text-sm ${m.role === "user" ? "bg-gradient-to-br from-blue-500 to-cyan-500 text-white shadow-[0_10px_30px_rgba(43,128,255,.2)]" : "border border-white/7 bg-[#0b192a]/90 text-slate-200 shadow-[0_14px_45px_rgba(1,7,18,.18)]"}`}>
+                <div className={`rounded-2xl px-4 py-2.5 text-sm ${m.role === "user" ? "bg-gradient-to-br from-blue-500 to-cyan-500 text-white shadow-[0_10px_30px_rgba(43,128,255,.2)]" : "border border-white/7 bg-[#212e42]/90 text-slate-200 shadow-[0_14px_45px_rgba(1,7,18,.12)]"}`}>
                   {m.role === "assistant" ? (
                     m.content ? <Markdown content={m.content} /> : m.running ? (
                       <span className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> {T.thinking}</span>
@@ -876,6 +1029,9 @@ export default function DataAgentPage() {
                 {m.role === "assistant" && (m.trace?.length || m.running) && (
                   <TracePanel trace={m.trace} running={m.running} sourceMode={sourceMode} />
                 )}
+                {m.role === "assistant" && m.clarify && (
+                  <ClarifyCard prompt={m.clarify} onAnswer={(ans) => answerClarify(activeId, i, m.clarify!, ans)} T={T} />
+                )}
               </div>
               {m.role === "user" && (
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary"><User className="h-4 w-4" /></div>
@@ -886,14 +1042,15 @@ export default function DataAgentPage() {
         </div>
 
         {/* composer */}
-        <div className="border-t border-white/5 bg-[#081321]/90 p-3 backdrop-blur-xl">
+        <div className="border-t border-white/5 bg-[#1e2a3d]/90 p-3 backdrop-blur-xl">
           {draftWorkflow && (
-            <div className="mb-3 rounded-2xl border border-cyan-300/15 bg-[#07111f]/95 p-3 shadow-[0_20px_70px_rgba(0,0,0,.35)]">
-              <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[.18em] text-cyan-300"><Network className="h-3.5 w-3.5" />{T.missionReady}</div>
+            <div className="mb-3 rounded-2xl border border-cyan-300/15 bg-[#212e42]/95 p-3 shadow-[0_20px_70px_rgba(0,0,0,.22)]">
+              <div className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[.18em] text-cyan-300"><Network className="h-3.5 w-3.5" />{T.missionReady}</div>
+              <div className="mb-2 text-[11px] text-slate-400">{T.approveHint}</div>
               <WorkflowMission workflow={draftWorkflow} editable onRemoveNode={removeDraftNode} />
               <div className="flex justify-end gap-2">
                 <button onClick={() => { setDraftWorkflow(null); setDraftText(""); }} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-slate-400 hover:bg-white/5">{T.dismissPlan}</button>
-                <button onClick={() => void send(draftText, draftWorkflow)} className="mission-primary inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-black text-[#041817]"><Zap className="h-3.5 w-3.5" />{T.launchMission}</button>
+                <button onClick={() => void send(draftText, draftWorkflow)} className="mission-primary inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-xs font-black text-[#041817]"><Zap className="h-3.5 w-3.5" />{T.approvePlan}</button>
               </div>
             </div>
           )}
@@ -1037,7 +1194,14 @@ export default function DataAgentPage() {
                   </div>
                 </div>
               ) : artifactHtml ? (
-                <iframe title={artifact.title ?? "artifact"} srcDoc={artifactHtml} sandbox="allow-same-origin allow-scripts" className="h-full w-full border-0 bg-white" />
+                artifact.kind === "story" ? (
+                  // Stories may embed per-slide narration <audio> with RELATIVE src;
+                  // load via the file URL (not srcDoc) so those relative audio URLs
+                  // resolve against /api/da/download/ and the narration plays.
+                  <iframe title={artifact.title ?? "artifact"} src={`/api/da/view/${encodeURIComponent(artifact.workspace_file)}`} sandbox="allow-same-origin allow-scripts" className="h-full w-full border-0 bg-white" />
+                ) : (
+                  <iframe title={artifact.title ?? "artifact"} srcDoc={artifactHtml} sandbox="allow-same-origin allow-scripts" className="h-full w-full border-0 bg-white" />
+                )
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {T.rendering}</div>
               )}
