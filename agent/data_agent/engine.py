@@ -399,17 +399,23 @@ class DataEngine:
         p = str(path).replace("'", "''")
         self.con.execute(f"ATTACH '{p}' AS {slug} (READ_ONLY)")
         rows = self.con.execute(
-            "SELECT table_name FROM information_schema.tables "
-            f"WHERE table_catalog = '{slug}'"
+            "SELECT table_schema, table_name FROM information_schema.tables "
+            f"WHERE table_catalog = '{slug}' ORDER BY table_schema, table_name"
         ).fetchall()
         tables: List[str] = []
         multi = len(rows) > 1
-        for (tbl,) in rows:
-            # expose as top-level view for convenience
-            preferred = f"{slug}_{tbl}" if multi else tbl
+        for schema, tbl in rows:
+            # expose as top-level view for convenience; tables outside `main`
+            # (e.g. a dbt-style `raw` schema) get the schema in their name
+            if schema == "main":
+                preferred = f"{slug}_{tbl}" if multi else tbl
+            else:
+                preferred = f"{slug}_{schema}_{tbl}" if multi else tbl
             view = self._reserve_table(preferred)
+            q_schema = schema.replace('"', '""')
+            q_tbl = tbl.replace('"', '""')
             self.con.execute(
-                f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM {slug}.{tbl}"
+                f'CREATE OR REPLACE VIEW {view} AS SELECT * FROM {slug}."{q_schema}"."{q_tbl}"'
             )
             tables.append(view)
         return tables
