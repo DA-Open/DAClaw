@@ -10,8 +10,10 @@ model config used for evaluation drives the interactive agent:
     }
 
 Users can point at their own config via ``DACLAW_LLM_CONFIG`` (path to a JSON
-file) or by passing a dict. When nothing is set we fall back to the repo's
-default gpt-5.5 config so `debug`/`demo` works out of the box.
+file) or by passing a dict. When nothing is set we try the repo's default
+gpt-5.5 config, then fall back to DAClaw's main model (``config.yaml`` model
+plus the provider credentials from ``.env``) so `/etl` works on any machine
+that already runs the agent.
 
 Design notes:
 - ``api_key`` may be a string or a list (we rotate through the list on retry).
@@ -110,18 +112,58 @@ def _resolve_config_path(explicit: Optional[str] = None) -> Optional[Path]:
     return None
 
 
+def _config_from_main_model() -> Optional[Dict[str, Any]]:
+    """Build an openclaw_evals-style config from DAClaw's main model settings.
+
+    Uses the same provider resolution as the agent itself. Returns None when
+    the main model is not an OpenAI-compatible chat-completions endpoint (e.g.
+    Anthropic messages or Codex responses), which this client cannot drive.
+    """
+    try:
+        from daclaw_cli.config import load_config as load_daclaw_config
+        from daclaw_cli.model_normalize import normalize_model_for_provider
+        from daclaw_cli.runtime_provider import resolve_runtime_provider
+
+        runtime = resolve_runtime_provider(
+            requested=os.environ.get("DACLAW_INFERENCE_PROVIDER")
+        )
+        model_cfg = load_daclaw_config().get("model")
+    except Exception as exc:
+        logger.debug("main model config unavailable for DataAgent LLM: %s", exc)
+        return None
+    if isinstance(model_cfg, dict):
+        model = model_cfg.get("default") or model_cfg.get("model") or ""
+    else:
+        model = model_cfg or ""
+    base_url, api_key = runtime.get("base_url"), runtime.get("api_key")
+    if not (model and base_url and api_key):
+        return None
+    if runtime.get("api_mode") not in (None, "", "chat_completions"):
+        return None
+    return {
+        "client_type": "OpenAI",
+        "client_args": {"base_url": base_url, "api_key": api_key},
+        "request_args": {
+            "model": normalize_model_for_provider(model, runtime.get("provider") or ""),
+        },
+    }
+
+
 def load_config(source: Optional[Any] = None) -> Dict[str, Any]:
     """Load an openclaw_evals-style LLM config from a dict, path, or default."""
     if isinstance(source, dict):
         return source
     path = _resolve_config_path(source if isinstance(source, str) else None)
-    if not path:
-        raise LLMConfigError(
-            "No LLM config found. Set DACLAW_LLM_CONFIG to a JSON file path, or "
-            "pass a config dict. Expected openclaw_evals format "
-            "(client_type / client_args / request_args)."
-        )
-    return json.loads(path.read_text(encoding="utf-8"))
+    if path:
+        return json.loads(path.read_text(encoding="utf-8"))
+    derived = _config_from_main_model()
+    if derived:
+        return derived
+    raise LLMConfigError(
+        "No LLM config found. Configure DAClaw's main model (`daclaw model`), "
+        "set DACLAW_LLM_CONFIG to a JSON file path, or pass a config dict. "
+        "Expected openclaw_evals format (client_type / client_args / request_args)."
+    )
 
 
 def _select_key(api_key: Any, index: int) -> Optional[str]:
