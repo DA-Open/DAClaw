@@ -6289,8 +6289,10 @@ Examples:
         try:
             from acp_adapter.entry import main as acp_main
             acp_main()
-        except ImportError:
-            print("ACP dependencies not installed.")
+        except ImportError as exc:
+            # Also raised when an incompatible agent-client-protocol version is
+            # installed, so show the real error instead of only "not installed".
+            print(f"ACP dependencies not installed or incompatible: {exc}")
             print("Install them with:  pip install -e '.[acp]'")
             sys.exit(1)
 
