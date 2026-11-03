@@ -64,6 +64,8 @@ Works on Linux, macOS, WSL2, and Android via Termux. The installer handles the p
 > **Android / Termux:** The tested manual path is documented in the [Termux guide](https://da-open.github.io/docs/getting-started/termux). On Termux, DAClaw installs a curated `.[termux]` extra because the full `.[all]` extra currently pulls Android-incompatible voice dependencies.
 >
 > **Windows:** Native Windows is not supported. Please install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and run the command above.
+>
+> **Docker:** a prebuilt image with the Data Agent and the web dashboard is published as `ghcr.io/da-open/daclaw`; see the [Docker guide](docker/README.md).
 
 After installation:
 

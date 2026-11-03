@@ -1,12 +1,30 @@
 name: Docker Build and Publish
 
+# Builds the image on PRs that touch it (smoke test only) and publishes it to
+# GitHub Container Registry on pushes to hermes_demo and on v* tags:
+#   ghcr.io/<repo owner>/daclaw:latest     <- hermes_demo
+#   ghcr.io/<repo owner>/daclaw:v0.1.0     <- tag v0.1.0
+#   ghcr.io/<repo owner>/daclaw:sha-<sha7> <- every published commit
+# Usage of the published image: docker/README.md.
+
 on:
   push:
-    branches: [main]
+    branches: [hermes_demo]
+    tags: ['v*']
   pull_request:
-    branches: [main]
-  release:
-    types: [published]
+    branches: [hermes_demo]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - docker/**
+      - pyproject.toml
+      - uv.lock
+      - package.json
+      - package-lock.json
+      - web/package.json
+      - web/package-lock.json
+      - .github/workflows/docker-publish.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,24 +36,44 @@ concurrency:
 jobs:
   build-and-push:
     # Only run on the upstream repository, not on forks
-    if: github.repository == 'NousResearch/daclaw-agent'
+    if: github.repository == 'DA-Open/DAClaw'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           submodules: recursive
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
+      # The build briefly needs ~10 GB (npm downloads a browser that the same
+      # layer then deletes); the stock runner has less free space than that.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h /
+
+      - name: Compute image name and tags
+        id: meta
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/daclaw"
+          tags="${image}:sha-${GITHUB_SHA::7}"
+          if [ "$GITHUB_REF" = "refs/heads/hermes_demo" ]; then
+            tags="${tags},${image}:latest"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tags="${tags},${image}:${GITHUB_REF_NAME}"
+          fi
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
-      # Build amd64 only so we can `load` the image for smoke testing.
-      # `load: true` cannot export a multi-arch manifest to the local daemon.
-      # The multi-arch build follows on push to main / release.
+      # amd64 only: Playwright's headless shell and several wheels in the
+      # image have no arm64 build pinned yet.
       - name: Build image (amd64, smoke test)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
@@ -43,44 +81,41 @@ jobs:
           file: Dockerfile
           load: true
           platforms: linux/amd64
-          tags: nousresearch/daclaw-agent:test
+          tags: daclaw:test
+          build-args: VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Test image starts
         run: |
+          mkdir -p "$RUNNER_TEMP/daclaw-data"
           docker run --rm \
-            -v /tmp/hermes-test:/opt/data \
-            --entrypoint /opt/hermes/docker/entrypoint.sh \
-            nousresearch/daclaw-agent:test --help
+            -e DACLAW_UID="$(id -u)" -e DACLAW_GID="$(id -g)" \
+            -v "$RUNNER_TEMP/daclaw-data:/opt/data" \
+            daclaw:test --help
+          # first start creates the config files in the volume, not the image
+          test -f "$RUNNER_TEMP/daclaw-data/config.yaml"
+          test -f "$RUNNER_TEMP/daclaw-data/.env"
+          docker run --rm --entrypoint /opt/daclaw/.venv/bin/python daclaw:test \
+            -c "import duckdb, pandas, fastapi, playwright; print('imports ok')"
 
-      - name: Log in to Docker Hub
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'release'
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push multi-arch image (main branch)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # Reuses the layers cached by the smoke-test build above.
+      - name: Push image
+        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
           context: .
           file: Dockerfile
           push: true
-          platforms: linux/amd64,linux/arm64
-          tags: nousresearch/daclaw-agent:latest
+          platforms: linux/amd64
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: VCS_REF=${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Push multi-arch image (release)
-        if: github.event_name == 'release'
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          tags: nousresearch/daclaw-agent:${{ github.event.release.tag_name }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
