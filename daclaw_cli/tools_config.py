@@ -51,6 +51,8 @@ CONFIGURABLE_TOOLSETS = [
     ("browser",         "🌐 Browser Automation",       "navigate, click, type, scroll"),
     ("terminal",        "💻 Terminal & Processes",      "terminal, process"),
     ("file",            "📁 File Operations",           "read, write, patch, search"),
+    ("data",            "📊 Data Profiling",            "data_profile, data_catalog, analysis_audit"),
+    ("data-agent",      "🗄️  Data Agent",               "connect, query, visualize, dashboard, document, story"),
     ("code_execution",  "⚡ Code Execution",            "execute_code"),
     ("vision",          "👁️  Vision / Image Analysis",  "vision_analyze"),
     ("image_gen",       "🎨 Image Generation",          "image_generate"),

@@ -26,6 +26,19 @@ def test_get_platform_tools_uses_default_when_platform_not_configured():
 def test_configurable_toolsets_include_messaging():
     assert any(ts_key == "messaging" for ts_key, _, _ in CONFIGURABLE_TOOLSETS)
 
+def test_get_platform_tools_default_cli_includes_data_tools():
+    """`daclaw chat` without -t must expose the DataAgent tools (they are in _DACLAW_CORE_TOOLS)."""
+    from toolsets import resolve_toolset
+
+    enabled = _get_platform_tools({}, "cli")
+
+    assert {"data", "data-agent"} <= enabled
+    tools = set()
+    for ts in enabled:
+        tools.update(resolve_toolset(ts))
+    assert {"data_connect", "data_query", "data_visualize", "data_document", "data_profile"} <= tools
+
+
 def test_get_platform_tools_default_telegram_includes_messaging():
     enabled = _get_platform_tools({}, "telegram")
 
