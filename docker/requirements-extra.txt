@@ -1,0 +1,36 @@
+# Packages DAClaw needs that uv.lock does not cover yet.
+#
+# The `data` and `web` extras in pyproject.toml were added after uv.lock was last
+# generated (regenerating it is blocked by the DA-Open/atropos git dependency),
+# so `uv sync --frozen --extra all` installs neither. python-docx (report export)
+# is not declared at all.
+#
+# The Dockerfile installs this file with uv.lock exported as constraints, so any
+# package that is also in the lock must be pinned to the locked version (marked
+# "lock" below); otherwise the final `uv sync` would silently move it back.
+# Remove entries from here once uv.lock is regenerated with these extras.
+
+# extra: data
+duckdb==1.5.6
+pandas==2.3.3  # lock
+openpyxl==3.1.5
+pyarrow==23.0.1  # lock
+formulas==1.3.4
+sqlalchemy==2.0.48  # lock; snowflake-sqlalchemy 1.11 breaks on sqlalchemy 2.1
+pypdf==6.21.4
+psycopg2-binary==2.9.13
+pymysql==1.2.3
+snowflake-sqlalchemy==1.11.1
+pyodbc==5.3.0
+
+# extra: web
+fastapi==0.133.1  # lock
+uvicorn[standard]==0.41.0  # lock
+python-multipart==0.0.22  # lock
+
+# not declared in pyproject.toml
+python-docx==1.2.0
+# HTML -> PDF/PNG for reports (agent/data_agent/document.py). Keep the minor
+# version equal to npm's playwright (package-lock.json) so both use the same
+# Chromium build the Dockerfile installs into PLAYWRIGHT_BROWSERS_PATH.
+playwright==1.59.0

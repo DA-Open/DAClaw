@@ -51,11 +51,15 @@ mkdir -p "$DACLAW_HOME"/{cron,sessions,logs,hooks,memories,skills,skins,plans,wo
 # .env
 if [ ! -f "$DACLAW_HOME/.env" ]; then
     cp "$INSTALL_DIR/.env.example" "$DACLAW_HOME/.env"
+    # API keys go in here; keep it private even if the mounted dir is not
+    chmod 600 "$DACLAW_HOME/.env"
 fi
 
 # config.yaml
 if [ ! -f "$DACLAW_HOME/config.yaml" ]; then
     cp "$INSTALL_DIR/cli-config.yaml.example" "$DACLAW_HOME/config.yaml"
+    # Provider settings can carry keys too
+    chmod 600 "$DACLAW_HOME/config.yaml"
 fi
 
 # SOUL.md
