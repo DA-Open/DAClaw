@@ -10,6 +10,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/daclaw/.playwright
 
 # npm registry used at build time; override on slow networks, e.g.
 #   docker build --build-arg NPM_REGISTRY=https://registry.npmmirror.com .
+# Build args are visible in `docker history`: never pass a URL containing a token.
 ARG NPM_REGISTRY=https://registry.npmjs.org
 # The WhatsApp bridge pulls a dependency straight from GitHub at build time;
 # pass --build-arg INSTALL_WHATSAPP_BRIDGE=false where GitHub is unreliable.
@@ -27,49 +28,66 @@ RUN useradd -u 10000 -m -d /opt/data daclaw
 
 COPY --chmod=0755 --from=uv_source /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
 
-# uv-managed Python 3.11 (the version DAClaw is tested on) lives inside the image
+# uv-managed Python 3.11 (the version DAClaw is tested on) lives inside the image.
+# No uv cache: the daclaw user's HOME is /opt/data, the volume, so a cache there
+# would only bloat the image and be hidden by the mount anyway.
 ENV UV_PYTHON=3.11 \
     UV_PYTHON_INSTALL_DIR=/opt/daclaw/.python \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_NO_CACHE=1
 
 WORKDIR /opt/daclaw
 RUN chown daclaw:daclaw /opt/daclaw
 
 # Python deps first, pinned by uv.lock, so code-only changes reuse this layer.
-# requirements-extra.txt adds what uv.lock does not cover yet (see that file).
+# requirements-extra.txt adds what uv.lock does not cover yet; it is installed
+# with the lock as constraints so the final sync does not move anything back.
 COPY --chown=daclaw:daclaw pyproject.toml uv.lock README.md ./
 COPY --chown=daclaw:daclaw docker/requirements-extra.txt docker/
 USER daclaw
 RUN uv sync --frozen --extra all --no-install-project && \
-    uv pip install --no-cache -r docker/requirements-extra.txt
+    uv export --frozen --extra all --no-hashes --no-emit-project -o /tmp/lock-constraints.txt && \
+    uv pip install -c /tmp/lock-constraints.txt -r docker/requirements-extra.txt && \
+    rm /tmp/lock-constraints.txt
 USER root
+
+# Node dependencies and Playwright's browser, installed as root (--with-deps
+# needs apt) from the manifests alone so code changes do not re-run this layer.
+# - whatsapp-bridge's lockfile resolves a public GitHub dependency over git+ssh;
+#   fetch it over HTTPS instead, since the image has no ssh client or GitHub key.
+# - @askjo/camofox-browser's postinstall downloads the Camoufox browser (~3.8 GB
+#   with its temp files) into root's cache; DAClaw talks to an external Camoufox
+#   server (CAMOFOX_URL), so the download is removed in this same layer.
+COPY --chown=daclaw:daclaw package.json package-lock.json ./
+COPY --chown=daclaw:daclaw scripts/whatsapp-bridge/package.json scripts/whatsapp-bridge/package-lock.json scripts/whatsapp-bridge/
+RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
+    git config --global --add url."https://github.com/".insteadOf "git@github.com:" && \
+    npm install --registry "$NPM_REGISTRY" --prefer-offline --no-audit && \
+    npx playwright install --with-deps chromium --only-shell && \
+    if [ "$INSTALL_WHATSAPP_BRIDGE" = "true" ]; then \
+        (cd scripts/whatsapp-bridge && npm install --registry "$NPM_REGISTRY" --prefer-offline --no-audit) && \
+        chown -R daclaw:daclaw scripts/whatsapp-bridge/node_modules; \
+    fi && \
+    rm -rf /root/.cache/camoufox /tmp/camoufox-* && \
+    npm cache clean --force && \
+    chown -R daclaw:daclaw node_modules .playwright
 
 COPY --chown=daclaw:daclaw . /opt/daclaw
 
-# Install Node dependencies and Playwright as root (--with-deps needs apt),
-# then build the web UI into daclaw_cli/web_dist. The web/ sources are removed
-# afterwards: `daclaw dashboard` rebuilds the UI on every start whenever npm and
-# web/package.json are both present, which would need network access at runtime.
-# whatsapp-bridge's lockfile resolves a public GitHub dependency over git+ssh;
-# fetch it over HTTPS instead, since the image has no ssh client or GitHub key.
-RUN git config --global url."https://github.com/".insteadOf "ssh://git@github.com/" && \
-    git config --global --add url."https://github.com/".insteadOf "git@github.com:" && \
-    npm config set registry "$NPM_REGISTRY" && \
-    npm install --prefer-offline --no-audit && \
-    npx playwright install --with-deps chromium --only-shell && \
-    if [ "$INSTALL_WHATSAPP_BRIDGE" = "true" ]; then \
-        (cd scripts/whatsapp-bridge && npm install --prefer-offline --no-audit) && \
-        chown -R daclaw:daclaw scripts/whatsapp-bridge/node_modules; \
-    fi && \
-    (cd web && npm install --no-audit && npm run build) && \
+# Build the web UI into daclaw_cli/web_dist, then remove web/: `daclaw dashboard`
+# rebuilds the UI on every start whenever npm and web/package.json are both
+# present, which would need network access at runtime.
+RUN (cd web && npm install --registry "$NPM_REGISTRY" --no-audit && npm run build) && \
     rm -rf web && \
     npm cache clean --force && \
-    chown -R daclaw:daclaw node_modules daclaw_cli/web_dist .playwright
+    chown -R daclaw:daclaw daclaw_cli/web_dist
 
 # Install the project itself; --inexact keeps the requirements-extra.txt
-# packages, which a plain (exact) sync would uninstall
+# packages, which a plain (exact) sync would uninstall. pip check fails the
+# build if the extras and the lock ever disagree again.
 USER daclaw
-RUN uv sync --frozen --extra all --inexact
+RUN uv sync --frozen --extra all --inexact && \
+    uv pip check
 
 USER root
 RUN chmod +x /opt/daclaw/docker/entrypoint.sh

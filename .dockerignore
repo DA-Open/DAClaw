@@ -14,11 +14,26 @@ daclaw_cli/web_dist
 dist
 *.egg-info
 **/__pycache__
+.pytest_cache
+
+# Not needed at runtime
+tests
+website
+reports
+temp_vision_images
 
 # CI/CD
 .github
 
-# Environment files and local runtime data (may hold API keys)
-.env
+# Secrets and local runtime data, at any depth
+**/.env
+**/.env.*
+!.env.example
 .envrc
+.codex
+**/auth.json
+**/*.pem
+**/*.key
+**/.npmrc
+**/.netrc
 data
