@@ -1,0 +1,28 @@
+# DAClaw with the web dashboard.
+#
+#   docker compose up -d --build
+#   # put API keys in ./data/.env (created on first start), then restart:
+#   docker compose restart
+#   # open http://127.0.0.1:9119
+#
+# ./data is mounted as DACLAW_HOME (config.yaml, .env, sessions, uploads),
+# so keys and user data stay on the host and never end up in the image.
+# Run any other command in the same container setup with, e.g.:
+#   docker compose run --rm daclaw chat -t data-agent-chat
+services:
+  daclaw:
+    image: ${DACLAW_IMAGE:-daclaw:local}
+    build: .
+    volumes:
+      - ./data:/opt/data
+    # Published on the host's loopback only. Inside the container the dashboard
+    # must listen on 0.0.0.0 to be reachable through Docker networking, which
+    # is why --insecure is passed; do not change the host side to 0.0.0.0.
+    ports:
+      - "127.0.0.1:9119:9119"
+    environment:
+      # Match file ownership in ./data to your host user: DACLAW_UID=$(id -u)
+      - DACLAW_UID=${DACLAW_UID:-10000}
+      - DACLAW_GID=${DACLAW_GID:-10000}
+    command: ["dashboard", "--host", "0.0.0.0", "--port", "9119", "--no-open", "--insecure"]
+    restart: unless-stopped

@@ -5,12 +5,20 @@
 
 # Dependencies
 node_modules
+web/node_modules
+scripts/whatsapp-bridge/node_modules
 .venv
+
+# Build artifacts (the web UI is rebuilt inside the image)
+daclaw_cli/web_dist
+dist
+*.egg-info
+**/__pycache__
 
 # CI/CD
 .github
 
-# Environment files
+# Environment files and local runtime data (may hold API keys)
 .env
-
-*.md
+.envrc
+data
