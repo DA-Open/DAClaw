@@ -30,3 +30,7 @@ python-multipart==0.0.22  # lock
 
 # not declared in pyproject.toml
 python-docx==1.2.0
+# HTML -> PDF/PNG for reports (agent/data_agent/document.py). Keep the minor
+# version equal to npm's playwright (package-lock.json) so both use the same
+# Chromium build the Dockerfile installs into PLAYWRIGHT_BROWSERS_PATH.
+playwright==1.59.0

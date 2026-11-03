@@ -58,6 +58,8 @@ fi
 # config.yaml
 if [ ! -f "$DACLAW_HOME/config.yaml" ]; then
     cp "$INSTALL_DIR/cli-config.yaml.example" "$DACLAW_HOME/config.yaml"
+    # Provider settings can carry keys too
+    chmod 600 "$DACLAW_HOME/config.yaml"
 fi
 
 # SOUL.md

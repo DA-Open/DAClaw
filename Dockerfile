@@ -96,4 +96,11 @@ ENV DACLAW_HOME=/opt/data
 VOLUME [ "/opt/data" ]
 # Web dashboard (`daclaw dashboard`, see docker-compose.yml)
 EXPOSE 9119
+
+# Record the source commit, e.g. --build-arg VCS_REF=$(git rev-parse HEAD);
+# declared last so a new commit does not invalidate the layers above.
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.source="https://github.com/DA-Open/DAClaw" \
+      org.opencontainers.image.revision="$VCS_REF"
+
 ENTRYPOINT [ "/opt/daclaw/docker/entrypoint.sh" ]
