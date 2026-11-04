@@ -131,8 +131,18 @@ to results or logs. Output: `~/gaia2_bench/runs/<run_name>/` with `config.json`
    bias.
 8. **Tool results** longer than DAClawAgentLoop's 100k-character limit are
    truncated to a preview by the loop (can only lower scores).
+9. **Judge verdict parsing is fixed** (case bug below, on by default). ARE as
+   shipped cannot pass any non-identical answer, so its scores are not
+   meaningful; `judge.fix_case_bug: false` restores the shipped behaviour.
 
-## Known issue: ARE 1.2.0 judge + LiteLLM (case bug)
+## ARE judge case bug (fixed here)
+
+Present in every public ARE release (1.0.0–1.2.0) and still open upstream:
+issue [facebookresearch/meta-agents-research-environments#29](https://github.com/facebookresearch/meta-agents-research-environments/issues/29)
+(the reporter's results came much closer to the paper after fixing it) and the
+unmerged fix PR [#26](https://github.com/facebookresearch/meta-agents-research-environments/pull/26).
+The lowercasing is most likely meant for the ReAct agent's JSON actions; the
+judge shares the same engine classes.
 
 - `are/simulation/agents/llm/litellm/litellm_engine.py:125` rewrites
   `True`→`true` and `False`→`false` in **every** model output, including the
@@ -150,21 +160,21 @@ to results or logs. Output: `~/gaia2_bench/runs/<run_name>/` with `config.json`
   (sanity) and every non-identical email send/reply / message (signature, tone).
 - The official `are-benchmark` has the same behaviour whenever the judge runs
   through LiteLLM (provider `local`, `openai`-compatible, …). ARE's HF engine
-  (`hf_engine.py:152`) does the same replacement, so the default official judge
-  setup is very likely affected too; whether published scores were produced
-  with the bug cannot be checked from here.
+  (`hf_engine.py:152`, the engine behind the default `huggingface` judge
+  provider) does the same replacement, so the default public setup is affected
+  as well.
 
-**Fix used here** (`are_bridge.patch_llm_checker`, judge-only monkeypatch, files
-in `are_site` untouched): `LLMChecker.__call__` is replaced by the same voting
-logic with case-insensitive matching of `success_str`/`failure_str`; agent-side
-LiteLLM is not involved (the agent uses the OpenAI client). The patch also
-records each checker's raw output (`judge_log`) and retries judge LLM calls on
-network errors (LiteLLM reports connection failures as
-`LLMEngineException: Auth error in litellm.`). Config switch:
-`judge.fix_case_bug`, **default `false`** (ARE as shipped, the score comparable
-to the official setup). Report the patched score next to it, never instead of
-it; `rejudge.py` produces both from one run's saved traces without calling the
-agent again.
+**Fix** (`are_bridge.patch_llm_checker`, judge-only monkeypatch, ARE's files
+untouched): `LLMChecker.__call__` is replaced by ARE's own voting logic with
+case-insensitive matching of `success_str`/`failure_str` — the change proposed
+in issue #29. Nothing else in the judge changes: same prompts, checkers,
+thresholds and model; the agent is not involved (it uses the OpenAI client,
+not ARE's engines). The patch also records each checker's raw output
+(`judge_log`) and retries judge LLM calls on network errors (LiteLLM reports
+connection failures as `LLMEngineException: Auth error in litellm.`).
+`judge.fix_case_bug` is **`true` by default**; `false` reproduces ARE as
+shipped, and `rejudge.py` scores a finished run both ways from its saved
+traces without calling the agent again.
 
 ## Results (mini validation, seed 20261103, deepseek-v4-pro agent + judge)
 
@@ -174,22 +184,19 @@ GAIA2 headline is the mean success rate over 3 runs per scenario (± SEM,
 numbers are not comparable to the leaderboard. Run 2026-11-04 on 137, all
 three `status=ok`, no infrastructure errors.
 
-| scenario | category | ARE judge as shipped (offline) | judge case fix (online) | judge case fix (offline) |
-|---|---|---|---|---|
-| scenario_universe_21_bdn1w8 | time, 2 turns | FAIL | PASS | PASS |
-| scenario_universe_23_0wpjds | search | FAIL | PASS | PASS |
-| scenario_universe_28_dlqvas | search | FAIL | FAIL | FAIL |
-| **total** | | **0/3** | **2/3** | **2/3** |
+Judge with the case fix (the default):
 
-- The first column is the setup comparable to the official one. With the
-  unpatched judge every scenario fails on its first soft check
-  (`signature_checker` / `sanity_checker` returns `None`), whatever the agent
-  did: only answers identical to the oracle can pass.
-- The run was executed with `judge.fix_case_bug: true` online so that the
-  2-turn scenario could continue past turn 1 (the unpatched judge always
-  rejects that turn and ARE then stops the environment). Both judge columns
-  come from the same agent trajectories via `rejudge.py`; no agent output
-  was regenerated.
+| scenario | category | result |
+|---|---|---|
+| scenario_universe_21_bdn1w8 | time, 2 turns | PASS |
+| scenario_universe_23_0wpjds | search | PASS |
+| scenario_universe_28_dlqvas | search | FAIL |
+| **total** | | **2/3** |
+
+- Online result of the run; an offline re-judge of the same trajectories
+  with `rejudge.py` gives the same 2/3. Re-judged with ARE's judge as
+  shipped, the same trajectories score 0/3: every scenario fails on its first
+  `signature_checker` / `sanity_checker` (`None`), whatever the agent did.
 - scenario_universe_21_bdn1w8 turn 2 was started by an environment
   notification (Amscan's reply email), i.e. the notification wake-up path.
 - scenario_universe_28_dlqvas: the agent's answer named the wrong person

@@ -59,6 +59,6 @@
  ],
  "run_name": "final_mini_seed20261103",
  "created": "2026-11-04 03:21:45",
- "notes": "Final interface run. scenario_universe_23_0wpjds and scenario_universe_28_dlqvas were run with this config (text_reply_nudges=10, ARE invalid-action error message, forward_text_reply=false). scenario_universe_21_bdn1w8 was run earlier the same day with text_reply_nudges=1, forward_text_reply=true and the previous reminder wording; neither was triggered in that scenario (0 reminders in both turns), so its behaviour is the same under this config. judge.fix_case_bug=true online for all three so multi-turn scenarios can continue past a turn the unpatched judge would always reject; the score comparable to the official setup is the unpatched offline re-judge in final_mini_seed20261103_rejudge.",
+ "notes": "Final interface run. scenario_universe_23_0wpjds and scenario_universe_28_dlqvas were run with this config (text_reply_nudges=10, ARE invalid-action error message, forward_text_reply=false). scenario_universe_21_bdn1w8 was run earlier the same day with text_reply_nudges=1, forward_text_reply=true and the previous reminder wording; neither was triggered in that scenario (0 reminders in both turns), so its behaviour is the same under this config. judge.fix_case_bug=true (the default) for all three; final_mini_seed20261103_rejudge re-judges the same trajectories with and without the fix.",
  "created_first_scenario": "2026-11-04 02:36:02"
 }

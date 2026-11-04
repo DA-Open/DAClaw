@@ -38,9 +38,9 @@ judge:                       # ARE GraphPerEventJudge; official default is Llama
   model: deepseek/deepseek-v4-pro    # LiteLLM model string (reads DEEPSEEK_API_KEY)
   provider: local
   endpoint: https://api.deepseek.com/v1
-  fix_case_bug: false        # false = ARE judge as shipped (comparable to the official setup);
-                             # true = case-insensitive [[True]]/[[False]] matching in LLMChecker
-                             # (ARE 1.2.0 LiteLLM/HF engines lowercase True/False). Report both.
+  fix_case_bug: true         # case-insensitive [[True]]/[[False]] matching in ARE's LLMChecker
+                             # (ARE's LiteLLM/HF engines lowercase True/False, so the shipped judge
+                             # rejects every signature/sanity/tone check). false = ARE as shipped.
 
 run:
   scenario_timeout: 3600     # wall-clock seconds per scenario (official: 1860)

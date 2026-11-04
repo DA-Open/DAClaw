@@ -152,7 +152,7 @@ async def run_scenario(row: Dict[str, Any], cfg: Dict[str, Any], out_dir: Path, 
     a, j, r = cfg["agent"], cfg["judge"], cfg["run"]
     sid = row["scenario_id"]
     # Judge-only patch (see are_bridge.patch_llm_checker); also records raw checker outputs.
-    B.patch_llm_checker(bool(j.get("fix_case_bug", False)))
+    B.patch_llm_checker(bool(j.get("fix_case_bug", True)))
     B.JUDGE_LOG.clear()
     B.JUDGE_ERRORS.clear()
     t_start = time.time()
@@ -328,7 +328,7 @@ async def run_scenario(row: Dict[str, Any], cfg: Dict[str, Any], out_dir: Path, 
     out["status"] = "error" if out.get("error") else "ok"
     if out["status"] == "error":
         out["success"] = None
-    out["judge_fix_case_bug"] = bool(j.get("fix_case_bug", False))
+    out["judge_fix_case_bug"] = bool(j.get("fix_case_bug", True))
     out["judge_log"] = [{k: v for k, v in e.items() if k != "response"} for e in B.JUDGE_LOG]
     out["judge_call_retries"] = list(B.JUDGE_ERRORS)
     out["elapsed_seconds"] = round(time.time() - t_start, 1)
