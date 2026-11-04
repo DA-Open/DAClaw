@@ -1,0 +1,68 @@
+# GDPval Evaluation -- Default Configuration
+#
+# Eval-only environment for openai/gdpval (220 real-world knowledge-work tasks).
+# Runs the agent locally (TERMINAL_ENV=local) against a local OpenAI-compatible
+# endpoint, then grades each deliverable against the task's rubric.
+#
+# Usage:
+#   python environments/benchmarks/gdpval/gdpval_env.py evaluate \
+#       --config environments/benchmarks/gdpval/default.yaml
+
+env:
+  # Tools the agent gets. Deliberately narrow: "terminal" + "file" cover the
+  # spreadsheet/PDF/document work these tasks need. Do NOT add "data" here --
+  # its analysis_audit tool issues a slow second LLM call that blew a 6-minute
+  # hole in every rollout. Add "web" only if the endpoint has search creds.
+  enabled_toolsets: ["terminal", "file"]
+  max_agent_turns: 60
+  max_token_length: 32000
+  agent_temperature: 0.6
+
+  # Per-task reference files are symlinked into a scratch workspace, so the
+  # backend must be able to see host paths: local only (docker/modal would
+  # upload 1.6 GB per task).
+  terminal_backend: "local"
+  terminal_timeout: 180
+  tool_pool_size: 64
+
+  dataset_path: "/home/yangxingchang/DA-Research/bench/gdpval"
+  work_dir: "environments/benchmarks/gdpval/work"
+  results_dir: "environments/benchmarks/gdpval/evals"
+
+  # 30 min wall clock per task; 4 concurrent tasks is a safe ceiling for a
+  # single local endpoint.
+  task_timeout: 1800
+  max_concurrent_tasks: 4
+
+  # Task selection (0 = everything)
+  limit: 0
+  # task_filter: "83d10b06"
+  # sector_filter: "Professional, Scientific"
+
+  # Rubric grading. Keep the judge on a different model than the harness so
+  # the agent never grades itself.
+  judge_model: "deepseek-v4-pro"
+  judge_base_url: "http://127.0.0.1:18081/plan/v1"
+  judge_max_bundle_chars: 60000
+  judge_batch_size: 25
+  grader_use_rules: true
+  keep_workspaces: false
+
+  # atroposlib instantiates AutoTokenizer unconditionally; gpt2 is a 1 MB
+  # download that is only used for placeholder token counts in eval mode.
+  tokenizer_name: "gpt2"
+
+  # evaluate_log() writes metrics + samples here; without it atroposlib warns
+  # and skips evaluation logging entirely.
+  data_dir_to_save_evals: "environments/benchmarks/gdpval/evals"
+
+  use_wandb: false
+  wandb_name: "gdpval"
+  ensure_scores_are_not_same: false
+
+openai:
+  base_url: "http://127.0.0.1:18081/plan/v1"
+  model_name: "deepseek-v4-flash"
+  server_type: "openai"
+  health_check: false
+  # api_key is read from OPENAI_API_KEY (set it in ~/.daclaw/.env or the shell)

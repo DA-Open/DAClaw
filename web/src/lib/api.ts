@@ -1166,6 +1166,13 @@ export interface LeaderboardBenchmark {
   metric: string;
   sota_ceiling: number;
   level?: string;
+  category?: string;
+  /** "lower_better" marks a failure-rate benchmark (e.g. PersistBench). */
+  direction?: "higher_better" | "lower_better";
+  /** Excluded from the overall ranking when false. */
+  ranked?: boolean;
+  judge?: string;
+  requires?: Record<string, boolean>;
 }
 export interface LeaderboardLevel {
   id: string;
