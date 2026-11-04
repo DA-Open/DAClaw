@@ -14,19 +14,25 @@ and judge run in the same process as the agent.
 | `bench.py` | `sample` / `run` / `summary` CLI |
 | `default.yaml` | config (dataset, seed, model, judge, limits) |
 | `rejudge.py` | offline re-judge of a finished run from its saved ARE traces (patch off and on) |
+| `requirements-are.txt` | ARE's extra dependencies, installed `--no-deps` next to ARE (see Setup) |
 
-## Setup on 137 (done once)
+## Setup (done once)
 
 ARE is **not** installed into `~/DAClaw/.venv`:
 
 ```bash
 # ARE + only the packages missing from the DAClaw venv, no dependency resolution
-uv pip install --python ~/DAClaw/.venv/bin/python --target ~/gaia2_bench/are_site \
-    --no-deps meta-agents-research-environments==1.2.0 -r ~/gaia2_bench/scripts/extra_pins.txt
+cd ~/DAClaw
+uv pip install --python .venv/bin/python --target ~/gaia2_bench/are_site --no-deps \
+    meta-agents-research-environments==1.2.0 \
+    -r environments/benchmarks/gaia2/requirements-are.txt
 # FileSystem app data (hf-mirror rate-limits the lazy per-file loading, 429)
 snapshot_download("meta-agents-research-environments/gaia2_filesystem", repo_type="dataset",
                   local_dir="~/gaia2_bench/gaia2_filesystem")
 ```
+
+`requirements-are.txt` lists the 23 packages ARE needs that the DAClaw venv
+does not have, at the versions used for the run in `results/`.
 
 `are_site` is **appended** to `sys.path` at runtime, so every package that already
 exists in the DAClaw venv keeps its pinned version (e.g. huggingface-hub 1.4.1,
