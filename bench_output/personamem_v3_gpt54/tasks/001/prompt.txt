@@ -1,0 +1,30 @@
+# Task: personalized social-media content recommendation
+
+It's 2026-04-06 05:00 UTC. The recommendation system has proposed 16 candidate items. Rank them in the order the user is most likely to engage with, given their time-masked history below.
+
+## Candidate slate
+  [0] GodsKingdomChannel ApostleJoshuaSelman ChristianInspiration (hashtags: #GodsKingdomChannel, #ApostleJoshuaSelman, #ChristianInspiration, #Motivation, #Faith, #Blessings, #NewSeason, #Hope)
+  [1] TobiAmusan NigerianAthlete TrackAndField (hashtags: #TobiAmusan, #NigerianAthlete, #TrackAndField, #100mDash, #NigeriaToTheWorld, #BirthdayGirl, #Sports)
+  [2] Jenifa’s Chaos Continues (hashtags: #JenifasDiary, #NigerianComedy, #NewEpisode, #TVShow)
+  [3] MichaelHarris WalkByFaith GospelMusic (hashtags: #MichaelHarris, #WalkByFaith, #GospelMusic, #Faith, #Inspiration, #JordanLewis, #ChristianMusic)
+  [4] younglove momlife proudmom (hashtags: #younglove, #momlife, #proudmom, #raisingteens, #heartwarmingmoments, #love)
+  [5] fblifestyle sustainableliving animalcare (hashtags: #fblifestyle, #sustainableliving, #animalcare, #farmLife, #poultryexpert, #youthempowerment, #agriculture)
+  [6] GodsBlessings ApostleJoshuaSelman Faith (hashtags: #GodsBlessings, #ApostleJoshuaSelman, #Faith, #Inspiration, #Christianity, #Gospel, #Blessings)
+  [7] GospelMusic Worship PraiseTheLord (hashtags: #GospelMusic, #Worship, #PraiseTheLord, #Gratitude, #Faith, #ChristianMusic, #BlessTheLord)
+  [8] abeg, this one is correct, proper comedy without too much noise (hashtags: #ComedyGold, #Nollywood, #TVShowClip, #FunnyMoments)
+  [9] GodLevel NextLevel SpiritualGrowth (hashtags: #GodLevel, #NextLevel, #SpiritualGrowth, #Motivation, #Inspiration, #Faith, #Positivity, #FYP)
+  [10] ZOKEShorts NigerianCinema ShortFilm (hashtags: #ZOKEShorts, #NigerianCinema, #ShortFilm, #SocialCommentary, #Classism, #Empowerment, #NewRelease, #MustWatch)
+  [11] freshoil banga cookingwithlove (hashtags: #freshoil, #banga, #cookingwithlove, #motherhood, #lifestyle, #homcooking, #nigeriancuisine, #foodie)
+  [12] fblifestyle jesus faith (hashtags: #fblifestyle, #jesus, #faith, #gratitude, #personalstyle, #inspiration)
+  [13] yes o, this reminder is correct, steady prayer keeps the mind calm (hashtags: #HolySpirit, #Faith)
+  [14] Desert Fit Check (hashtags: #15YearsStrong, #Coachella2026, #FestivalFashion, #DesertOOTD)
+  [15] Testimony Faith Healing (hashtags: #Testimony, #Faith, #Healing, #Spirituality, #PrayerWorks, #MrsMaid, #Blessed)
+
+## Output
+Respond with ONE fenced ```json block containing the ranked indexes:
+```json
+{
+  "ranked_indexes": [<idx>, <idx>, ...],
+  "reasoning": "<=2 sentences"
+}
+```

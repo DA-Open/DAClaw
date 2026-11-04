@@ -1,0 +1,148 @@
+"""Single-instance dispatch shim for the sequential eval harness.
+
+Bridges one CSV row (one query) to the existing per-task runner functions
+in `evaluation.tasks.*`, which all accept an `instances: list` arg. We
+call them with `instances=[inst]` and take the first result.
+
+No new scoring logic — all metrics / judges / rubric behavior is
+whatever the existing runners produce. The shim's only job is to map
+`task_type` → the right callable.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from evaluation.tasks import (  # noqa: E402
+    chatbot_response,
+    over_personalization,
+    agentic_tasks,
+)
+
+
+AGENTIC_TASK_IDS: set[str] = set(agentic_tasks.ALL_BUILDERS.keys())
+
+
+@dataclass
+class DispatchContext:
+    """Bundle of objects shared across all queries in one persona-run."""
+    user_id: str
+    bq: Any
+    llm_client: Any
+    judge_client: Any
+    mode: str
+    snapshot_cache: Any
+    model_name: str
+    claude_model: str
+    context_budget: int | None
+    enable_llm_judge: bool
+    dry_run: bool
+
+    def common(self) -> dict:
+        """Kwargs shared by every run_task_X(...) callable."""
+        return dict(
+            user_id=self.user_id,
+            bq=self.bq,
+            llm_client=self.llm_client,
+            judge_client=self.judge_client,
+            mode=self.mode,
+            snapshot_cache=self.snapshot_cache,
+            model_name=self.model_name,
+            claude_model=self.claude_model,
+            context_budget=self.context_budget,
+            enable_llm_judge=self.enable_llm_judge,
+            dry_run=self.dry_run,
+            limit=None,        # we're feeding one instance at a time
+        )
+
+
+def dispatch_single(task_type: str, inst: dict, ctx: DispatchContext) -> dict | None:
+    """Run one instance of `task_type` through its task-specific runner.
+
+    Returns the single result row produced by the runner, or None if the
+    task type is unknown / the runner produced no rows.
+    """
+    common = ctx.common()
+    common["instances"] = [inst]
+
+    # Translate any v1 task_type that snuck in (defensive — runner refuses
+    # CSVs whose version header doesn't match QUERIES_CSV_VERSION).
+    from evaluation.task_registry import normalize_task_type
+    task_type = normalize_task_type(task_type)
+
+    if task_type in ("chatbot_personalized_response", "over_personalization_chatbot_text",
+                       "over_personalization_sensitive_event", "over_personalization_sycophancy"):
+        # Phase I.3: distractor-reject converted from a 4-way ranking task to
+        # an open-ended chatbot text task — same runner as the other chatbot
+        # arms, judged by personalization_leak_rate against the irrelevant
+        # persona-items (passed in via privacy_flagged_prefs).
+        # Step 4.7: distractor-reject merged into over_personalization_chatbot_text;
+        # the OLD_TO_NEW alias means historical CSV rows resolve here too.
+        # R10: sensitive_event runs through the same path with arm="sensitive_event"
+        # and a leak pool sourced from the synthetic sensitive_life_event persona.
+        rows = chatbot_response.run_task_b(**common)
+    elif task_type == "over_personalization_repetition_recsys":
+        rows = over_personalization.run_task_c1c(**common)
+    elif task_type == "over_personalization_repetition_chatbot":
+        rows = over_personalization.run_task_c1d(**common)
+    elif task_type == "over_personalization_context_shift":
+        rows = over_personalization.run_task_c2(**common)
+    # over_personalization_distractor_reject merged into chatbot_text in Step 4.7.
+    # preference_removal_regen removed in Step 4.4 — dropped at aggregation.
+    elif task_type == "preference_shift_followthrough":
+        from evaluation.tasks import preference_shift_followthrough as _psf
+        rows = _psf.run_preference_shift_followthrough(**common)
+    elif task_type == "hidden_persona_implicit_qa":
+        from evaluation.tasks import hidden_persona_implicit_qa as _hp
+        rows = _hp.run_hidden_persona_implicit_qa(**common)
+    elif task_type == "personal_qa_hallucination":
+        from evaluation.tasks import personal_qa_hallucination as _pqh
+        rows = _pqh.run_personal_qa_hallucination(**common)
+    elif task_type == "hidden_persona_recommendation":
+        from evaluation.tasks import hidden_persona_recommendation as _hpr
+        rows = _hpr.run_hidden_persona_recommendation(**common)
+    elif task_type == "at_ai_directive_followup":
+        from evaluation.tasks import e2_at_ai_followup as _e2
+        rows = _e2.run_e2_at_ai_followup(**common)
+    # daily_personalized_briefing removed in Step 4.3 — historical CSV
+    # rows are dropped at aggregation time via DROPPED_TASK_TYPES.
+    elif task_type in ("personalized_recommendation", "personalized_search_ranking"):
+        from evaluation.tasks import personalized_recommendation as _pr
+        rows = _pr.run_personalized_recommendation(**common)
+    elif task_type == "short_vs_long_term_lifecycle":
+        from evaluation.tasks import e5_horizon_lifecycle as _e5
+        rows = _e5.run_e5_horizon_lifecycle(**common)
+    elif task_type == "active_mistake_prevention":
+        from evaluation.tasks import e6_active_mistake_prevention as _e6
+        rows = _e6.run_e6_active_mistake_prevention(**common)
+    elif task_type == "local_recommendation_geo_shift":
+        from evaluation.tasks import local_recommendation_geo_shift as _geo
+        rows = _geo.run_local_recommendation_geo_shift(**common)
+    elif task_type in ("proactive_close_friend_update",
+                       "restraint_sensitive_event_silence",
+                       "proactive_friend_feed_react",
+                       "proactive_trending_feed_react",
+                       "proactive_overactive_check"):
+        from evaluation.tasks import proactive_actions as _proactive
+        rows = _proactive.run_proactive_task(**common)
+    elif task_type == "new_suggestions_recsys":
+        from evaluation.tasks import new_suggestions as _ns
+        rows = _ns.run_task_c1e_new_suggestions_recsys(**common)
+    elif task_type == "new_suggestions_chatbot":
+        from evaluation.tasks import new_suggestions as _ns
+        rows = _ns.run_task_c1f_new_suggestions_chatbot(**common)
+    elif task_type in AGENTIC_TASK_IDS:
+        rows = agentic_tasks.run_task(task_id=task_type, **common)
+    else:
+        return {
+            "task": task_type,
+            "instance_id": inst.get("instance_id", ""),
+            "metrics": {},
+            "status": "unknown_task_type",
+            "error": f"no dispatcher for task_type={task_type!r}",
+        }
+
+    if not rows:
+        return None
+    return rows[0]

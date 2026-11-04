@@ -1,0 +1,87 @@
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_02/input.xlsx')
+wb=load_workbook(p)
+print(wb.sheetnames)
+for ws in wb.worksheets:
+    print(ws.title, ws.max_row, ws.max_column)
+    for row in ws.iter_rows(values_only=True):
+        print(row)
+    print('---')
+PY  1.1s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from openpyxl.formula.tokenizer import Tokenizer
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_02/input.xlsx')
+wb=load_workbook(p)
+for s in ['Ex 1 - LBO','Ex 3 - PF P&L','Ex 4 - Organic Operating Model','Ex 5 - M&A','Ex 6 - Amdocs Historical M&A']:
+    ws=wb[s]
+    print('\nSHEET',s, ws.max_row, ws.max_column)
+    for r in range(1, min(ws.max_row, 120)+1):
+        vals=[ws.cell(r,c).value for c in range(1, min(ws.max_column, 20)+1)]
+        if any(v is not None for v in vals):
+            print(r, vals)
+PY  0.8s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+wb=load_workbook('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_02/input.xlsx')
+# inspect formulas and validations/named ranges briefly
+print('defined names:')
+for dn in wb.defined_names.definedName:
+    print(dn.name, dn.attr_text)
+print('data validations:')
+for ws in wb.worksheets:
+    if ws.data_validations.count:
+        print(ws.title, ws.data_validations.count)
+        for dv in ws.data_validations.dataValidation:
+            print(' ', dv.type, dv.formula1, dv.sqref)
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+wb=load_workbook('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_02/input.xlsx')
+issues=[]
+for ws in wb.worksheets:
+    for row in ws.iter_rows():
+        for cell in row:
+            v=cell.value
+            if isinstance(v,str) and v.startswith('='):
+                if ':' in v and '/' in v and '!' in v and v.count(':')==1:
+                    if any(seg in v for seg in ['D8:D8','E8:E8','F8:F8']):
+                        issues.append((ws.title, cell.coordinate, v))
+                if '_xlfn.RRI' in v:
+                    issues.append((ws.title, cell.coordinate, v))
+print('issue count', len(issues))
+for i in issues[:50]:
+    print(i)
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from copy import copy
+from pathlib import Path
+infile=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_02/input.xlsx')
+outfile=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_02/01_02_output.xlsx')
+wb=load_workbook(infile)
+ws=wb['Ex 1 - LBO']
+ws['C36'] = "='Ex 10 - Balance Sheet'!D8/C7"
+# replace unsupported _xlfn.RRI with equivalent CAGR formula
+ws=wb['Ex 3 - PF P&L']
+for coord in ['I13','I15','I19','I21','I25','I27']:
+    row = ws[coord].row
+    ws[coord] = f'=(G{row}/C{row})^(1/($G$1-$C$1))-1'
+wb.save(outfile)
+print('saved', outfile, outfile.exists(), outfile.stat().st_size)
+PY  0.8s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_02/01_02_output.xlsx')
+wb=load_workbook(p)
+print(p.exists(), p.stat().st_size)
+print('C36', wb['Ex 1 - LBO']['C36'].value)
+for c in ['I13','I15','I19','I21','I25','I27']:
+    print(c, wb['Ex 3 - PF P&L'][c].value)
+PY  0.6s

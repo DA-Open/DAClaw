@@ -1,0 +1,16 @@
+{
+  "model": "gpt-5.4",
+  "harness": "DAClaw",
+  "category": "Debugging",
+  "requested": 3,
+  "generation_succeeded": 3,
+  "scoring_succeeded": 3,
+  "strict_passed": 0,
+  "accuracy": 0.0,
+  "mean_regression_accuracy": 0.9934666666666666,
+  "mean_modification_accuracy": 0.057533333333333325,
+  "total_api_calls": 23,
+  "total_tool_calls": 20,
+  "scope": "First three official Debugging instances; not the full benchmark",
+  "scorer": "Unmodified official process_single_item; input, gold and output recalculated with LibreOffice Calc"
+}

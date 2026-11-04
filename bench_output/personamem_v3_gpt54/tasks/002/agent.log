@@ -1,0 +1,28 @@
+  ▏ 📖 read      README.md  1.1s
+  ▏ 🔎 grep      AfricanFashion|Ankara|Gele|Asooke|wedding|yoruba|Warri|RelationshipGoals|EmpoweredWomen|discipline|healthroutine|cats|toddlers|Celine Dion|BecauseYouLovedMe|music|funeral|UberDriver|Ghana|AfricanArt|HeadWrapTutorial  0.7s
+  ▏ 🔎 grep      explicit_positive|implicit_positive  0.7s
+  ▏ 🔎 grep      explicit_positive|implicit_positive  0.7s
+  ▏ 🔎 grep      explicit_positive|implicit_positive  0.7s
+  ▏ 📖 read      threads.json  0.9s
+  ▏ 📖 read      facebook.json  0.8s
+  ▏ 📖 read      threads.json  0.8s
+  ▏ 📖 read      threads.json  0.8s
+  ▏ 📖 read      threads.json  0.8s
+  ▏ 📖 read      facebook.json  0.8s
+  ▏ 📖 read      facebook.json  0.8s
+  ▏ 🔎 grep      #AfricanFashion|#AnkaraFashion|#AnkaraPrints|#GuipureLace|#OnlineShopping|#FashionDeals|#crowngele|#thelimits_asooke  0.4s
+  ▏ 🔎 grep      #AfricanFashion|#AnkaraFashion|#AnkaraPrints|#GuipureLace|#OnlineShopping|#FashionDeals|#crowngele|#thelimits_asooke  0.5s
+  ▏ 🔎 grep      source_interaction_type\": \"explicit_negative\"|source_interaction_type\": \"implicit_negative\"  0.4s
+  ▏ 🔎 grep      source_interaction_type\": \"explicit_negative\"|source_interaction_type\": \"implicit_negative\"  0.5s
+  ▏ 📖 read      threads.json  0.8s
+  ▏ 📖 read      threads.json  0.8s
+  ▏ 📖 read      threads.json  0.8s
+  ▏ 📖 read      facebook.json  0.8s
+  ▏ 📖 read      facebook.json  0.8s
+  ▏ 📖 read      facebook.json  0.8s
+⚠️  API call failed (attempt 1/3): APIConnectionError
+   🔌 Provider: custom  Model: gpt-5.4
+   🌐 Endpoint: https://api2.aigcbest.top/v1
+   📝 Error: Connection error.
+   ⏱️  Elapsed: 36.37s  Context: 29 msgs, ~26,477 tokens
+⏳ Retrying in 2.7359143402610515s (attempt 1/3)...

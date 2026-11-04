@@ -1,0 +1,32 @@
+# Task: personalized social-media content recommendation
+
+It's 2026-04-06 11:00 UTC. The recommendation system has proposed 16 candidate items. Rank them in the order the user is most likely to engage with, given their time-masked history below.
+
+## Candidate slate
+  [0] big respect for organizers who start on time and still keep the room warm
+
+that one is not magic, it is planning (hashtags: #eventplanning, #community, #osaka)
+  [1] dance entertainment Erkuah (hashtags: #dance, #entertainment, #Erkuah, #queenmode, #redandgold, #funvideos)
+  [2] Clean energy, sharp timing. This one’s actually polished. (hashtags: #dance, #performanceart, #colorfulvibes, #energizer)
+  [3] entitledbrat motorcyclelife lawandorder (hashtags: #entitledbrat, #motorcyclelife, #lawandorder, #humor, #sarcasm, #consequences)
+  [4] Clean footwork, real bounce. Whoever edited this knew the assignment. (hashtags: #dance, #africanmusic, #music)
+  [5] icebaththerapy recovery wellness (hashtags: #icebaththerapy, #recovery, #wellness, #dance, #fitnessmotivation, #mental, #selfdiscovery)
+  [6] VkarateAcademy MartialArts SelfDefense (hashtags: #VkarateAcademy, #MartialArts, #SelfDefense, #KarateForKids, #EmpowermentThroughMartialArts, #FitnessMotivation, #DisciplineAndFocus)
+  [7] funnyvideos animalhumor momlife (hashtags: #funnyvideos, #animalhumor, #momlife, #wildlife, #humor, #lighthearted, #comedy)
+  [8] birthdaygirl happymom mayyuledochie (hashtags: #birthdaygirl, #happymom, #mayyuledochie, #firstbirthday, #celebration, #familylove, #lifestyle)
+  [9] Sharp Steps, Clean Finish (hashtags: #dance, #performance, #danceroutine, #dancelife)
+  [10] twinning edsheeran viral (hashtags: #twinning, #edsheeran, #viral, #viralreels, #lookalike, #inspiration)
+  [11] GospelMusic YorubaPraise AfricanCulture (hashtags: #GospelMusic, #YorubaPraise, #AfricanCulture, #ChristianMusic, #WorshipSong, #SpiritualMusic)
+  [12] WorldAthleticsChampionships TeamNigeria TobiAmusan (hashtags: #WorldAthleticsChampionships, #TeamNigeria, #TobiAmusan, #SportsEquity, #NigerianAthletes, #TrackAndField)
+  [13] fyp reels viral (hashtags: #fyp, #reels, #viral, #trending, #dance, #dancer, #icebath, #cryotherapy)
+  [14] parentinglife toddlerlife momsofinstagram (hashtags: #parentinglife, #toddlerlife, #momsofinstagram, #dadlife)
+  [15] drumming music performance (hashtags: #drumming, #music, #performance, #viral, #fyp, #fypvideoreels, #musician, #drummer)
+
+## Output
+Respond with ONE fenced ```json block containing the ranked indexes:
+```json
+{
+  "ranked_indexes": [<idx>, <idx>, ...],
+  "reasoning": "<=2 sentences"
+}
+```

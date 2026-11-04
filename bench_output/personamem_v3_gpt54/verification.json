@@ -1,0 +1,45 @@
+{
+  "verified_at_utc": "2026-11-04",
+  "checks": [
+    {
+      "query_id": "8:0035:recsys_2026-04-06_a0",
+      "official_score_recomputed": true,
+      "time_mask_verified": true,
+      "events": 785,
+      "tool_calls": 23,
+      "api_calls": 6,
+      "input_tokens": 88475,
+      "output_tokens": 1063,
+      "tier_concordance": 0.507
+    },
+    {
+      "query_id": "8:0036:recsys_2026-04-06_a1",
+      "official_score_recomputed": true,
+      "time_mask_verified": true,
+      "events": 790,
+      "tool_calls": 22,
+      "api_calls": 6,
+      "input_tokens": 105104,
+      "output_tokens": 1085,
+      "tier_concordance": 0.4314
+    },
+    {
+      "query_id": "8:0042:recsys_2026-04-06_a2",
+      "official_score_recomputed": true,
+      "time_mask_verified": true,
+      "events": 818,
+      "tool_calls": 12,
+      "api_calls": 5,
+      "input_tokens": 70065,
+      "output_tokens": 577,
+      "tier_concordance": 0.4348
+    }
+  ],
+  "credential_scan": "passed",
+  "summary_means_recomputed": true,
+  "adapter_tests_passed": 4,
+  "harness_commit": "b8cef9171e3a93f847fd043aec967dcae92b71ba",
+  "benchmark_commit": "ad80a3b1b322129fb0585ead33b129a87bb4e387",
+  "adapter_sha256": "892ddf4da2a18ce6444a6a771ccd7df736167b5d9e064cec375fead4882f4634",
+  "scorer_sha256": "86a1036881287e25c1f54ec87b0eecc4c544a4ad70a784ff95fa2bcaac177aa5"
+}

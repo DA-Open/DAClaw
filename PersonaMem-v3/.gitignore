@@ -1,0 +1,55 @@
+__pycache__/
+*/__pycache__/
+*.pyc
+.pytest_cache/
+*.parquet
+*.pkl
+.env
+hub/
+wandb/
+outputs/
+checkpoints/
+.cursor/
+*.json
+*.jsonl
+logs/
+*.log
+hashtags_*.tsv
+.cache/
+.claude/
+ray_*/
+docs/
+# All persona data (backend/ plus any backend_* experiment variant) stays off GitHub
+backend*/
+data/
+benchmark/
+eval_aggregate*/
+.agents/
+.codex/
+*.pid
+*.csv
+
+# Optional local persona selection for the run scripts
+scripts/personas.local.sh
+# One-off maintenance scripts
+scripts/reeval_*.sh
+scripts/codex_hp_refill.sh
+
+# Eval outputs + operational scratch (logs, per-mode result trees, refill scripts)
+results/
+results_gemini/
+
+# Nested Overleaf paper repo (own remote = git.overleaf.com)
+overleaf/
+
+# Master-node Telegram reporter (canonical copy lives in ~/.claude/, contains bot token)
+telegram_master_report.py
+regen_work/
+backups/
+release/
+
+# Local agent config
+CLAUDE.md
+skill.md
+data/content_policy_rules.json
+scripts/reduce_christian_prevalence.py

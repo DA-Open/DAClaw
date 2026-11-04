@@ -1,0 +1,36 @@
+{
+  "category": "Debugging",
+  "total_tests": 3,
+  "recalculated_outputs": true,
+  "missing_outputs": 0,
+  "accuracy": 0.0,
+  "results": [
+    {
+      "id": "01_01",
+      "error_message": "Regression error at Ex 1 - LBO!X29: answer=None, output=#DIV/0!",
+      "regression_accuracy": 1.0,
+      "modification_accuracy": 0.1503,
+      "accuracy": 0.0,
+      "interaction_turns": 9,
+      "missing_output": false
+    },
+    {
+      "id": "01_02",
+      "error_message": "Regression error at Ex 1 - LBO!C36: answer=='Ex 10 - Balance Sheet'!D8:D8/C7, output=='Ex 10 - Balance Sheet'!D8/C7",
+      "regression_accuracy": 1.0,
+      "modification_accuracy": 0.0,
+      "accuracy": 0.0,
+      "interaction_turns": 7,
+      "missing_output": false
+    },
+    {
+      "id": "01_03",
+      "error_message": "Regression error at Ex 1 - LBO!F22: answer=11510.772151908, output=10608.703512238",
+      "regression_accuracy": 0.9804,
+      "modification_accuracy": 0.0223,
+      "accuracy": 0.0,
+      "interaction_turns": 7,
+      "missing_output": false
+    }
+  ]
+}

@@ -1,0 +1,947 @@
+[
+  {
+    "query_id": "8:0035:recsys_2026-04-06_a0",
+    "task_family": "e_followup",
+    "task_type": "personalized_recommendation",
+    "query_kind": "proactive_recommendation",
+    "expected_behavior": "proactive_recommend",
+    "ts": 1775451600,
+    "ts_iso": "2026-04-06T05:00:00+00:00",
+    "user_query": "[system prompt] Recommend feed items personalized to this user.",
+    "prior_conversation": null,
+    "example_response": "Ranked indexes: [13, 5, 11, 14, 8, 10, 2, 4, 1, 9, 12, 3, 7, 6, 0, 15]",
+    "groundtruth_preference": "Top item: yes o, this reminder is correct, steady prayer keeps the mind calm\nHard negatives: - GodsKingdomChannel ApostleJoshuaSelman ChristianInspiration - GodLevel NextLevel SpiritualGrowth - GodsBlessings ApostleJoshuaSelman Faith - fblifestyle jesus faith - Testimony Faith Healing - MichaelHarris WalkByFaith GospelMusic - GospelMusic Worship PraiseTheLord",
+    "groundtruth_preference_obj": null,
+    "reference_example": null,
+    "distractor_preferences": [],
+    "rubric_tags": [
+      "(+) Top-1 must be the held-out item.",
+      "(-) Hard negatives must rank below all correct items and fillers (bottom of the ranking)."
+    ],
+    "tool_call": null,
+    "inferior_response": {
+      "text": "Ranked indexes: [9, 12, 3, 7, 6, 0, 15, 5, 11, 14, 8, 10, 2, 4, 1, 13]",
+      "flaw_kind": "ranking_inversion",
+      "flaw_evidence": {
+        "_from": "deterministic_ranking_inversion"
+      }
+    },
+    "example_response_self_check": {
+      "score": 3,
+      "passed": true,
+      "reason": "query-less / non-conversational task — query-addressing self-check N/A"
+    },
+    "example_response_voice_evidence": null,
+    "inferior_response_voice_evidence": null,
+    "voice_evidence_smoke_check": null,
+    "voice_evidence_smoke_check_after_regen": null,
+    "instance_full": {
+      "instance_id": "recsys_2026-04-06_a0",
+      "task_id": "personalized_recommendation",
+      "entry_point": "chatbot_routed",
+      "t_test": 1775451600,
+      "anchor_hour_utc": 5,
+      "day_index": 1,
+      "day_label": "2026-04-06",
+      "candidates": [
+        {
+          "source_object_id": "456726",
+          "title": "GodsKingdomChannel ApostleJoshuaSelman ChristianInspiration",
+          "caption": "",
+          "hashtags": [
+            "#GodsKingdomChannel",
+            "#ApostleJoshuaSelman",
+            "#ChristianInspiration",
+            "#Motivation",
+            "#Faith",
+            "#Blessings",
+            "#NewSeason",
+            "#Hope"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775252193
+        },
+        {
+          "source_object_id": "52231",
+          "title": "TobiAmusan NigerianAthlete TrackAndField",
+          "caption": "",
+          "hashtags": [
+            "#TobiAmusan",
+            "#NigerianAthlete",
+            "#TrackAndField",
+            "#100mDash",
+            "#NigeriaToTheWorld",
+            "#BirthdayGirl",
+            "#Sports"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775208565
+        },
+        {
+          "source_object_id": "119717",
+          "title": "Jenifa’s Chaos Continues",
+          "caption": "Another wild Jenifa moment. This one had me laughing from the first scene to the last line.",
+          "hashtags": [
+            "#JenifasDiary",
+            "#NigerianComedy",
+            "#NewEpisode",
+            "#TVShow"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775294875
+        },
+        {
+          "source_object_id": "672365",
+          "title": "MichaelHarris WalkByFaith GospelMusic",
+          "caption": "",
+          "hashtags": [
+            "#MichaelHarris",
+            "#WalkByFaith",
+            "#GospelMusic",
+            "#Faith",
+            "#Inspiration",
+            "#JordanLewis",
+            "#ChristianMusic"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775339412
+        },
+        {
+          "source_object_id": "458878",
+          "title": "younglove momlife proudmom",
+          "caption": "",
+          "hashtags": [
+            "#younglove",
+            "#momlife",
+            "#proudmom",
+            "#raisingteens",
+            "#heartwarmingmoments",
+            "#love"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775227588
+        },
+        {
+          "source_object_id": "375195",
+          "title": "fblifestyle sustainableliving animalcare",
+          "caption": "",
+          "hashtags": [
+            "#fblifestyle",
+            "#sustainableliving",
+            "#animalcare",
+            "#farmLife",
+            "#poultryexpert",
+            "#youthempowerment",
+            "#agriculture"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775419922
+        },
+        {
+          "source_object_id": "141555",
+          "title": "GodsBlessings ApostleJoshuaSelman Faith",
+          "caption": "",
+          "hashtags": [
+            "#GodsBlessings",
+            "#ApostleJoshuaSelman",
+            "#Faith",
+            "#Inspiration",
+            "#Christianity",
+            "#Gospel",
+            "#Blessings"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775306275
+        },
+        {
+          "source_object_id": "789233",
+          "title": "GospelMusic Worship PraiseTheLord",
+          "caption": "",
+          "hashtags": [
+            "#GospelMusic",
+            "#Worship",
+            "#PraiseTheLord",
+            "#Gratitude",
+            "#Faith",
+            "#ChristianMusic",
+            "#BlessTheLord"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775312683
+        },
+        {
+          "source_object_id": "th_thr_8_000",
+          "title": "abeg, this one is correct, proper comedy without too much noise",
+          "caption": "abeg, this one is correct, proper comedy without too much noise",
+          "hashtags": [
+            "#ComedyGold",
+            "#Nollywood",
+            "#TVShowClip",
+            "#FunnyMoments"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775317570
+        },
+        {
+          "source_object_id": "906335",
+          "title": "GodLevel NextLevel SpiritualGrowth",
+          "caption": "",
+          "hashtags": [
+            "#GodLevel",
+            "#NextLevel",
+            "#SpiritualGrowth",
+            "#Motivation",
+            "#Inspiration",
+            "#Faith",
+            "#Positivity",
+            "#FYP"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775414723
+        },
+        {
+          "source_object_id": "120960",
+          "title": "ZOKEShorts NigerianCinema ShortFilm",
+          "caption": "",
+          "hashtags": [
+            "#ZOKEShorts",
+            "#NigerianCinema",
+            "#ShortFilm",
+            "#SocialCommentary",
+            "#Classism",
+            "#Empowerment",
+            "#NewRelease",
+            "#MustWatch"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775315051
+        },
+        {
+          "source_object_id": "570957",
+          "title": "freshoil banga cookingwithlove",
+          "caption": "",
+          "hashtags": [
+            "#freshoil",
+            "#banga",
+            "#cookingwithlove",
+            "#motherhood",
+            "#lifestyle",
+            "#homcooking",
+            "#nigeriancuisine",
+            "#foodie"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775379083
+        },
+        {
+          "source_object_id": "753238",
+          "title": "fblifestyle jesus faith",
+          "caption": "",
+          "hashtags": [
+            "#fblifestyle",
+            "#jesus",
+            "#faith",
+            "#gratitude",
+            "#personalstyle",
+            "#inspiration"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775407857
+        },
+        {
+          "source_object_id": "fa_thr_8_004",
+          "title": "yes o, this reminder is correct, steady prayer keeps the mind calm",
+          "caption": "yes o, this reminder is correct, steady prayer keeps the mind calm",
+          "hashtags": [
+            "#HolySpirit",
+            "#Faith"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775459871
+        },
+        {
+          "source_object_id": "feedvis_a375bc9b89",
+          "title": "Desert Fit Check",
+          "caption": "Desert dust in my boots, glitter in places I’ll find next week. Coachella fits are officially doing the most and I’m not mad at it.",
+          "hashtags": [
+            "#15YearsStrong",
+            "#Coachella2026",
+            "#FestivalFashion",
+            "#DesertOOTD"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775343741
+        },
+        {
+          "source_object_id": "723670",
+          "title": "Testimony Faith Healing",
+          "caption": "",
+          "hashtags": [
+            "#Testimony",
+            "#Faith",
+            "#Healing",
+            "#Spirituality",
+            "#PrayerWorks",
+            "#MrsMaid",
+            "#Blessed"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775204795
+        }
+      ],
+      "held_out_idx": 13,
+      "hard_negative_idxs": [
+        0,
+        9,
+        6,
+        12,
+        15,
+        3,
+        7
+      ],
+      "query_text": "",
+      "example_response": "Ranked indexes: [13, 5, 11, 14, 8, 10, 2, 4, 1, 9, 12, 3, 7, 6, 0, 15]",
+      "groundtruth_preference": "Top item: yes o, this reminder is correct, steady prayer keeps the mind calm\nHard negatives:\n  - GodsKingdomChannel ApostleJoshuaSelman ChristianInspiration\n  - GodLevel NextLevel SpiritualGrowth\n  - GodsBlessings ApostleJoshuaSelman Faith\n  - fblifestyle jesus faith\n  - Testimony Faith Healing\n  - MichaelHarris WalkByFaith GospelMusic\n  - GospelMusic Worship PraiseTheLord",
+      "example_response_self_check": {
+        "score": 3,
+        "passed": true,
+        "reason": "query-less / non-conversational task — query-addressing self-check N/A"
+      },
+      "inferior_response": {
+        "text": "Ranked indexes: [9, 12, 3, 7, 6, 0, 15, 5, 11, 14, 8, 10, 2, 4, 1, 13]",
+        "flaw_kind": "ranking_inversion",
+        "flaw_evidence": {
+          "_from": "deterministic_ranking_inversion"
+        }
+      },
+      "holistic_test_quality_check": {
+        "good": true,
+        "reason": "The row is a coherent personalized ranking test: the gold places the held-out item first and pushes all hard negatives to the bottom, the foil is a plausible worse ordering, and nothing appears unfair"
+      }
+    }
+  },
+  {
+    "query_id": "8:0036:recsys_2026-04-06_a1",
+    "task_family": "e_followup",
+    "task_type": "personalized_recommendation",
+    "query_kind": "proactive_recommendation",
+    "expected_behavior": "proactive_recommend",
+    "ts": 1775462400,
+    "ts_iso": "2026-04-06T08:00:00+00:00",
+    "user_query": "[system prompt] Recommend feed items personalized to this user.",
+    "prior_conversation": null,
+    "example_response": "Ranked indexes: [4, 15, 14, 13, 5, 11, 8, 10, 12, 2, 9, 6, 3, 7, 0, 1]",
+    "groundtruth_preference": "Top item: This Ankara is clean clean 😮‍💨 love the fit and those sleeve details.\nHard negatives: - AfricanFashion OnlineShopping FashionDeals - GoldBridal AfricanFashion HeadWrapTutorial - niyi, that lace edge caught me straight, finish is too correct sha",
+    "groundtruth_preference_obj": null,
+    "reference_example": null,
+    "distractor_preferences": [],
+    "rubric_tags": [
+      "(+) Top-1 must be the held-out item.",
+      "(-) Hard negatives must rank below all correct items and fillers (bottom of the ranking)."
+    ],
+    "tool_call": null,
+    "inferior_response": {
+      "text": "Ranked indexes: [7, 0, 1, 15, 14, 13, 5, 11, 8, 10, 12, 2, 9, 6, 3, 4]",
+      "flaw_kind": "ranking_inversion",
+      "flaw_evidence": {
+        "_from": "deterministic_ranking_inversion"
+      }
+    },
+    "example_response_self_check": {
+      "score": 3,
+      "passed": true,
+      "reason": "query-less / non-conversational task — query-addressing self-check N/A"
+    },
+    "example_response_voice_evidence": null,
+    "inferior_response_voice_evidence": null,
+    "voice_evidence_smoke_check": null,
+    "voice_evidence_smoke_check_after_regen": null,
+    "instance_full": {
+      "instance_id": "recsys_2026-04-06_a1",
+      "task_id": "personalized_recommendation",
+      "entry_point": "chatbot_routed",
+      "t_test": 1775462400,
+      "anchor_hour_utc": 8,
+      "day_index": 6,
+      "day_label": "2026-04-06",
+      "candidates": [
+        {
+          "source_object_id": "in_thr_8_004",
+          "title": "niyi, that lace edge caught me straight, finish is too correct sha",
+          "caption": "niyi, that lace edge caught me straight, finish is too correct sha",
+          "hashtags": [
+            "#AfricanFashion",
+            "#AnkaraPrints",
+            "#GuipureLace"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775356261
+        },
+        {
+          "source_object_id": "452389",
+          "title": "GoldBridal AfricanFashion HeadWrapTutorial",
+          "caption": "",
+          "hashtags": [
+            "#GoldBridal",
+            "#AfricanFashion",
+            "#HeadWrapTutorial",
+            "#GeleStyle",
+            "#FashionInspo",
+            "#CulturalVibes",
+            "#BeautyTutorial"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775208383
+        },
+        {
+          "source_object_id": "500223",
+          "title": "RIP UberDriver Ghana",
+          "caption": "",
+          "hashtags": [
+            "#RIP",
+            "#UberDriver",
+            "#Ghana",
+            "#FuneralTribute",
+            "#Respect",
+            "#LegacyLivesOn",
+            "#FuneralServices"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775296788
+        },
+        {
+          "source_object_id": "785668",
+          "title": "EmpoweredWomen RelationshipGoals SelfSufficiency",
+          "caption": "",
+          "hashtags": [
+            "#EmpoweredWomen",
+            "#RelationshipGoals",
+            "#SelfSufficiency",
+            "#ConfidenceIsKey",
+            "#LoveAndLessons",
+            "#RealTalkRelationships",
+            "#WomenEmpowerment"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775205797
+        },
+        {
+          "source_object_id": "155997",
+          "title": "This Ankara is clean clean 😮‍💨 love the fit and those sleeve details.",
+          "caption": "This Ankara is clean clean 😮‍💨 love the fit and those sleeve details.",
+          "hashtags": [
+            "#AnkaraFashion",
+            "#AfricanFashion"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775465851
+        },
+        {
+          "source_object_id": "121282",
+          "title": "Nice setup, but this one no concern me 😅",
+          "caption": "Nice setup, but this one no concern me 😅",
+          "hashtags": [
+            "#catfishfarming",
+            "#qualityseeds",
+            "#aquaculture",
+            "#fishfarming",
+            "#agriculture",
+            "#sustainablefarming",
+            "#farmerssupport",
+            "#mirajfoodsandfishery"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775410386
+        },
+        {
+          "source_object_id": "1004219",
+          "title": "fashioninfluencer personalstyle confidenceiskey",
+          "caption": "",
+          "hashtags": [
+            "#fashioninfluencer",
+            "#personalstyle",
+            "#confidenceiskey",
+            "#thelimits_asooke",
+            "#crowngele",
+            "#brandambassador",
+            "#fashionlover",
+            "#selfexpression"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775208562
+        },
+        {
+          "source_object_id": "801918",
+          "title": "AfricanFashion OnlineShopping FashionDeals",
+          "caption": "",
+          "hashtags": [
+            "#AfricanFashion",
+            "#OnlineShopping",
+            "#FashionDeals",
+            "#AchieversFashionHome",
+            "#ColorfulOutfits",
+            "#FacebookFashion",
+            "#WomensFashion"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775374966
+        },
+        {
+          "source_object_id": "945053",
+          "title": "TosanAndTayo WeddingGuests Warri",
+          "caption": "",
+          "hashtags": [
+            "#TosanAndTayo",
+            "#WeddingGuests",
+            "#Warri",
+            "#Newlyweds",
+            "#LoveOfMyLife",
+            "#Congratulations"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775379059
+        },
+        {
+          "source_object_id": "700646",
+          "title": "Nah, this is just cats in matching tiny glasses doing too much.",
+          "caption": "Nah, this is just cats in matching tiny glasses doing too much.",
+          "hashtags": [
+            "#catsofinstagram",
+            "#felinefun",
+            "#humor",
+            "#entertainment",
+            "#enjoy",
+            "#lighthearted",
+            "#comedygold"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775216122
+        },
+        {
+          "source_object_id": "self_threads_8_005",
+          "title": "small reminder to myself too\n\nwalk first, snack later\n\ndiscipline does not need announcement every day, it needs follow ",
+          "caption": "small reminder to myself too\n\nwalk first, snack later\n\ndiscipline does not need announcement every day, it needs follow through 🥗",
+          "hashtags": [
+            "#discipline",
+            "#healthroutine"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775357769
+        },
+        {
+          "source_object_id": "368003",
+          "title": "AfricanArt RiverOfPeace SereneVibes",
+          "caption": "",
+          "hashtags": [
+            "#AfricanArt",
+            "#RiverOfPeace",
+            "#SereneVibes",
+            "#CulturalHeritage",
+            "#ArtAppreciation",
+            "#ImmersiveExperience",
+            "#NatureLovers"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775409867
+        },
+        {
+          "source_object_id": "self_threads_8_004",
+          "title": "wedding photos, but make it clean, respectful, and not blocking every aunty from seeing the couple 💍",
+          "caption": "wedding photos, but make it clean, respectful, and not blocking every aunty from seeing the couple 💍",
+          "hashtags": [
+            "#weddingplanning",
+            "#yorubawedding",
+            "#photography"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775357767
+        },
+        {
+          "source_object_id": "904127",
+          "title": "toddlersofinstagram beegees stayinalive",
+          "caption": "",
+          "hashtags": [
+            "#toddlersofinstagram",
+            "#beegees",
+            "#stayinalive",
+            "#funnykids",
+            "#dancingqueen",
+            "#fyp",
+            "#babylove"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775413473
+        },
+        {
+          "source_object_id": "672064",
+          "title": "musicianlife liveperformance singersongwriter",
+          "caption": "",
+          "hashtags": [
+            "#musicianlife",
+            "#liveperformance",
+            "#singersongwriter",
+            "#TheCarnival",
+            "#LAclubscene",
+            "#musicstory",
+            "#behindthescenes"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775414928
+        },
+        {
+          "source_object_id": "511874",
+          "title": "CelineDion BecauseYouLovedMe LoveSong",
+          "caption": "",
+          "hashtags": [
+            "#CelineDion",
+            "#BecauseYouLovedMe",
+            "#LoveSong",
+            "#RomanticMusic",
+            "#SingerSongwriter",
+            "#NewMusic",
+            "#EmotionalConnection"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775415049
+        }
+      ],
+      "held_out_idx": 4,
+      "hard_negative_idxs": [
+        7,
+        1,
+        0
+      ],
+      "query_text": "",
+      "example_response": "Ranked indexes: [4, 15, 14, 13, 5, 11, 8, 10, 12, 2, 9, 6, 3, 7, 0, 1]",
+      "groundtruth_preference": "Top item: This Ankara is clean clean 😮‍💨 love the fit and those sleeve details.\nHard negatives:\n  - AfricanFashion OnlineShopping FashionDeals\n  - GoldBridal AfricanFashion HeadWrapTutorial\n  - niyi, that lace edge caught me straight, finish is too correct sha",
+      "example_response_self_check": {
+        "score": 3,
+        "passed": true,
+        "reason": "query-less / non-conversational task — query-addressing self-check N/A"
+      },
+      "inferior_response": {
+        "text": "Ranked indexes: [7, 0, 1, 15, 14, 13, 5, 11, 8, 10, 12, 2, 9, 6, 3, 4]",
+        "flaw_kind": "ranking_inversion",
+        "flaw_evidence": {
+          "_from": "deterministic_ranking_inversion"
+        }
+      },
+      "holistic_test_quality_check": {
+        "good": true,
+        "reason": "The ranking and ground truth are aligned with the rubric, and the hard negatives are plausible personalized distractions that should be pushed to the bottom."
+      }
+    }
+  },
+  {
+    "query_id": "8:0042:recsys_2026-04-06_a2",
+    "task_family": "e_followup",
+    "task_type": "personalized_recommendation",
+    "query_kind": "proactive_recommendation",
+    "expected_behavior": "proactive_recommend",
+    "ts": 1775473200,
+    "ts_iso": "2026-04-06T11:00:00+00:00",
+    "user_query": "[system prompt] Recommend feed items personalized to this user.",
+    "prior_conversation": null,
+    "example_response": "Ranked indexes: [9, 14, 10, 11, 6, 0, 7, 8, 12, 3, 1, 2, 13, 5, 4, 15]",
+    "groundtruth_preference": "Top item: Sharp Steps, Clean Finish\nHard negatives: - icebaththerapy recovery wellness - fyp reels viral - drumming music performance - dance entertainment Erkuah - Clean footwork, real bounce. Whoever edited this knew the assignment. - Clean energy, sharp timing. This one’s actually polished.",
+    "groundtruth_preference_obj": null,
+    "reference_example": null,
+    "distractor_preferences": [],
+    "rubric_tags": [
+      "(+) Top-1 must be the held-out item.",
+      "(-) Hard negatives must rank below all correct items and fillers (bottom of the ranking)."
+    ],
+    "tool_call": null,
+    "inferior_response": {
+      "text": "Ranked indexes: [1, 2, 13, 5, 4, 15, 14, 10, 11, 6, 0, 7, 8, 12, 3, 9]",
+      "flaw_kind": "ranking_inversion",
+      "flaw_evidence": {
+        "_from": "deterministic_ranking_inversion"
+      }
+    },
+    "example_response_self_check": {
+      "score": 3,
+      "passed": true,
+      "reason": "query-less / non-conversational task — query-addressing self-check N/A"
+    },
+    "example_response_voice_evidence": null,
+    "inferior_response_voice_evidence": null,
+    "voice_evidence_smoke_check": null,
+    "voice_evidence_smoke_check_after_regen": null,
+    "instance_full": {
+      "instance_id": "recsys_2026-04-06_a2",
+      "task_id": "personalized_recommendation",
+      "entry_point": "chatbot_routed",
+      "t_test": 1775473200,
+      "anchor_hour_utc": 11,
+      "day_index": 11,
+      "day_label": "2026-04-06",
+      "candidates": [
+        {
+          "source_object_id": "self_threads_8_001",
+          "title": "big respect for organizers who start on time and still keep the room warm\n\nthat one is not magic, it is planning",
+          "caption": "big respect for organizers who start on time and still keep the room warm\n\nthat one is not magic, it is planning",
+          "hashtags": [
+            "#eventplanning",
+            "#community",
+            "#osaka"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775271789
+        },
+        {
+          "source_object_id": "304450",
+          "title": "dance entertainment Erkuah",
+          "caption": "",
+          "hashtags": [
+            "#dance",
+            "#entertainment",
+            "#Erkuah",
+            "#queenmode",
+            "#redandgold",
+            "#funvideos"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775415659
+        },
+        {
+          "source_object_id": "42",
+          "title": "Clean energy, sharp timing. This one’s actually polished.",
+          "caption": "Clean energy, sharp timing. This one’s actually polished.",
+          "hashtags": [
+            "#dance",
+            "#performanceart",
+            "#colorfulvibes",
+            "#energizer"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775379143
+        },
+        {
+          "source_object_id": "68805",
+          "title": "entitledbrat motorcyclelife lawandorder",
+          "caption": "",
+          "hashtags": [
+            "#entitledbrat",
+            "#motorcyclelife",
+            "#lawandorder",
+            "#humor",
+            "#sarcasm",
+            "#consequences"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775208556
+        },
+        {
+          "source_object_id": "772586",
+          "title": "Clean footwork, real bounce. Whoever edited this knew the assignment.",
+          "caption": "Clean footwork, real bounce. Whoever edited this knew the assignment.",
+          "hashtags": [
+            "#dance",
+            "#africanmusic",
+            "#music"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775216118
+        },
+        {
+          "source_object_id": "347202",
+          "title": "icebaththerapy recovery wellness",
+          "caption": "",
+          "hashtags": [
+            "#icebaththerapy",
+            "#recovery",
+            "#wellness",
+            "#dance",
+            "#fitnessmotivation",
+            "#mental",
+            "#selfdiscovery"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775297236
+        },
+        {
+          "source_object_id": "485439",
+          "title": "VkarateAcademy MartialArts SelfDefense",
+          "caption": "",
+          "hashtags": [
+            "#VkarateAcademy",
+            "#MartialArts",
+            "#SelfDefense",
+            "#KarateForKids",
+            "#EmpowermentThroughMartialArts",
+            "#FitnessMotivation",
+            "#DisciplineAndFocus"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775297764
+        },
+        {
+          "source_object_id": "431316",
+          "title": "funnyvideos animalhumor momlife",
+          "caption": "",
+          "hashtags": [
+            "#funnyvideos",
+            "#animalhumor",
+            "#momlife",
+            "#wildlife",
+            "#humor",
+            "#lighthearted",
+            "#comedy"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775216397
+        },
+        {
+          "source_object_id": "338915",
+          "title": "birthdaygirl happymom mayyuledochie",
+          "caption": "",
+          "hashtags": [
+            "#birthdaygirl",
+            "#happymom",
+            "#mayyuledochie",
+            "#firstbirthday",
+            "#celebration",
+            "#familylove",
+            "#lifestyle"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775215823
+        },
+        {
+          "source_object_id": "595898",
+          "title": "Sharp Steps, Clean Finish",
+          "caption": "This routine too clean abeg 🔥 the timing, the footwork, everything just dey hit.",
+          "hashtags": [
+            "#dance",
+            "#performance",
+            "#danceroutine",
+            "#dancelife"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775476399
+        },
+        {
+          "source_object_id": "704496",
+          "title": "twinning edsheeran viral",
+          "caption": "",
+          "hashtags": [
+            "#twinning",
+            "#edsheeran",
+            "#viral",
+            "#viralreels",
+            "#lookalike",
+            "#inspiration"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775414401
+        },
+        {
+          "source_object_id": "153766",
+          "title": "GospelMusic YorubaPraise AfricanCulture",
+          "caption": "",
+          "hashtags": [
+            "#GospelMusic",
+            "#YorubaPraise",
+            "#AfricanCulture",
+            "#ChristianMusic",
+            "#WorshipSong",
+            "#SpiritualMusic"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775312694
+        },
+        {
+          "source_object_id": "322091",
+          "title": "WorldAthleticsChampionships TeamNigeria TobiAmusan",
+          "caption": "",
+          "hashtags": [
+            "#WorldAthleticsChampionships",
+            "#TeamNigeria",
+            "#TobiAmusan",
+            "#SportsEquity",
+            "#NigerianAthletes",
+            "#TrackAndField"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775215816
+        },
+        {
+          "source_object_id": "260945",
+          "title": "fyp reels viral",
+          "caption": "",
+          "hashtags": [
+            "#fyp",
+            "#reels",
+            "#viral",
+            "#trending",
+            "#dance",
+            "#dancer",
+            "#icebath",
+            "#cryotherapy"
+          ],
+          "source_app": "instagram",
+          "source_timestamp": 1775297644
+        },
+        {
+          "source_object_id": "763083",
+          "title": "parentinglife toddlerlife momsofinstagram",
+          "caption": "",
+          "hashtags": [
+            "#parentinglife",
+            "#toddlerlife",
+            "#momsofinstagram",
+            "#dadlife"
+          ],
+          "source_app": "threads",
+          "source_timestamp": 1775419322
+        },
+        {
+          "source_object_id": "745998",
+          "title": "drumming music performance",
+          "caption": "",
+          "hashtags": [
+            "#drumming",
+            "#music",
+            "#performance",
+            "#viral",
+            "#fyp",
+            "#fypvideoreels",
+            "#musician",
+            "#drummer"
+          ],
+          "source_app": "facebook",
+          "source_timestamp": 1775208396
+        }
+      ],
+      "held_out_idx": 9,
+      "hard_negative_idxs": [
+        5,
+        13,
+        15,
+        1,
+        4,
+        2
+      ],
+      "query_text": "",
+      "example_response": "Ranked indexes: [9, 14, 10, 11, 6, 0, 7, 8, 12, 3, 1, 2, 13, 5, 4, 15]",
+      "groundtruth_preference": "Top item: Sharp Steps, Clean Finish\nHard negatives:\n  - icebaththerapy recovery wellness\n  - fyp reels viral\n  - drumming music performance\n  - dance entertainment Erkuah\n  - Clean footwork, real bounce. Whoever edited this knew the assignment.\n  - Clean energy, sharp timing. This one’s actually polished.",
+      "example_response_self_check": {
+        "score": 3,
+        "passed": true,
+        "reason": "query-less / non-conversational task — query-addressing self-check N/A"
+      },
+      "inferior_response": {
+        "text": "Ranked indexes: [1, 2, 13, 5, 4, 15, 14, 10, 11, 6, 0, 7, 8, 12, 3, 9]",
+        "flaw_kind": "ranking_inversion",
+        "flaw_evidence": {
+          "_from": "deterministic_ranking_inversion"
+        }
+      },
+      "holistic_test_quality_check": {
+        "good": true,
+        "reason": "The ranking places the held-out top item first and moves all hard negatives to the bottom, and the foil is a plausible worse ordering that breaks this constraint."
+      }
+    }
+  }
+]

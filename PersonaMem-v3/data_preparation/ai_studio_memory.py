@@ -1,0 +1,780 @@
+"""AI Studio (5th app) — cross-session memory mechanics.
+
+The asymmetric design is the central principle:
+
+* GENERATION SIDE — `assemble_generation_context` passes the FULL prior
+  history (every previous AI Studio conversation, verbatim where the token
+  budget allows; older conversations demoted to summary form when
+  truncation is needed). This is what makes the dataset coherent: the
+  reference / "gold" AI sees the entire arc and produces replies that line
+  up with what was said before.
+
+* EVAL SIDE — `assemble_eval_context` passes a deliberately LIMITED slice
+  (last K_recent verbatim conversations + summary-only older). The eval
+  measures whether the model under test can carry relevant info forward
+  from a small window. If it had the whole history every time, the
+  cross-session-memory eval task would degenerate to substring lookup.
+
+The memory state itself (`ai_studio_memory.json`) tracks:
+  * intimacy_arc + intimacy_stage history (SPT pacing)
+  * open_threads (topics where the AI still owes a follow-up)
+  * episodic_memory_items (one-line summaries of every passing event,
+    keyed by source_object_id, used for both the eval-side summary
+    window AND for budget-pressure fallback at generation time)
+  * last_persona_consistency_anchor (rolling 2-3-sentence summary of the
+    AI persona's recent voice, fed back at the next event so the
+    persona doesn't drift)
+
+This module is pure — no LLM calls, no network. Generation/audit modules
+import these helpers + the constants below.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# SPT stage thresholds (Social Penetration Theory — Altman & Taylor 1973).
+# ---------------------------------------------------------------------------
+# `intimacy_arc` is a [0,1] running counter that increments per audit-passing
+# event. The four discrete stages are derived from the arc value at the
+# moment of an event. The no-jump rule (smoothness) is enforced separately
+# at generation time.
+
+STAGE_THRESHOLDS = {
+    "S1": 0.0,    # orientation — public scripts, weather, surface preferences
+    "S2": 0.25,   # exploratory affective — early opinions, mild personal anecdotes
+    "S3": 0.50,   # affective exchange — genuine views, vulnerabilities, mild fears
+    "S4": 0.75,   # stable exchange — core beliefs, intimate values, deep fears
+}
+
+STAGE_ORDER = ["S1", "S2", "S3", "S4"]
+
+
+def compute_intimacy_stage(arc: float) -> str:
+    """Map a continuous intimacy_arc value to a discrete SPT stage."""
+    arc = max(0.0, min(1.0, float(arc)))
+    if arc >= STAGE_THRESHOLDS["S4"]:
+        return "S4"
+    if arc >= STAGE_THRESHOLDS["S3"]:
+        return "S3"
+    if arc >= STAGE_THRESHOLDS["S2"]:
+        return "S2"
+    return "S1"
+
+
+def stage_index(stage: str) -> int:
+    """Return the index of an SPT stage in STAGE_ORDER (S1 → 0, … S4 → 3)."""
+    try:
+        return STAGE_ORDER.index(stage)
+    except ValueError:
+        return 0
+
+
+def stage_distance(a: str, b: str) -> int:
+    """Absolute distance between two SPT stages. Used for smoothness checks."""
+    return abs(stage_index(a) - stage_index(b))
+
+
+# ---------------------------------------------------------------------------
+# Per-conversation_type intimacy_arc deltas. After each audit-passing event,
+# the user's intimacy_arc is incremented by the amount listed below (capped
+# at 1.0). Casual / philosophical types add little; intimate / flirty types
+# add the most. memory_callback is orthogonal (no delta — recall doesn't
+# deepen the relationship, it just tests whether the AI is paying attention).
+# ---------------------------------------------------------------------------
+
+INTIMACY_DELTA_PER_TYPE = {
+    "casual_check_in":           0.02,
+    "philosophical_chat":        0.02,
+    "aspiration_dreaming":       0.05,
+    "venting_session":           0.05,
+    "identity_exploration":      0.07,
+    "memory_callback":           0.00,   # orthogonal axis
+    "niche_skill_session":       0.02,
+    "intimate_share":            0.10,
+    "parasocial_riff":           0.05,
+    "flirty_banter":             0.10,
+    "intimate_romantic_session": 0.12,
+    # Infinity-Chat enrichment
+    "creative_collab":           0.03,
+    "speculative_play":          0.03,
+    "skill_deep_dive":           0.04,
+    "values_debate":             0.05,
+}
+
+
+# Per-user delta scaling — stage-aware harmonic-mean formulation.
+#
+# The eligible conversation types per SPT stage are stage-gated (S1 admits
+# only casual/philosophical/aspiration; S3+ adds intimate/flirty/parasocial).
+# This means the per-event delta mean is much smaller in S1 (~0.031) than
+# in S3+ (~0.046). The old global-mean scale (`mean = 0.052`) over-pushed
+# at S1 and the user lingered there far past 25% of events — producing
+# distributions like 24 S1 / 20 S2 / 2 S3 / 0 S4 on a 46-event user.
+#
+# New compute_delta_scale solves for the scale that gives ~uniform stage
+# coverage (each of S1-S4 gets ~n/4 events) regardless of n. Method:
+# given each stage spans a 0.25 arc budget, the events-per-stage at scale s
+# is (0.25 / (stage_mean * s)). Summing across all 4 stages must equal n,
+# so   scale = 0.25 * Σ(1/stage_mean) / n.
+#
+# Stage-mean values below are computed from INTIMACY_DELTA_PER_TYPE × the
+# CONVERSATION_TYPES weights, gated by stage eligibility. They're stable
+# across most archetypes; romantic-archetype users override implicitly via
+# different eligible-type sets but the order of magnitude holds.
+_STAGE_MEAN_DELTA = {
+    "S1": 0.028,   # casual / philosophical / aspiration / niche_skill + creative_collab / speculative_play
+    "S2": 0.035,   # + venting / identity_exploration / memory_callback + skill_deep_dive / values_debate
+    "S3": 0.049,   # + intimate_share / parasocial_riff / flirty
+    "S4": 0.049,
+}
+_STAGE_BUDGET = 0.25   # each stage spans 0.25 of the [0,1] arc
+
+
+def compute_delta_scale(n_total_events: int) -> float:
+    """Return the per-event delta-scaling factor for a user with
+    ``n_total_events`` AI-Studio-routed events.
+
+    Targets ~uniform SPT-stage distribution (n/4 events per S1/S2/S3/S4).
+    The scale floats with n: small-history users get scale > 1.0 (deltas
+    amplified so the arc still crosses all four stages in a short span),
+    large-history users get scale << 1.0 (deltas damped so the arc paces
+    realistically across many events). NO cap on either end — the
+    constraint is "every user spans S1→S4 across their AI Studio
+    history, regardless of how many events they have."
+    """
+    if n_total_events <= 0:
+        return 1.0
+    sum_inv = sum(1.0 / _STAGE_MEAN_DELTA[s] for s in STAGE_ORDER)
+    return _STAGE_BUDGET * sum_inv / n_total_events
+
+
+# ---------------------------------------------------------------------------
+# Conversation-type catalog with SPT stage gates + archetype gates +
+# turn-count ranges. Single source of truth for both
+# `ai_studio_conversation.py` (generation) and `ai_studio_audit.py`.
+# ---------------------------------------------------------------------------
+
+CONVERSATION_TYPES: dict[str, dict] = {
+    "casual_check_in": {
+        "weight": 8,
+        "min_stage": "S1",
+        "archetype_gate": None,   # any
+        "min_turns": 2, "max_turns": 4,
+    },
+    "philosophical_chat": {
+        "weight": 10,
+        "min_stage": "S1",
+        "archetype_gate": None,
+        "min_turns": 5, "max_turns": 9,
+    },
+    "aspiration_dreaming": {
+        "weight": 10,
+        "min_stage": "S1",
+        "archetype_gate": None,
+        "min_turns": 4, "max_turns": 8,
+    },
+    "venting_session": {
+        "weight": 15,
+        "min_stage": "S2",
+        "archetype_gate_blocklist": {"romantic_partner"},   # not for romantic-only events
+        "min_turns": 6, "max_turns": 10,
+    },
+    "identity_exploration": {
+        "weight": 12,
+        "min_stage": "S2",
+        "archetype_gate": None,
+        "min_turns": 6, "max_turns": 10,
+    },
+    "memory_callback": {
+        "weight": 13,
+        "min_stage": "S2",
+        "archetype_gate": None,
+        "min_turns": 4, "max_turns": 7,
+        "requires_prior_events": 2,   # cannot fire if < 2 prior events exist
+    },
+    "niche_skill_session": {
+        "weight": 11,
+        "min_stage": "S1",
+        "archetype_gate_allowlist": {"niche_expert_creator_ai"},
+        "min_turns": 4, "max_turns": 8,
+    },
+    "intimate_share": {
+        "weight": 12,
+        "min_stage": "S3",
+        "archetype_gate_blocklist": {"niche_expert_creator_ai"},
+        "min_turns": 5, "max_turns": 8,
+    },
+    "parasocial_riff": {
+        "weight": 8,
+        "min_stage": "S3",
+        "archetype_gate_allowlist": {"anime_or_fandom_character"},
+        "min_turns": 4, "max_turns": 7,
+    },
+    "flirty_banter": {
+        "weight": 8,
+        "min_stage": "S3",
+        "archetype_gate_allowlist": {"romantic_partner"},
+        "min_turns": 4, "max_turns": 6,
+    },
+    "intimate_romantic_session": {
+        "weight": 8,
+        "min_stage": "S3",
+        "archetype_gate_allowlist": {"romantic_partner"},
+        "explicitness_band_required": True,   # gated by romantic_specifier.explicitness_band
+        "min_turns": 5, "max_turns": 9,
+    },
+    # ------------------------------------------------------------------
+    # Infinity-Chat taxonomy enrichment (arXiv 2510.22954)
+    # ------------------------------------------------------------------
+    "creative_collab": {
+        "weight": 9,
+        "min_stage": "S1",
+        "archetype_gate": None,
+        "min_turns": 4, "max_turns": 8,
+    },
+    "speculative_play": {
+        "weight": 8,
+        "min_stage": "S1",
+        "archetype_gate": None,
+        "min_turns": 4, "max_turns": 8,
+    },
+    "skill_deep_dive": {
+        "weight": 8,
+        "min_stage": "S2",
+        "archetype_gate_blocklist": {"romantic_partner"},
+        "min_turns": 5, "max_turns": 9,
+    },
+    "values_debate": {
+        "weight": 7,
+        "min_stage": "S2",
+        "archetype_gate": None,
+        "min_turns": 5, "max_turns": 9,
+    },
+}
+
+
+def eligible_conversation_types(
+    archetype: str,
+    intimacy_stage: str,
+    intimacy_arc: float,
+    n_prior_events: int,
+    explicitness_band: str | None = None,
+) -> list[str]:
+    """Return the list of conversation_type names eligible at this moment.
+
+    Filters by:
+      * stage_index(intimacy_stage) >= stage_index(min_stage)
+      * archetype_gate_allowlist (if set) — archetype must be in
+      * archetype_gate_blocklist (if set) — archetype must not be in
+      * min_arc (if set) — intimacy_arc must be at or above
+      * requires_prior_events (if set) — n_prior_events must be at or above
+      * explicitness_band_required — only fires if persona has erotic_explicit
+        OR sensual band (soft_affection blocks intimate_romantic_session)
+    """
+    out = []
+    for name, meta in CONVERSATION_TYPES.items():
+        if stage_index(intimacy_stage) < stage_index(meta["min_stage"]):
+            continue
+        if meta.get("min_arc") is not None and intimacy_arc < meta["min_arc"]:
+            continue
+        allow = meta.get("archetype_gate_allowlist")
+        if allow and archetype not in allow:
+            continue
+        block = meta.get("archetype_gate_blocklist")
+        if block and archetype in block:
+            continue
+        if meta.get("requires_prior_events") and n_prior_events < meta["requires_prior_events"]:
+            continue
+        if meta.get("explicitness_band_required"):
+            if explicitness_band not in {"sensual", "erotic_explicit"}:
+                continue
+        out.append(name)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Memory state container. Persisted as `backend/{uid}/ai_studio_memory.json`.
+# ---------------------------------------------------------------------------
+
+@dataclass
+class EpisodicMemoryItem:
+    """One per audit-passing AI Studio event; keyed by source_object_id."""
+    ts: int
+    source_object_id: str
+    summary: str                               # 1-2 sentences (LLM-emitted at gen time)
+    hashtags: list[str] = field(default_factory=list)
+    evidence_event_ids: list[str] = field(default_factory=list)
+    hidden_persona_label_refs: list[str] = field(default_factory=list)
+    salience: float = 0.5
+    conversation_type: str = ""
+    intimacy_stage_at_event: str = ""
+
+
+@dataclass
+class OpenThread:
+    """A topic the AI still owes a follow-up on — surfaced into the next
+    conversation's memory snapshot if expecting_followup is True and the
+    thread isn't stale."""
+    topic: str
+    last_ts: int
+    expecting_followup: bool = True
+    first_seen_ts: int = 0
+
+
+@dataclass
+class StageHistoryEntry:
+    """One entry per discrete stage band the user has occupied."""
+    stage: str
+    first_event_ts: int
+    last_event_ts: int
+    n_events: int
+
+
+@dataclass
+class RunningRelationalState:
+    """The arc-tracking + thread-tracking + persona-anchor block."""
+    intimacy_arc: float = 0.0
+    intimacy_stage: str = "S1"
+    stage_history: list[StageHistoryEntry] = field(default_factory=list)
+    open_threads: list[OpenThread] = field(default_factory=list)
+    dependency_warning_issued_ts: Optional[int] = None
+    last_persona_consistency_anchor: str = ""
+    first_session_ts: int = 0
+    last_event_stage: Optional[str] = None        # for SPT smoothness check
+
+
+@dataclass
+class AIStudioMemoryState:
+    """Top-level container persisted as ai_studio_memory.json."""
+    episodic_memory_items: list[EpisodicMemoryItem] = field(default_factory=list)
+    running_relational_state: RunningRelationalState = field(default_factory=RunningRelationalState)
+
+
+def default_memory_state() -> AIStudioMemoryState:
+    return AIStudioMemoryState()
+
+
+# ---------------------------------------------------------------------------
+# Token-counting + history packing — generation-side context assembly.
+# ---------------------------------------------------------------------------
+
+def _approx_tokens(text: str) -> int:
+    """Cheap token estimate. ~4 chars per token is the standard rule of thumb
+    for English. We don't need precision — just enough to make the
+    budget-pressure summary fallback kick in at the right scale."""
+    return max(1, len(text) // 4)
+
+
+def _format_event_verbatim(ev: dict) -> dict:
+    """Render an AI Studio event into the dict that `_format_prior_session_context`
+    in prompts.py expects. Caller passes in (already-stored) AI Studio events."""
+    return {
+        "kind": "verbatim",
+        "ts": ev.get("source_timestamp", ev.get("ts", "")),
+        "source_object_id": ev.get("source_object_id", ""),
+        "conversation_type": ev.get("conversation_type", ""),
+        "intimacy_stage_at_event": ev.get("ai_studio_metadata", {}).get("intimacy_stage_at_event", ""),
+        "conversation": ev.get("conversation", []),
+    }
+
+
+def _format_event_summary(ev: dict, summary: str) -> dict:
+    return {
+        "kind": "summary",
+        "ts": ev.get("source_timestamp", ev.get("ts", "")),
+        "source_object_id": ev.get("source_object_id", ""),
+        "conversation_type": ev.get("conversation_type", ""),
+        "intimacy_stage_at_event": ev.get("ai_studio_metadata", {}).get("intimacy_stage_at_event", ""),
+        "summary": summary,
+    }
+
+
+def assemble_generation_context(
+    memory_state: AIStudioMemoryState,
+    prev_verbatim_events: list[dict],
+    older_summary_events: list[dict] | None = None,
+) -> dict:
+    """Pass a windowed slice of prior history to the generation prompt.
+
+    Two layers:
+      - `prev_verbatim_events`: the K most recent events sourced from disk
+        (`load_recent_ai_studio_events`). Rendered verbatim so the
+        generator sees recent tone + any cliffhanger to continue from.
+      - `older_summary_events`: every older event, rendered as its stored
+        `episodic_memory_items` summary. This is the long-term-memory layer.
+        When None, the older slice is inferred from the memory state itself
+        (using `episodic_memory_items` minus the verbatim slot oids).
+
+    Open threads, intimacy_stage_history, and persona_anchor are always
+    injected — they're the running memory state, bounded in size, and
+    load-bearing for relational continuity.
+    """
+    summary_by_oid: dict[str, str] = {
+        item.source_object_id: item.summary
+        for item in memory_state.episodic_memory_items
+    }
+    verbatim_oids = {ev.get("source_object_id", "") for ev in prev_verbatim_events}
+
+    packed: list[dict] = []
+
+    # Long-term memory: render every episodic_memory_item NOT covered by
+    # the verbatim slot as its summary line. Sort chronologically.
+    if older_summary_events is None:
+        # Synthesize summary-event stubs from episodic_memory_items so
+        # callers don't have to re-collect them.
+        items = sorted(
+            (item for item in memory_state.episodic_memory_items
+             if item.source_object_id not in verbatim_oids),
+            key=lambda i: i.ts,
+        )
+        for item in items:
+            stub = {
+                "source_object_id": item.source_object_id,
+                "source_timestamp": item.ts,
+                "conversation_type": item.conversation_type or "",
+            }
+            packed.append(_format_event_summary(stub, item.summary))
+    else:
+        for ev in sorted(older_summary_events,
+                          key=lambda e: e.get("source_timestamp", e.get("ts", 0))):
+            oid = ev.get("source_object_id", "")
+            if oid in verbatim_oids:
+                continue
+            summary = summary_by_oid.get(oid, "") or (
+                f"[no summary stored — {ev.get('conversation_type', 'conversation')}]"
+            )
+            packed.append(_format_event_summary(ev, summary))
+
+    # Verbatim slot: the most recent K events from disk, in chronological order.
+    for ev in sorted(prev_verbatim_events,
+                      key=lambda e: e.get("source_timestamp", e.get("ts", 0))):
+        packed.append(_format_event_verbatim(ev))
+
+    state = memory_state.running_relational_state
+    return {
+        "events": packed,
+        "open_threads": [
+            {
+                "topic": t.topic,
+                "last_ts": t.last_ts,
+                "expecting_followup": t.expecting_followup,
+                "first_seen_ts": t.first_seen_ts,
+            }
+            for t in state.open_threads
+            if t.expecting_followup
+        ],
+        "intimacy_arc": state.intimacy_arc,
+        "intimacy_stage": state.intimacy_stage,
+        "intimacy_stage_history": [
+            {
+                "stage": h.stage,
+                "n_events": h.n_events,
+                "first_event_ts": h.first_event_ts,
+                "last_event_ts": h.last_event_ts,
+            }
+            for h in state.stage_history
+        ],
+        "prev_event_stage": state.last_event_stage,
+        "persona_anchor": state.last_persona_consistency_anchor,
+    }
+
+
+def assemble_eval_context(
+    memory_state: AIStudioMemoryState,
+    all_prior_events: list[dict],
+    t_test: int,
+    k_recent: int = 3,
+    task_type: Optional[str] = None,
+) -> dict:
+    """Pass a windowed slice (eval side of the asymmetry).
+
+    Default window: last `k_recent` events verbatim + summary-only for older.
+    `ai_studio_cross_session_memory_recall` task tightens to k_recent=2.
+    """
+    if task_type == "ai_studio_cross_session_memory_recall":
+        k_recent = 2
+
+    sorted_events = sorted(
+        [e for e in all_prior_events if e.get("source_timestamp", 0) < t_test],
+        key=lambda e: e.get("source_timestamp", 0),
+    )
+    if not sorted_events:
+        return {"verbatim_window": [], "summary_window": [],
+                "intimacy_arc": 0.0, "intimacy_stage": "S1"}
+
+    verbatim_events = sorted_events[-k_recent:]
+    older_events = sorted_events[:-k_recent]
+
+    summary_by_oid: dict[str, str] = {
+        item.source_object_id: item.summary
+        for item in memory_state.episodic_memory_items
+    }
+
+    return {
+        "verbatim_window": [_format_event_verbatim(ev) for ev in verbatim_events],
+        "summary_window": [
+            _format_event_summary(
+                ev,
+                summary_by_oid.get(ev.get("source_object_id", ""), ""),
+            )
+            for ev in older_events
+        ],
+        "intimacy_arc": memory_state.running_relational_state.intimacy_arc,
+        "intimacy_stage": memory_state.running_relational_state.intimacy_stage,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Memory-state mutation helpers.
+# ---------------------------------------------------------------------------
+
+def append_episodic_item(
+    memory_state: AIStudioMemoryState,
+    item: EpisodicMemoryItem,
+) -> None:
+    """Append one episodic memory item (called once per audit-passing event)."""
+    memory_state.episodic_memory_items.append(item)
+
+
+def increment_intimacy_arc(
+    memory_state: AIStudioMemoryState,
+    conversation_type: str,
+    event_ts: int,
+    delta_scale: float = 1.0,
+) -> None:
+    """Bump the intimacy_arc by the per-type delta (after applying the
+    per-user ``delta_scale`` from :func:`compute_delta_scale`) and update
+    stage_history. Called once per audit-passing event, AFTER the
+    conversation is generated."""
+    state = memory_state.running_relational_state
+    delta = INTIMACY_DELTA_PER_TYPE.get(conversation_type, 0.02) * delta_scale
+    new_arc = min(1.0, state.intimacy_arc + delta)
+    new_stage = compute_intimacy_stage(new_arc)
+
+    # Update stage_history — extend the current stage band, or open a new one
+    # when the stage changes.
+    if state.stage_history and state.stage_history[-1].stage == new_stage:
+        last = state.stage_history[-1]
+        last.last_event_ts = max(last.last_event_ts, event_ts)
+        last.n_events += 1
+    else:
+        state.stage_history.append(StageHistoryEntry(
+            stage=new_stage,
+            first_event_ts=event_ts,
+            last_event_ts=event_ts,
+            n_events=1,
+        ))
+
+    state.intimacy_arc = new_arc
+    state.intimacy_stage = new_stage
+    state.last_event_stage = new_stage
+    if not state.first_session_ts:
+        state.first_session_ts = event_ts
+
+
+def update_open_thread(
+    memory_state: AIStudioMemoryState,
+    topic: str,
+    ts: int,
+    expecting_followup: bool = True,
+) -> None:
+    """Add or update an open thread."""
+    state = memory_state.running_relational_state
+    for t in state.open_threads:
+        if t.topic == topic:
+            t.last_ts = max(t.last_ts, ts)
+            t.expecting_followup = expecting_followup
+            return
+    state.open_threads.append(OpenThread(
+        topic=topic,
+        last_ts=ts,
+        expecting_followup=expecting_followup,
+        first_seen_ts=ts,
+    ))
+
+
+def prune_stale_open_threads(
+    memory_state: AIStudioMemoryState,
+    now_ts: int,
+    max_age_seconds: int = 60 * 86400,
+) -> None:
+    """Drop open threads with no follow-up after `max_age_seconds` (default 60 days)."""
+    state = memory_state.running_relational_state
+    state.open_threads = [
+        t for t in state.open_threads
+        if (now_ts - t.last_ts) < max_age_seconds
+    ]
+
+
+def set_persona_consistency_anchor(
+    memory_state: AIStudioMemoryState,
+    anchor: str,
+) -> None:
+    """Set the rolling persona anchor (LLM-derived 2-3-sentence summary of
+    recent AI persona usage; fed back to the next event so persona doesn't
+    drift across sessions)."""
+    memory_state.running_relational_state.last_persona_consistency_anchor = anchor
+
+
+# ---------------------------------------------------------------------------
+# JSON (de)serialization.
+# ---------------------------------------------------------------------------
+
+def memory_state_to_dict(state: AIStudioMemoryState) -> dict:
+    """Serialize an AIStudioMemoryState into a JSON-friendly dict."""
+    rs = state.running_relational_state
+    return {
+        "episodic_memory_items": [
+            {
+                "ts": item.ts,
+                "source_object_id": item.source_object_id,
+                "summary": item.summary,
+                "hashtags": list(item.hashtags),
+                "evidence_event_ids": list(item.evidence_event_ids),
+                "hidden_persona_label_refs": list(item.hidden_persona_label_refs),
+                "salience": item.salience,
+                "conversation_type": item.conversation_type,
+                "intimacy_stage_at_event": item.intimacy_stage_at_event,
+            }
+            for item in state.episodic_memory_items
+        ],
+        "running_relational_state": {
+            "intimacy_arc": rs.intimacy_arc,
+            "intimacy_stage": rs.intimacy_stage,
+            "stage_history": [
+                {
+                    "stage": h.stage,
+                    "first_event_ts": h.first_event_ts,
+                    "last_event_ts": h.last_event_ts,
+                    "n_events": h.n_events,
+                }
+                for h in rs.stage_history
+            ],
+            "open_threads": [
+                {
+                    "topic": t.topic,
+                    "last_ts": t.last_ts,
+                    "expecting_followup": t.expecting_followup,
+                    "first_seen_ts": t.first_seen_ts,
+                }
+                for t in rs.open_threads
+            ],
+            "dependency_warning_issued_ts": rs.dependency_warning_issued_ts,
+            "last_persona_consistency_anchor": rs.last_persona_consistency_anchor,
+            "first_session_ts": rs.first_session_ts,
+            "last_event_stage": rs.last_event_stage,
+        },
+    }
+
+
+def memory_state_from_dict(d: dict) -> AIStudioMemoryState:
+    """Deserialize from JSON. Tolerant of missing fields (treats as defaults)."""
+    items_raw = d.get("episodic_memory_items", []) or []
+    items = [
+        EpisodicMemoryItem(
+            ts=item.get("ts", 0),
+            source_object_id=item.get("source_object_id", ""),
+            summary=item.get("summary", ""),
+            hashtags=list(item.get("hashtags", []) or []),
+            evidence_event_ids=list(item.get("evidence_event_ids", []) or []),
+            hidden_persona_label_refs=list(item.get("hidden_persona_label_refs", []) or []),
+            salience=float(item.get("salience", 0.5) or 0.5),
+            conversation_type=item.get("conversation_type", ""),
+            intimacy_stage_at_event=item.get("intimacy_stage_at_event", ""),
+        )
+        for item in items_raw
+    ]
+
+    rs_raw = d.get("running_relational_state", {}) or {}
+    rs = RunningRelationalState(
+        intimacy_arc=float(rs_raw.get("intimacy_arc", 0.0) or 0.0),
+        intimacy_stage=rs_raw.get("intimacy_stage", "S1") or "S1",
+        stage_history=[
+            StageHistoryEntry(
+                stage=h.get("stage", "S1"),
+                first_event_ts=int(h.get("first_event_ts", 0) or 0),
+                last_event_ts=int(h.get("last_event_ts", 0) or 0),
+                n_events=int(h.get("n_events", 0) or 0),
+            )
+            for h in (rs_raw.get("stage_history", []) or [])
+        ],
+        open_threads=[
+            OpenThread(
+                topic=t.get("topic", ""),
+                last_ts=int(t.get("last_ts", 0) or 0),
+                expecting_followup=bool(t.get("expecting_followup", True)),
+                first_seen_ts=int(t.get("first_seen_ts", 0) or 0),
+            )
+            for t in (rs_raw.get("open_threads", []) or [])
+        ],
+        dependency_warning_issued_ts=rs_raw.get("dependency_warning_issued_ts"),
+        last_persona_consistency_anchor=rs_raw.get("last_persona_consistency_anchor", ""),
+        first_session_ts=int(rs_raw.get("first_session_ts", 0) or 0),
+        last_event_stage=rs_raw.get("last_event_stage"),
+    )
+    return AIStudioMemoryState(
+        episodic_memory_items=items,
+        running_relational_state=rs,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Disk IO — backend/{uid}/ai_studio.json is the source of truth for prev
+# verbatim sessions. Step 18B reads the last K and appends each new
+# audit-passing event to this file.
+# ---------------------------------------------------------------------------
+
+def _ai_studio_json_path(uid: str, backend_dir: str) -> Path:
+    return Path(backend_dir) / str(uid) / "ai_studio.json"
+
+
+def load_recent_ai_studio_events(uid: str, backend_dir: str = "backend", k: int = 2) -> list[dict]:
+    """Return the K most-recent events from `backend/{uid}/ai_studio.json`,
+    sorted ascending by `source_timestamp`. Returns [] if the file is
+    missing or empty (first event of the run)."""
+    path = _ai_studio_json_path(uid, backend_dir)
+    if not path.exists():
+        return []
+    try:
+        with path.open() as f:
+            events = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(events, list) or not events:
+        return []
+    sorted_events = sorted(events, key=lambda e: int(e.get("source_timestamp", 0) or 0))
+    if k <= 0:
+        return []
+    return sorted_events[-k:]
+
+
+def append_to_ai_studio_json(uid: str, backend_dir: str, event: dict) -> None:
+    """Append an audit-passing event to `backend/{uid}/ai_studio.json`.
+
+    Reads → appends → writes (atomic via temp+rename). Maintains
+    chronological order on write. Step 18B calls this once per event
+    after the inline audit passes the safety floor."""
+    path = _ai_studio_json_path(uid, backend_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing: list[dict] = []
+    if path.exists():
+        try:
+            with path.open() as f:
+                existing = json.load(f) or []
+            if not isinstance(existing, list):
+                existing = []
+        except (OSError, ValueError):
+            existing = []
+    existing.append(event)
+    existing.sort(key=lambda e: int(e.get("source_timestamp", 0) or 0))
+    tmp = path.with_suffix(".json.tmp")
+    with tmp.open("w") as f:
+        json.dump(existing, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)

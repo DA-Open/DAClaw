@@ -1,0 +1,143 @@
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx')
+wb=load_workbook(p)
+print(wb.sheetnames)
+for ws in wb.worksheets:
+    print(ws.title, ws.max_row, ws.max_column)
+    for row in ws.iter_rows(values_only=False):
+        vals=[]
+        for c in row:
+            vals.append(c.value)
+        print(vals)
+    print('---')
+PY  6.7s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+from collections import defaultdict
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx')
+wb=load_workbook(p)
+# print formulas and constants around suspicious regions in Ex1
+ws=wb['Ex 1 - LBO']
+for r in range(17, 60):
+    vals=[]
+    for c in range(1, 38):
+        v=ws.cell(r,c).value
+        if v is not None:
+            vals.append(f"{ws.cell(r,c).coordinate}={v}")
+    print('ROW',r, ' | '.join(vals))
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx')
+wb=load_workbook(p)
+for s in ['Ex 3 - PF P&L','Ex 4 - Organic Operating Model','Ex 5 - M&A']:
+    ws=wb[s]
+    print('\nSHEET',s)
+    for r in range(1, min(ws.max_row,90)+1):
+        vals=[]
+        for c in range(1, min(ws.max_column,15)+1):
+            v=ws.cell(r,c).value
+            if v is not None:
+                vals.append(f"{ws.cell(r,c).coordinate}={v}")
+        if vals:
+            print('ROW',r,' | '.join(vals))
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from openpyxl.formula.tokenizer import Tokenizer
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx')
+wb=load_workbook(p)
+# inspect data validations and defined names maybe broken refs
+print('Defined names:')
+for n in wb.defined_names.definedName:
+    print(n.name, n.attr_text)
+print('Data validations:')
+for ws in wb.worksheets:
+    if ws.data_validations.dataValidation:
+        print(ws.title)
+        for dv in ws.data_validations.dataValidation:
+            print(dv.type, dv.formula1, dv.sqref)
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx')
+wb=load_workbook(p)
+for s in ['Ex 2 - Valuation Bridge','Ex 6 - Amdocs Historical M&A']:
+    ws=wb[s]
+    print('\nSHEET',s, ws.max_row, ws.max_column)
+    for r in range(1, ws.max_row+1):
+        vals=[]
+        for c in range(1, ws.max_column+1):
+            v=ws.cell(r,c).value
+            if v is not None:
+                vals.append(f"{get_column_letter(c)}{r}={v}")
+        if vals:
+            print('ROW',r,' | '.join(vals))
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx')
+wb=load_workbook(p)
+ws=wb['Ex 1 - LBO']
+for r in range(60, 96):
+    vals=[]
+    for c in range(1, 38):
+        v=ws.cell(r,c).value
+        if v is not None:
+            vals.append(f"{ws.cell(r,c).coordinate}={v}")
+    print('ROW',r, ' | '.join(vals))
+PY  0.8s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+inp=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx')
+out=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/01_01_output.xlsx')
+wb=load_workbook(inp)
+# Fixes identified:
+# 1) Ex 2 - Valuation Bridge C7 multiple expansion formula should use exit EBITDA, not exit multiple twice.
+wb['Ex 2 - Valuation Bridge']['C7'] = "=('Ex 1 - LBO'!AC18-'Ex 1 - LBO'!X18)*'Ex 1 - LBO'!AC17"
+# 2) Ex 1 - LBO C36 broken range reference D8:D8 should be scalar D8.
+wb['Ex 1 - LBO']['C36'] = "='Ex 10 - Balance Sheet'!D8/C7"
+# 3) Ex 1 - LBO IRR row missing first year formula at X29.
+wb['Ex 1 - LBO']['X29'] = "=X28^(1/(P1-$P$1))-1"
+# Preserve formatting via existing style (same row)
+wb['Ex 1 - LBO']['X29']._style = wb['Ex 1 - LBO']['Y29']._style
+wb['Ex 1 - LBO']['X29'].number_format = wb['Ex 1 - LBO']['Y29'].number_format
+# 4) Ex 1 - LBO sensitivity seed values should be formulas instead of hardcoded inconsistent values.
+# Premium vs Exit Multiple center exit multiple should tie to C20
+wb['Ex 1 - LBO']['AI17'] = '=C20'
+# Revenue Growth vs EBITDA Margin center assumptions should tie to operating assumptions
+wb['Ex 1 - LBO']['AI26'] = '=M17'
+wb['Ex 1 - LBO']['AI35'] = '=C20'
+# M&A purchase multiple vs exit multiple center value should tie to M&A purchase multiple control
+wb['Ex 1 - LBO']['AI44'] = '=C11'
+# Copy styles from neighboring cells
+ws=wb['Ex 1 - LBO']
+for coord, neighbor in [('AI17','AH17'),('AI26','AH26'),('AI35','AH35'),('AI44','AH44')]:
+    ws[coord]._style = ws[neighbor]._style
+    ws[coord].number_format = ws[neighbor].number_format
+# save
+wb.save(out)
+print(out.exists(), out)
+PY  0.8s
+  ▏ 💻 $         python - <<'PY'
+from openpyxl import load_workbook
+from pathlib import Path
+p=Path('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/01_01_output.xlsx')
+wb=load_workbook(p, data_only=False)
+checks=[
+    ('Ex 2 - Valuation Bridge','C7'),
+    ('Ex 1 - LBO','C36'),('Ex 1 - LBO','X29'),('Ex 1 - LBO','AI17'),('Ex 1 - LBO','AI26'),('Ex 1 - LBO','AI35'),('Ex 1 - LBO','AI44')
+]
+print('exists', p.exists())
+for s,c in checks:
+    print(s,c, wb[s][c].value)
+PY  0.6s

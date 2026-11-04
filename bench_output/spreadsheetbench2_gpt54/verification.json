@@ -1,0 +1,51 @@
+{
+  "verified_at_utc": "2026-11-04T11:08:56.595303+00:00",
+  "checks": [
+    {
+      "id": "01_01",
+      "completed": true,
+      "model": "gpt-5.4",
+      "api_calls": 9,
+      "tool_calls": 8,
+      "input_tokens": 142202,
+      "output_tokens": 2386,
+      "official_score_recomputed": true,
+      "golden_positive_control_accuracy": 1.0,
+      "grading_path_mentions_in_tool_arguments": [],
+      "output_sha256": "833b55cea7413d2f975e566c0635d9cb3803189cc3f1f54144d5966073914f86"
+    },
+    {
+      "id": "01_02",
+      "completed": true,
+      "model": "gpt-5.4",
+      "api_calls": 7,
+      "tool_calls": 6,
+      "input_tokens": 190502,
+      "output_tokens": 1535,
+      "official_score_recomputed": true,
+      "golden_positive_control_accuracy": 1.0,
+      "grading_path_mentions_in_tool_arguments": [],
+      "output_sha256": "546f041f3fc3a28f82f5693b4aafa25f011a8c3306fda2923ea30af9c24b2021"
+    },
+    {
+      "id": "01_03",
+      "completed": true,
+      "model": "gpt-5.4",
+      "api_calls": 7,
+      "tool_calls": 6,
+      "input_tokens": 64314,
+      "output_tokens": 3162,
+      "official_score_recomputed": true,
+      "golden_positive_control_accuracy": 1.0,
+      "grading_path_mentions_in_tool_arguments": [],
+      "output_sha256": "3a73b918196df31b4e1ec08b767c6c0a9871df4fd012b7a45b99909cb54ee88a"
+    }
+  ],
+  "credential_scan": "passed",
+  "official_evaluator_sha256": "04a2a75b29805ab40efe93e202384c365d1d32b9c924c1a4aed56e41249facb0",
+  "benchmark_commit": "a7bdc2d358e052d35a94768e1f487c0d9e9c0011",
+  "harness_commit": "b8cef9171e3a93f847fd043aec967dcae92b71ba",
+  "local_calc_runtime": "/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/runtime/bin/libreoffice",
+  "system_calc_installed": false,
+  "limits": "Local terminal uses current user permissions; no strict filesystem isolation."
+}

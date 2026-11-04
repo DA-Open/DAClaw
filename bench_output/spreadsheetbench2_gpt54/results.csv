@@ -1,0 +1,4 @@
+id,error_message,regression_accuracy,modification_accuracy,accuracy,interaction_turns,missing_output
+01_01,"Regression error at Ex 1 - LBO!X29: answer=None, output=#DIV/0!",1.0,0.1503,0.0,9,False
+01_02,"Regression error at Ex 1 - LBO!C36: answer=='Ex 10 - Balance Sheet'!D8:D8/C7, output=='Ex 10 - Balance Sheet'!D8/C7",1.0,0.0,0.0,7,False
+01_03,"Regression error at Ex 1 - LBO!F22: answer=11510.772151908, output=10608.703512238",0.9804,0.0223,0.0,7,False

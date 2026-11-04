@@ -1,0 +1,802 @@
+from openai import OpenAI, AzureOpenAI
+import timeout_decorator
+from data_preparation import utils
+import os
+import re
+from dotenv import load_dotenv
+import json
+import requests
+import hashlib
+from urllib.parse import urlparse
+from typing import Any, List, Dict, Optional
+from tqdm.asyncio import tqdm_asyncio, tqdm
+import asyncio
+import time
+import base64
+import threading
+from collections import defaultdict
+from dotenv import load_dotenv
+
+
+# Import Gemini-related libraries (new unified google-genai SDK; the old
+# google-generativeai package is deprecated/EOL).
+try:
+    from google import genai
+    from google.genai import types as genai_types
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("Warning: google-genai not installed. Gemini models will not be available. Install with: pip install google-genai")
+
+# Import Claude/Anthropic libraries
+try:
+    import anthropic
+    CLAUDE_AVAILABLE = True
+except ImportError:
+    CLAUDE_AVAILABLE = False
+    print("Warning: anthropic not installed. Claude models will not be available.")
+
+
+class QueryLLM:
+    def __init__(self, args, rate_limit_per_min=50):
+        self.args = args
+        # Use thread-safe dictionary to store history for each thread
+        self.thread_histories = defaultdict(list)
+        self.request_times = []
+        self.rate_limit_per_min = rate_limit_per_min
+        self.semaphore = asyncio.Semaphore(rate_limit_per_min)  # Max number of concurrent requests
+
+        # API caching state
+        self._current_cache_key = None       # Set by inference.py before each query
+        self._gemini_caches = {}             # {cache_key: (CachedContent, GenerativeModel)}
+
+        # Thread-safe usage accumulator. Populated from response.usage on each
+        # API call so the caller can report totals at end of run.
+        self._usage_lock = threading.Lock()
+        self._usage_totals = {
+            "calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cached_input_tokens": 0,  # tokens served from provider-side cache
+            "errors": 0,
+        }
+
+        load_dotenv(override=True)
+        self._setup_client()
+
+        # Batch mode (Gemini only). The Gemini Batch API runs many prompts as
+        # one async job for a flat 50% discount on all (non-cached) tokens. The
+        # eval is fully offline, so batch is the right default for Gemini
+        # baselines. ON by default; set EVAL_GEMINI_BATCH=0 to force per-row
+        # synchronous calls (e.g. for interactive debugging). No effect on
+        # OpenAI/Azure/Claude backends — query_many falls back to sequential.
+        self.use_batch = bool(getattr(self, "is_gemini", False)) and os.getenv("EVAL_GEMINI_BATCH", "1") != "0"
+
+    def _record_usage(
+        self,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cached_input_tokens: int = 0,
+    ) -> None:
+        """Thread-safe accumulator for API usage. Called after each response."""
+        with self._usage_lock:
+            self._usage_totals["calls"] += 1
+            self._usage_totals["input_tokens"] += int(input_tokens or 0)
+            self._usage_totals["output_tokens"] += int(output_tokens or 0)
+            self._usage_totals["cached_input_tokens"] += int(cached_input_tokens or 0)
+
+    def get_usage_totals(self) -> dict:
+        """Return a snapshot of accumulated usage. Call after run completes."""
+        with self._usage_lock:
+            return dict(self._usage_totals)
+
+
+    def _setup_client(self):
+        """Setup OpenAI, Azure OpenAI, Gemini, or Claude client based on environment variables."""
+        model_name = self.args['models']['llm_model']
+        
+        # Check if this is a Gemini model
+        if re.search(r'gemini', model_name, re.IGNORECASE):
+            if not GEMINI_AVAILABLE:
+                raise ValueError("google-genai package is not installed. Please install it with: pip install google-genai")
+
+            gemini_api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+            if not gemini_api_key:
+                raise ValueError("GOOGLE_API_KEY or GEMINI_API_KEY environment variable not set")
+
+            print(f"Using Google Gemini configuration for model: {model_name}")
+            # New SDK: a Client object replaces module-level configure()/GenerativeModel.
+            self.client = genai.Client(api_key=gemini_api_key)
+            # New SDK takes the bare model id (it normalizes a leading 'models/').
+            self.model = model_name[len('models/'):] if model_name.startswith('models/') else model_name
+            self.is_gemini = True
+            self.is_claude = False
+            return
+        
+        # Check if this is a Claude model
+        if re.search(r'claude', model_name, re.IGNORECASE):
+            if not CLAUDE_AVAILABLE:
+                raise ValueError("anthropic package is not installed. Please install it with: pip install anthropic")
+            
+            claude_api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+            if not claude_api_key:
+                raise ValueError("ANTHROPIC_API_KEY or CLAUDE_API_KEY environment variable not set")
+            
+            print(f"Using Anthropic Claude configuration for model: {model_name}")
+            self.client = anthropic.Anthropic(api_key=claude_api_key)
+            self.model = model_name
+            self.is_gemini = False
+            self.is_claude = True
+            return
+        
+        # Original OpenAI/Azure setup
+        self.is_gemini = False
+        self.is_claude = False
+        
+        # Check for Azure OpenAI configuration first
+        azure_endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+        azure_key = os.getenv("AZURE_OPENAI_KEY")
+        if self.args['models']['llm_model'] == 'gpt-5.5':
+            azure_deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+        else:
+            azure_deployment = self.args['models']['llm_model']
+        azure_api_version = os.getenv("AZURE_OPENAI_API_VERSION")
+
+        print(f"Debug - Environment variables:")
+        print(f"  AZURE_OPENAI_ENDPOINT: {azure_endpoint}")
+        print(f"  AZURE_OPENAI_DEPLOYMENT_NAME: {azure_deployment}")
+        print(f"  AZURE_OPENAI_API_VERSION: {azure_api_version}")
+
+        if azure_endpoint and azure_key and azure_deployment and azure_api_version:
+            print("Using Azure OpenAI configuration")
+            self.client = AzureOpenAI(
+                azure_endpoint=azure_endpoint,
+                api_key=azure_key,
+                api_version=azure_api_version,
+                # Hard per-request timeout so a STALLED reasoning call (server
+                # streams 0 bytes) fails in 3 min instead of hanging on the SDK's
+                # ~10-min default. max_retries=0: retries are owned by
+                # _openai_create_with_retry (429 + timeout + connection).
+                timeout=180.0,
+                max_retries=0,
+            )
+            self.model = azure_deployment
+        else:
+            try:
+                print("Using OpenAI configuration")
+                self.client = OpenAI(api_key=os.getenv("OPENAI_KEY"),
+                                     timeout=180.0, max_retries=0)
+                self.model = self.args['models']['llm_model']
+            except Exception as e:
+                raise ValueError(
+                    "No valid LLM configuration found. Please set either:\n"
+                    "Microsoft Azure with AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_KEY, AZURE_OPENAI_DEPLOYMENT_NAME, and AZURE_OPENAI_API_VERSION\n"
+                    "or OpenAI with OPENAI_KEY\n"
+                    "or Google Gemini with GOOGLE_API_KEY or GEMINI_API_KEY\n"
+                    "or Anthropic Claude with ANTHROPIC_API_KEY or CLAUDE_API_KEY."
+                )
+
+
+    def reset_history(self, thread_id=None):
+        """Reset conversation history for a specific thread or current thread."""
+        if thread_id is None:
+            thread_id = threading.get_ident()
+        
+        self.thread_histories[thread_id] = []
+
+
+    def _openai_to_gemini_history(self, openai_messages):
+        """
+        Convert OpenAI-style messages to Gemini chat history format.
+
+        Args:
+            openai_messages (list of dict): Each dict has "role" and "content".
+
+        Returns:
+            list: Gemini-style history (list of dicts with 'role' and 'parts').
+        """
+        gemini_history = []
+
+        for msg in openai_messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+
+            # Handle content that might be a list (for multimodal messages)
+            if isinstance(content, list):
+                # Extract text from multimodal content
+                text_parts = [item.get("text", "") for item in content if item.get("type") == "text"]
+                content = " ".join(text_parts)
+
+            if not content:
+                continue  # Skip empty content
+
+            # Map OpenAI roles to Gemini roles
+            # Gemini uses 'user' and 'model' (not 'assistant')
+            if role == "user" or role == "system":
+                gemini_role = "user"
+            elif role == "assistant":
+                gemini_role = "model"
+            else:
+                continue  # Skip unsupported roles
+
+            gemini_history.append({
+                "role": gemini_role,
+                "parts": [{"text": content}]
+            })
+
+        return gemini_history
+
+
+    def _get_or_create_gemini_cache(self, history_messages, cache_key):
+        """Create or reuse a Gemini CachedContent for the given history prefix.
+
+        Maintains a dict of caches so 32k and 128k contexts can coexist.
+        When a new persona is encountered, old caches for that slot are cleaned up.
+        Returns the cached-content NAME (passed to generate_content via
+        GenerateContentConfig.cached_content), or None if caching fails.
+        """
+        # Reuse existing cache if key matches
+        if cache_key in self._gemini_caches:
+            cached_content, cached_name = self._gemini_caches[cache_key]
+            if cached_content is not None:
+                return cached_name
+            return None  # Previously failed for this key
+
+        # Evict oldest caches if we hit the max size
+        max_cache_size = 4
+        while len(self._gemini_caches) >= max_cache_size:
+            oldest_key = next(iter(self._gemini_caches))
+            old_cache, _ = self._gemini_caches.pop(oldest_key)
+            if old_cache is not None:
+                try:
+                    self.client.caches.delete(name=old_cache.name)
+                except Exception:
+                    pass
+
+        try:
+            # New SDK: client.caches.create(...) returns a CachedContent whose
+            # .name is referenced by GenerateContentConfig.cached_content.
+            cache = self.client.caches.create(
+                model=self.model,
+                config=genai_types.CreateCachedContentConfig(
+                    contents=history_messages,
+                    ttl="3600s",
+                    display_name=f"persona_{cache_key}",
+                ),
+            )
+            self._gemini_caches[cache_key] = (cache, cache.name)
+            print(f"  Created Gemini cache for {cache_key}")
+            return cache.name
+        except Exception as e:
+            print(f"  Gemini caching failed (falling back to uncached): {e}")
+            self._gemini_caches[cache_key] = (None, None)  # Mark as failed
+            return None
+
+
+    def cleanup_caches(self):
+        """Clean up any active API caches."""
+        for cache_key, (cached_content, _) in self._gemini_caches.items():
+            if cached_content is not None:
+                try:
+                    self.client.caches.delete(name=cached_content.name)
+                except Exception:
+                    pass
+        self._gemini_caches.clear()
+        print("Cleaned up all Gemini cached content")
+
+
+    # --- Gemini Batch API ---------------------------------------------------
+
+    _BATCH_TERMINAL_OK = ("JOB_STATE_SUCCEEDED", "JOB_STATE_PARTIALLY_SUCCEEDED")
+    _BATCH_TERMINAL_BAD = ("JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED")
+
+    @staticmethod
+    def _job_state(job) -> str:
+        st = getattr(job, "state", None)
+        return getattr(st, "name", None) or str(st)
+
+    def query_llm_batch(self, prompts, temperature=None, poll_interval=15, max_wait=86400):
+        """Submit `prompts` (list of strings) as ONE Gemini batch job and return
+        the responses as a list aligned 1:1 with the input order.
+
+        Each element is the response text, or None if that request errored.
+        Gemini batch billing = 50% of standard rates on non-cached tokens;
+        context-cache hits inside a batch still bill at the (cheaper) cache
+        rate. Gemini only — callers use `query_many` which routes here.
+        """
+        if not self.is_gemini:
+            raise ValueError("query_llm_batch is Gemini-only; use query_many for routing")
+        if not prompts:
+            return []
+
+        cfg = None
+        if temperature is not None:
+            cfg = genai_types.GenerateContentConfig(temperature=temperature)
+        src = [
+            genai_types.InlinedRequest(
+                contents=p,
+                config=cfg,
+                metadata={"idx": str(i)},
+            )
+            for i, p in enumerate(prompts)
+        ]
+
+        job = self.client.batches.create(model=self.model, src=src)
+        name = job.name
+        print(f"  Gemini batch submitted: {name} ({len(prompts)} requests)")
+
+        waited = 0
+        state = self._job_state(job)
+        while state not in self._BATCH_TERMINAL_OK and state not in self._BATCH_TERMINAL_BAD:
+            if waited >= max_wait:
+                raise TimeoutError(f"Gemini batch {name} not done after {max_wait}s (state={state})")
+            time.sleep(poll_interval)
+            waited += poll_interval
+            job = self.client.batches.get(name=name)
+            state = self._job_state(job)
+
+        if state in self._BATCH_TERMINAL_BAD:
+            raise RuntimeError(f"Gemini batch {name} ended in {state}: {getattr(job,'error',None)}")
+
+        # Map inlined responses back to input order. Prefer the request's
+        # metadata idx (robust to any reordering); fall back to positional.
+        out: list = [None] * len(prompts)
+        dest = getattr(job, "dest", None)
+        responses = getattr(dest, "inlined_responses", None) or []
+        for pos, ir in enumerate(responses):
+            idx = pos
+            md = getattr(ir, "metadata", None) or {}
+            if "idx" in md:
+                try:
+                    idx = int(md["idx"])
+                except (TypeError, ValueError):
+                    idx = pos
+            if idx < 0 or idx >= len(prompts):
+                idx = pos
+            resp = getattr(ir, "response", None)
+            if resp is None:
+                continue
+            try:
+                out[idx] = resp.text
+            except Exception:
+                out[idx] = None
+            # Accumulate usage so the run-total report stays honest under batch.
+            try:
+                um = getattr(resp, "usage_metadata", None)
+                if um is not None:
+                    self._record_usage(
+                        input_tokens=getattr(um, "prompt_token_count", 0) or 0,
+                        output_tokens=getattr(um, "candidates_token_count", 0) or 0,
+                        cached_input_tokens=getattr(um, "cached_content_token_count", 0) or 0,
+                    )
+            except Exception:
+                pass
+        return out
+
+    def query_many(self, prompts, temperature=None, allow_batch=True):
+        """Answer a list of prompts. Routes Gemini to the Batch API when
+        `use_batch` is set (default for Gemini) AND `allow_batch` is True; every
+        other backend (and Gemini with EVAL_GEMINI_BATCH=0) falls back to
+        sequential query_llm. Returns a list aligned 1:1 with `prompts`.
+
+        `allow_batch=False` is the escape hatch for tasks with an intra-cluster
+        RESPONSE-FEEDBACK dependency (e.g. over_personalization repetition,
+        where query k+1's prompt embeds the agent's answer to query k). Those
+        prompts are not all known upfront, so batching is invalid — callers pass
+        allow_batch=evaluation.inference_utils.is_batchable_task(task_type).
+        """
+        if not prompts:
+            return []
+        if allow_batch and self.use_batch and self.is_gemini and len(prompts) > 1:
+            try:
+                return self.query_llm_batch(prompts, temperature=temperature)
+            except Exception as e:
+                print(utils.Colors.WARNING + f"Batch failed ({e}); falling back to sequential" + utils.Colors.ENDC)
+        return [self.query_llm(p, temperature=temperature) for p in prompts]
+
+
+    def search_images(self, pref: str):
+        """
+        Search for images related to a preference using the ImageMatcher.
+        This method will be called from conv_generator.py
+        
+        Args:
+            pref: The preference string to search images for
+            
+        Returns:
+            List of image paths related to the preference (top 5 most similar)
+        """
+        # Import here to avoid circular import
+        from image_matcher import ImageMatcher
+        
+        # Create ImageMatcher instance if not already created
+        if not hasattr(self, 'image_matcher'):
+            self.image_matcher = ImageMatcher(self.args, self)
+        
+        # Search for the most similar images (top 5)
+        similar_images = self.image_matcher.find_most_similar_image(pref, top_k=5)
+        
+        if similar_images:
+            # Return just the image paths (without similarity scores)
+            return [img_path for img_path, _ in similar_images]
+        else:
+            return []
+
+
+    def _gemini_generate_with_retry(self, *, contents, config=None, max_retries=7):
+        """Gemini generate_content with backoff on 429 / RESOURCE_EXHAUSTED.
+
+        Gemini's rate limits are token-per-minute heavy and bursty (distinct from
+        Azure's). Under concurrency we hit transient 429s; rather than failing the
+        row, honor the server's "retry in Ns" hint (or exponential backoff) and
+        retry. Non-rate-limit errors re-raise immediately."""
+        import time as _t, re as _re
+        for attempt in range(max_retries):
+            try:
+                kw = {"model": self.model, "contents": contents}
+                if config is not None:
+                    kw["config"] = config
+                return self.client.models.generate_content(**kw)
+            except Exception as e:
+                msg = str(e)
+                is_rl = ("429" in msg or "RESOURCE_EXHAUSTED" in msg
+                         or "exhausted" in msg.lower() or "rate limit" in msg.lower())
+                if not is_rl or attempt == max_retries - 1:
+                    raise
+                m = _re.search(r"retry in ([\d.]+)s", msg)
+                delay = float(m.group(1)) if m else min(2 ** attempt * 2, 45)
+                _t.sleep(delay + attempt * 0.75)
+
+    def _create_with_deadline(self, openai_kwargs, deadline_s=200.0):
+        """Wall-clock HARD deadline around chat.completions.create.
+
+        The httpx read-timeout (180s) does not reliably fire when the Azure
+        gpt-5.5 deployment holds a connection open while a reasoning generation
+        is stuck server-side (0 bytes, no error). Run the call in a worker thread
+        and enforce a hard wall-clock cap; on deadline, abandon the (leaked)
+        thread — we can't kill a blocked C-level socket read — and raise so the
+        caller's retry/drop logic fires instead of the whole build/eval hanging.
+
+        Uses a DAEMON thread (not ThreadPoolExecutor) so a wedged call does NOT
+        block process exit — the leaked thread is abandoned and dies with the
+        process."""
+        import threading as _th, queue as _q
+        out = _q.Queue(maxsize=1)
+
+        def _run():
+            try:
+                out.put(("ok", self.client.chat.completions.create(**openai_kwargs)))
+            except BaseException as exc:  # propagate any error to the caller
+                try:
+                    out.put(("err", exc))
+                except Exception:
+                    pass
+
+        _th.Thread(target=_run, daemon=True).start()
+        try:
+            kind, val = out.get(timeout=deadline_s)
+        except _q.Empty:
+            raise TimeoutError(
+                f"request timeout: hard {deadline_s:.0f}s deadline exceeded "
+                f"(server stalled, 0 bytes)")
+        if kind == "err":
+            raise val
+        return val
+
+    def _openai_create_with_retry(self, openai_kwargs, max_retries=8, max_timeout_retries=1):
+        """OpenAI/Azure chat.completions.create with backoff on 429 / rate-limit,
+        plus a one-shot fallback for deployments that reject a non-default
+        temperature (e.g. gpt-5.5).
+
+        Long-context prompts are token-heavy and burst past Azure's per-minute
+        token budget, so under concurrency we hit transient 429s. Previously the
+        call had no retry (only Gemini did), so the row failed with status=error
+        and the aggregator scored it 0 — silently deflating the long-context
+        headline. Honor the server's retry hint (or exponential backoff) and
+        retry; non-rate-limit errors re-raise immediately."""
+        import time as _t, re as _re
+        timeout_retries = 0
+        for attempt in range(max_retries):
+            try:
+                return self._create_with_deadline(openai_kwargs, deadline_s=200.0)
+            except Exception as e:
+                msg = str(e)
+                low = msg.lower()
+                # Deployment rejects a non-default temperature → drop it and retry
+                # once (does not consume a backoff sleep).
+                if "temperature" in low and "temperature" in openai_kwargs:
+                    openai_kwargs.pop("temperature", None)
+                    continue
+                is_rl = ("429" in msg or "too many requests" in low
+                         or "rate limit" in low or "rate_limit" in low)
+                etype = type(e).__name__
+                is_transient = ("timeout" in low or "timed out" in low
+                                or "connection" in low or "stalled" in low
+                                or "deadline" in low
+                                or etype in ("APITimeoutError", "APIConnectionError",
+                                             "TimeoutError"))
+                if is_transient and not is_rl:
+                    # The 180s client timeout fired (stalled / dropped request).
+                    # Re-issue on a fresh connection ONCE; if it stalls again, give
+                    # up and raise so the caller DROPS this query rather than the
+                    # whole build/eval hanging on one wedged call.
+                    timeout_retries += 1
+                    if timeout_retries > max_timeout_retries:
+                        raise
+                    _t.sleep(2.0)
+                    continue
+                if not is_rl or attempt == max_retries - 1:
+                    raise
+                m = (_re.search(r"retry[- ]after[\"': ]+([\d.]+)", low)
+                     or _re.search(r"retry in ([\d.]+)s", low))
+                delay = float(m.group(1)) if m else min(2 ** attempt * 2, 60)
+                _t.sleep(delay + attempt * 0.75)
+
+    # @timeout_decorator.timeout(60, timeout_exception=TimeoutError)  # Set timeout to 60 seconds
+    def query_llm(self, prompt, use_history=False, image=None, image_path=None, verbose=False, thread_id=None, temperature=None):
+        # print(f"Querying LLM with prompt: {prompt}\n\n")
+        """
+        Send a message to the LLM. If use_history is True,
+        `prompt` should be a list of message dicts [{'role': ..., 'content': ...}, ...].
+        Otherwise, `prompt` is a single string.
+        """
+        # Get thread ID for history management
+        if thread_id is None:
+            thread_id = threading.get_ident()
+        
+        # Prepare messages for the API call
+        if use_history and isinstance(prompt, list):
+            # If use_history=True and prompt is already a list of messages, use it directly
+            messages = prompt
+        else:
+            # Handle single prompt case
+            if image:
+                base64_image = image
+            elif image_path:
+                try:
+                    with open(image_path, "rb") as image_file:
+                        base64_image = base64.b64encode(image_file.read()).decode('utf-8')
+                except Exception as e:
+                    base64_image = None
+                    print(f"Error reading image file {image_path}: {e}")
+            else:
+                base64_image = None
+
+            if base64_image:
+                curr_message=[
+                        {
+                            "role": "user",
+                            "content": [
+                                { "type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:image/jpeg;base64,{base64_image}",
+                                    },
+                                },
+                            ],
+                        }
+                    ]
+            else:
+                curr_message = [{"role": "user", "content": prompt}]
+
+            if use_history:
+                self.thread_histories[thread_id].extend(curr_message)
+                messages = self.thread_histories[thread_id].copy()
+            else:
+                messages = curr_message
+
+        # Call the appropriate API based on model type
+        if self.is_gemini:
+            # Convert OpenAI-style messages to Gemini format
+            gemini_messages = self._openai_to_gemini_history(messages)
+
+            try:
+                cache_key = self._current_cache_key
+                # Enable caching whenever possible: if no explicit key was set,
+                # derive a stable one from the (large) history prefix so a repeated
+                # history — e.g. every query for the same persona in long-context
+                # mode — reuses ONE CachedContent at the cached rate instead of
+                # re-billing the full ~300k-token prefix on every call.
+                if cache_key is None and len(gemini_messages) > 1:
+                    _pfx = json.dumps(gemini_messages[:-1], default=str, sort_keys=True)
+                    if len(_pfx) > 50_000:               # ~12k+ tokens: worth caching
+                        cache_key = "auto_" + hashlib.md5(_pfx.encode("utf-8")).hexdigest()[:16]
+
+                # Attempt cached generation: split into history prefix + final user turn
+                if cache_key and len(gemini_messages) > 1:
+                    history_prefix = gemini_messages[:-1]
+                    final_turn = gemini_messages[-1:]
+                    cached_name = self._get_or_create_gemini_cache(history_prefix, cache_key)
+                    if cached_name is not None:
+                        response = self._gemini_generate_with_retry(
+                            contents=final_turn,
+                            config=genai_types.GenerateContentConfig(cached_content=cached_name))
+                    else:
+                        response = self._gemini_generate_with_retry(contents=gemini_messages)
+                else:
+                    response = self._gemini_generate_with_retry(contents=gemini_messages)
+
+                content = response.text
+                # Gemini implicit context caching is automatic for large prompts
+                # (no setup needed). Log the cache hit + accumulate usage, mirroring
+                # the OpenAI/Azure path, so caching is visible during the eval.
+                try:
+                    um = getattr(response, "usage_metadata", None)
+                    if um is not None:
+                        ptok = getattr(um, "prompt_token_count", 0) or 0
+                        cached = getattr(um, "cached_content_token_count", 0) or 0
+                        if cached:
+                            print(f"  Gemini cache hit: cached={cached}, total_prompt={ptok}")
+                        self._record_usage(
+                            input_tokens=ptok,
+                            output_tokens=getattr(um, "candidates_token_count", 0) or 0,
+                            cached_input_tokens=cached,
+                        )
+                except Exception:
+                    pass
+            except Exception as e:
+                print(utils.Colors.WARNING + f'Error getting Gemini response: {e}' + utils.Colors.ENDC)
+                content = None
+        elif self.is_claude:
+            # Call Claude API with prompt caching
+            try:
+                # Claude requires separating system messages from the conversation
+                # Convert all messages to user/assistant format (Claude doesn't accept 'system' role in messages)
+                claude_messages = []
+                for msg in messages:
+                    role = msg.get('role')
+                    content_text = msg.get('content', '')
+
+                    # Handle content that might be a list (for multimodal messages)
+                    if isinstance(content_text, list):
+                        text_parts = [item.get("text", "") for item in content_text if item.get("type") == "text"]
+                        content_text = " ".join(text_parts)
+
+                    # Convert system messages to user messages for Claude
+                    if role == 'system':
+                        role = 'user'
+
+                    # Only keep user and assistant messages
+                    if role in ['user', 'assistant'] and content_text:
+                        claude_messages.append({
+                            'role': role,
+                            'content': content_text
+                        })
+
+                # --- Prompt caching strategy ---
+                # (a) Multi-turn: cache the stable chat-history prefix
+                #     (second-to-last message) — the last 1–2 messages are the
+                #     new query that varies per call.
+                # (b) Single-shot: if the final user message is long enough
+                #     (>= ~400 tokens ≈ 1600 chars) split it at a natural
+                #     boundary ("## Your Task", "## Output Format", first "##",
+                #     or the midpoint) and cache the prefix part. Identical
+                #     prefixes across calls hit the cache (TTL 5 min).
+                if len(claude_messages) >= 3:
+                    cache_idx = len(claude_messages) - 2
+                    msg = claude_messages[cache_idx]
+                    claude_messages[cache_idx] = {
+                        'role': msg['role'],
+                        'content': [
+                            {
+                                'type': 'text',
+                                'text': msg['content'],
+                                'cache_control': {'type': 'ephemeral'},
+                            }
+                        ]
+                    }
+                elif claude_messages and isinstance(claude_messages[-1].get('content'), str):
+                    last_msg = claude_messages[-1]
+                    text = last_msg['content']
+                    # Anthropic caches prefixes >= 1024 tokens. At ~4 chars/token
+                    # for English prose, 4200 chars is a safe floor.
+                    MIN_CACHE_CHARS = 4200
+                    if len(text) >= MIN_CACHE_CHARS:
+                        split_at = -1
+                        for marker in ("\n## Your Task", "\n## Output Format", "\n## "):
+                            pos = text.find(marker, 800)
+                            if pos > split_at:
+                                split_at = pos
+                        if split_at < 0:
+                            split_at = len(text) // 2
+                        prefix_text = text[:split_at]
+                        suffix_text = text[split_at:]
+                        if prefix_text and suffix_text:
+                            claude_messages[-1] = {
+                                'role': last_msg['role'],
+                                'content': [
+                                    {
+                                        'type': 'text',
+                                        'text': prefix_text,
+                                        'cache_control': {'type': 'ephemeral'},
+                                    },
+                                    {'type': 'text', 'text': suffix_text},
+                                ],
+                            }
+
+                _claude_kwargs = {
+                    "model": self.model,
+                    "max_tokens": 4096,
+                    "messages": claude_messages,
+                }
+                if temperature is not None:
+                    _claude_kwargs["temperature"] = temperature
+                response = self.client.messages.create(**_claude_kwargs)
+
+                # Log cache usage stats
+                usage = response.usage
+                cache_read = getattr(usage, 'cache_read_input_tokens', 0) or 0
+                cache_write = getattr(usage, 'cache_creation_input_tokens', 0) or 0
+                if cache_read > 0 or cache_write > 0:
+                    print(f"  Claude cache: read={cache_read}, write={cache_write}, uncached={usage.input_tokens}")
+
+                # Accumulate for run-total reporting.
+                self._record_usage(
+                    input_tokens=(usage.input_tokens or 0) + cache_write,
+                    output_tokens=getattr(usage, 'output_tokens', 0) or 0,
+                    cached_input_tokens=cache_read,
+                )
+
+                content = response.content[0].text
+            except Exception as e:
+                print(utils.Colors.WARNING + f'Error getting Claude response: {e}' + utils.Colors.ENDC)
+                content = None
+                with self._usage_lock:
+                    self._usage_totals["errors"] += 1
+        else:
+            # Call OpenAI/Azure OpenAI Chat Completions API.
+            # Azure OpenAI and OpenAI both auto-cache prompt prefixes >= 1024 tokens
+            # for supported models (gpt-4o family, o1, gpt-5, etc.) when the same
+            # prefix recurs within ~5-10 min. Nothing to enable in code — but we
+            # log the cached-token count from the response so operators can tell
+            # caching is actually firing.
+            _openai_kwargs = {
+                "model": self.model,
+                "messages": messages,
+            }
+            if temperature is not None:
+                _openai_kwargs["temperature"] = temperature
+            # 429/rate-limit backoff + temperature-unsupported fallback are both
+            # handled inside the helper (newer deployments like gpt-5.5 reject a
+            # non-default temperature; deterministic callers pass 0.0). Without
+            # this the call would 429 or 400 and the caller silently lost its
+            # result — scored 0 by the aggregator.
+            response = self._openai_create_with_retry(_openai_kwargs)
+
+            # Extract content
+            try:
+                content = response.choices[0].message.content
+            except Exception as e:
+                print(utils.Colors.WARNING + f'Error getting response: {e}' + utils.Colors.ENDC)
+                content = None
+
+            # Log OpenAI/Azure OpenAI prompt-cache hits when available and
+            # accumulate usage for run-total reporting.
+            try:
+                usage = response.usage
+                details = getattr(usage, 'prompt_tokens_details', None)
+                cached = getattr(details, 'cached_tokens', 0) if details is not None else 0
+                if cached:
+                    print(f"  OpenAI cache hit: cached={cached}, total_prompt={usage.prompt_tokens}")
+                self._record_usage(
+                    input_tokens=getattr(usage, 'prompt_tokens', 0) or 0,
+                    output_tokens=getattr(usage, 'completion_tokens', 0) or 0,
+                    cached_input_tokens=cached,
+                )
+            except Exception:
+                with self._usage_lock:
+                    self._usage_totals["errors"] += 1
+
+        if use_history:
+            if isinstance(prompt, list):
+                # If prompt was a list of messages, update the entire history
+                self.thread_histories[thread_id] = messages + [{"role": "assistant", "content": content}]
+            else:
+                # If prompt was a single message, just append the assistant response
+                self.thread_histories[thread_id].append({"role": "assistant", "content": content})
+
+        if verbose:
+            print(f'{utils.Colors.OKGREEN}Model Response:{utils.Colors.ENDC} {content}')
+
+        return content

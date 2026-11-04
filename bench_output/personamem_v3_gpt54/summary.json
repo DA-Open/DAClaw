@@ -1,0 +1,25 @@
+{
+  "model": "gpt-5.4",
+  "harness": "DAClaw",
+  "requested": 3,
+  "attempted": 3,
+  "succeeded": 3,
+  "failed": 0,
+  "mean_metrics": {
+    "n_ranked": 16.0,
+    "tier_concordance": 0.4577333333333333,
+    "recall_at_1": 0.3333333333333333,
+    "recall_at_3": 1.0,
+    "recall_at_5": 1.0,
+    "ndcg_at_3": 0.4537333333333334,
+    "ndcg_at_5": 0.18203333333333335,
+    "mrr": 0.6111,
+    "hit_at_1": 0.3333333333333333,
+    "hit_at_3": 1.0,
+    "hard_neg_above_filler_count": 5.333333333333333,
+    "hard_neg_violation_rate": 1.0
+  },
+  "headline_metric": "tier_concordance",
+  "scope": "3-instance smoke run of personalized_recommendation, not the full benchmark",
+  "judge": "none; official deterministic ranking metrics"
+}

@@ -1,0 +1,19 @@
+query_id,seq,user_id,task_type,status,duration_ms,api_calls,tool_calls,metrics_json,error,agent_response
+8:0035:recsys_2026-04-06_a0,35,8,personalized_recommendation,ok,127961,6,23,"{""n_ranked"": 16, ""valid"": true, ""tier_concordance"": 0.507, ""recall_at_1"": 1.0, ""recall_at_3"": 1.0, ""recall_at_5"": 1.0, ""ndcg_at_3"": 0.5209, ""ndcg_at_5"": 0.0, ""mrr"": 1.0, ""hit_at_1"": 1.0, ""hit_at_3"": 1.0, ""hard_neg_above_filler_count"": 7, ""hard_neg_violation_rate"": 1.0}",,"```json
+{
+  ""ranked_indexes"": [13, 8, 7, 9, 3, 15, 2, 4, 11, 5, 12, 10, 6, 0, 14, 1],
+  ""reasoning"": ""The user’s strongest recent positives cluster around Nigerian comedy, calm faith/worship content, affectionate family/couple life, and practical home-cooking themes, while multiple exact or near-exact candidates like Tobi Amusan, Apostle Joshua Selman posts, ZOKEShorts, banga cooking, and some testimony/gospel items were explicitly skipped in history. So I ranked comedy and low-noise faith reminders highest, then family/cooking/lifestyle fits, with repeatedly skipped creators/topics and unrelated festival fashion/sports at the bottom.""
+}
+```"
+8:0036:recsys_2026-04-06_a1,36,8,personalized_recommendation,ok,212777,6,22,"{""n_ranked"": 16, ""valid"": true, ""tier_concordance"": 0.4314, ""recall_at_1"": 0.0, ""recall_at_3"": 1.0, ""recall_at_5"": 1.0, ""ndcg_at_3"": 0.8403, ""ndcg_at_5"": 0.5461, ""mrr"": 0.3333, ""hit_at_1"": 0.0, ""hit_at_3"": 1.0, ""hard_neg_above_filler_count"": 3, ""hard_neg_violation_rate"": 1.0}",,"```json
+{
+  ""ranked_indexes"": [12, 10, 4, 0, 15, 1, 6, 7, 3, 14, 13, 11, 8, 2, 5, 9],
+  ""reasoning"": ""Recent self-authored positives strongly favor Yoruba wedding content, disciplined health reminders, and clean Ankara/African fashion, while history also shows repeated skips or explicit dislike for cats, aquaculture promotions, generic empowerment/relationship posts, art, and some promotional fashion/tutorial content. I ranked exact recent-positive matches highest, downgraded items with direct negative precedent despite topical overlap, and put explicit/clear negatives at the bottom.""
+}
+```"
+8:0042:recsys_2026-04-06_a2,42,8,personalized_recommendation,ok,94157,5,12,"{""n_ranked"": 16, ""valid"": true, ""tier_concordance"": 0.4348, ""recall_at_1"": 0.0, ""recall_at_3"": 1.0, ""recall_at_5"": 1.0, ""ndcg_at_3"": 0.0, ""ndcg_at_5"": 0.0, ""mrr"": 0.5, ""hit_at_1"": 0.0, ""hit_at_3"": 1.0, ""hard_neg_above_filler_count"": 6, ""hard_neg_violation_rate"": 1.0}",,"```json
+{
+  ""ranked_indexes"": [4, 9, 2, 1, 15, 11, 0, 14, 7, 12, 6, 8, 10, 13, 5, 3],
+  ""reasoning"": ""Recent history shows repeated positive engagement with African dance/performance content, plus self-authored community/event-planning and gospel posts; parenting and light humor are secondary interests. Items tied to generic viral bait, wellness/ice-bath content, or conflict/sarcasm are less aligned with the user’s demonstrated behavior.""
+}
+```"

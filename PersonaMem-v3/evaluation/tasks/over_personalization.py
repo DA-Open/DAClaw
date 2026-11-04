@@ -1,0 +1,832 @@
+"""Tasks C and D — over-personalization probes & aggregate negative avoidance.
+
+All instances (C1 probes, C2 scenarios, C3 restraint candidate lists) are
+frozen in the benchmark file. This driver just iterates and runs the agent.
+"""
+
+from __future__ import annotations
+
+from data_preparation.utils import extract_json_from_response
+from evaluation import judges, metrics, prompts
+from evaluation.backend_query import BackendQuery, materialize_snapshot
+from evaluation.claude_subagent import run_subagent
+from evaluation.inference_utils import (
+    SnapshotCache,
+    TestItem,
+    build_judge_evidence,
+    dispatch_agent_run as _dispatch_agent,
+)
+
+
+# --- C2: scenario library --------------------------------------------------
+
+def run_task_c2(
+    instances,
+    user_id,
+    bq: BackendQuery,
+    llm_client,
+    judge_client,
+    mode: str,
+    snapshot_cache: SnapshotCache,
+    model_name: str | None,
+    claude_model: str,
+    context_budget: int | None,
+    enable_llm_judge: bool,
+    dry_run: bool,
+    limit: int | None = None,
+) -> list[dict]:
+    if limit is not None:
+        instances = instances[:limit]
+    results: list[dict] = []
+    for sc in instances:
+        t_probe = sc["t_probe"]
+        history_block = None
+        history_tokens = 0
+        if mode in ("llm_longctx", "llm_memory", "mem0"):
+            history_block, stats = snapshot_cache.get_or_build(bq, user_id, t_probe, model_name, context_budget)
+            history_tokens = stats["total_tokens"]
+
+        prompt = prompts.scenario_prompt(sc["name"], sc["query"], sc["notes"], history_block)
+
+        if dry_run:
+            results.append({
+                "task": "c2_scenario",
+                "scenario_id": sc["scenario_id"],
+                "user_id": user_id,
+                "mode": mode,
+                "agent_response": None,
+                "metrics": None,
+            })
+            continue
+
+        raw_response, tool_call_count, subagent_stats = _dispatch_agent(
+            mode, prompt, bq=bq, user_id=user_id, t=t_probe,
+            claude_model=claude_model, llm_client=llm_client,
+        )
+
+        parsed = extract_json_from_response(raw_response)
+        if isinstance(parsed, dict):
+            response_text = parsed.get("response") or raw_response
+        else:
+            response_text = raw_response
+
+        # Unified single judge call. Fold the scenario framing + scenario-
+        # specific off-limits prefs + any opt-out into the ground truth so the
+        # one rubric call knows what is inappropriate to surface in THIS context.
+        from evaluation import personalization_rubric as pr
+        gt = pr.build_source_a(bq, user_id, t_probe, query_text=sc["query"])
+        gt["query_text"] = f'{sc["query"]}\n\n[Scenario — {sc["name"]}: {sc["notes"]}]'
+        forbidden = [it for it in (sc.get("forbidden_items") or []) if it.get("persona_item")]
+        if forbidden:
+            gt["scenario_off_limits_preferences"] = [
+                {"persona_item": it.get("persona_item", ""), "category": it.get("category", "")}
+                for it in forbidden
+            ]
+        if sc.get("carve_out"):
+            gt["user_opted_out_topic"] = sc["carve_out"].get("topic", "")
+
+        pers = pr.score(
+            "over_personalization_context_shift", response_text, gt,
+            judge_client=(judge_client if enable_llm_judge else None),
+        )
+
+        results.append({
+            "task": "c2_scenario",
+            "scenario_id": sc["scenario_id"],
+            "name": sc["name"],
+            "user_id": user_id,
+            "mode": mode,
+            "agent_response": response_text,
+            "tool_calls": tool_call_count,
+            "subagent_stats": subagent_stats,
+            "history_tokens": history_tokens,
+            "metrics": {
+                **{f"pr_{k}": v for k, v in pers.items() if isinstance(v, (int, float, str))},
+                "query_score_0_10": pers.get("query_score_0_10"),
+            },
+        })
+    return results
+
+
+# --- C3: irrelevant-distractor restraint -----------------------------------
+
+def run_task_c3(
+    instances,
+    user_id,
+    bq: BackendQuery,
+    llm_client,
+    judge_client,
+    mode: str,
+    snapshot_cache: SnapshotCache,
+    model_name: str | None,
+    claude_model: str,
+    context_budget: int | None,
+    enable_llm_judge: bool,
+    dry_run: bool,
+    limit: int | None = None,
+) -> list[dict]:
+    if limit is not None:
+        instances = instances[:limit]
+    results: list[dict] = []
+    for inst in instances:
+        t = inst["source_timestamp"]
+        history_block = None
+        history_tokens = 0
+        if mode in ("llm_longctx", "llm_memory", "mem0"):
+            history_block, stats = snapshot_cache.get_or_build(bq, user_id, t, model_name, context_budget)
+            history_tokens = stats["total_tokens"]
+
+        prompt = prompts.restraint_prompt(inst["app"], inst["parent_event"], inst["candidates"], history_block)
+
+        if dry_run:
+            results.append({
+                "task": "c3_restraint",
+                "user_id": user_id,
+                "test_id": inst["test_id"],
+                "mode": mode,
+                "agent_response": None,
+                "metrics": None,
+            })
+            continue
+
+        raw_response, tool_call_count, subagent_stats = _dispatch_agent(
+            mode, prompt, bq=bq, user_id=user_id, t=t,
+            claude_model=claude_model, llm_client=llm_client,
+        )
+
+        parsed = extract_json_from_response(raw_response) or {}
+        reject_idxs = parsed.get("reject_indices") or []
+        rejected_items = [
+            inst["candidates"][i].get("persona_item")
+            for i in reject_idxs
+            if isinstance(i, int) and 0 <= i < len(inst["candidates"])
+        ]
+
+        rej_metrics = metrics.irrelevant_rejection_rate(
+            agent_rejections=rejected_items,
+            irrelevant_persona_items=inst["irrelevant_persona_items"],
+            held_out_item=inst["held_out_persona_item"],
+        )
+
+        results.append({
+            "task": "c3_restraint",
+            "user_id": user_id,
+            "test_id": inst["test_id"],
+            "mode": mode,
+            "app": inst["app"],
+            "agent_response": raw_response,
+            "tool_calls": tool_call_count,
+            "subagent_stats": subagent_stats,
+            "history_tokens": history_tokens,
+            "reject_indices": reject_idxs,
+            "metrics": rej_metrics,
+        })
+    return results
+
+
+# --- Task C1c: same-preference repetition cluster ------------------------
+
+_C1C_PERSONA_ALIGNMENT_PROMPT = """You are a persona-alignment auditor. Decide whether a recommendation's hashtags would actually fit a user with the persona below — not generic plausibility, but "would THIS user engage with content carrying these hashtags?"
+
+The user's persona signature (top categories + top hashtags they actually engage with):
+
+  Top categories: {persona_categories}
+  Top hashtags:   {persona_hashtags}
+
+Off-persona distractor pool (these are deliberately NOT aligned with this user — picking from this pool is failure):
+
+  {off_persona_distractors}
+
+Recommendation under review:
+
+  Title:    "{title}"
+  Caption:  "{caption}"
+  Hashtags: {hashtags}
+
+Question: do the recommendation's hashtags fit this user's persona? Hashtags can be NEW (not in the user's existing top hashtags) AS LONG AS they're plausibly something this user would engage with — read across the title + caption to judge fit. Picking distractors from the off-persona pool, OR picking generic-but-clearly-off-persona hashtags, is a fail.
+
+Output ONLY JSON:
+
+```json
+{{"persona_aligned": true | false, "reason": "<one short sentence>"}}
+```
+"""
+
+
+def _c1c_persona_alignment_check(
+    response: dict,
+    persona_categories: list[str],
+    persona_hashtags: list[str],
+    off_persona_distractors: list[str],
+    judge_query_fn,
+) -> bool:
+    """LLM judge: do this response's hashtags fit the user's persona?
+    On any error / parse failure → return True (auto-pass — soft gate;
+    we don't want a flaky judge to fail the metric).
+    """
+    if not callable(judge_query_fn):
+        return True
+    title = (response.get("title") or "").strip()
+    caption = (response.get("caption") or "").strip()
+    tags = response.get("hashtags") or []
+    if not tags:
+        return True
+    prompt = _C1C_PERSONA_ALIGNMENT_PROMPT.format(
+        persona_categories=", ".join(persona_categories[:6]) or "(none)",
+        persona_hashtags=", ".join(f"#{h.lstrip('#')}" for h in persona_hashtags[:15]) or "(none)",
+        off_persona_distractors=", ".join(f"#{h.lstrip('#')}" for h in off_persona_distractors[:10]) or "(none)",
+        title=title[:200],
+        caption=caption[:300],
+        hashtags=", ".join(f"#{str(h).lstrip('#')}" for h in tags[:10]),
+    )
+    try:
+        raw = judge_query_fn(prompt)
+    except Exception:
+        return True
+    if not raw:
+        return True
+    parsed = extract_json_from_response(raw) or {}
+    if not isinstance(parsed, dict):
+        return True
+    val = parsed.get("persona_aligned")
+    if val is None:
+        return True
+    return bool(val)
+
+
+def run_task_c1c(
+    instances,
+    user_id,
+    bq: BackendQuery,
+    llm_client,
+    judge_client,
+    mode: str,
+    snapshot_cache: SnapshotCache,
+    model_name: str | None,
+    claude_model: str,
+    context_budget: int | None,
+    enable_llm_judge: bool,
+    dry_run: bool,
+    limit: int | None = None,
+) -> list[dict]:
+    """For each same-preference repetition cluster, dispatch the agent on
+    each anchor in sequence, threading prior responses into every
+    subsequent prompt. Score the tail responses for diversification:
+    pairwise text Jaccard ≤ 0.5, zero pairwise hashtag overlap, < 30%
+    head-hashtag reuse, persona-aligned (LLM judge).
+    """
+    if limit is not None:
+        instances = instances[:limit]
+    from evaluation import metrics  # local — avoid circular at module load
+    results: list[dict] = []
+    for cluster in instances:
+        queries = cluster.get("queries") or []
+        if not queries:
+            continue
+
+        # Cluster-id memoization. The 2026-05-28 split refactor emits N
+        # rows per cluster (one per target query). Without dedup the
+        # runner would fire the full multi-query sequence N times,
+        # producing N² agent calls. Cache the cluster-level result by
+        # cluster_id; subsequent rows of the same cluster get a row-
+        # specific view of the cached responses without re-dispatching.
+        cluster_id = cluster.get("cluster_id", "")
+        query_index = cluster.get("query_index")
+        if cluster_id and query_index is not None:
+            cached = _C1C_CLUSTER_CACHE.get(cluster_id)
+            if cached is not None:
+                row_result = dict(cached)
+                row_result["query_index"] = query_index
+                row_result["is_head_zone"] = bool(cluster.get("is_head_zone"))
+                row_result["user_query"] = cluster.get("user_query", "")
+                if isinstance(cached.get("responses"), list):
+                    full_responses = cached["responses"]
+                    target_indices = [
+                        i for i, q in enumerate(queries)
+                        if q.get("is_target", True)
+                    ]
+                    if 0 <= query_index < len(target_indices):
+                        orig_idx = target_indices[query_index]
+                        if 0 <= orig_idx < len(full_responses):
+                            row_result["response_for_row"] = full_responses[orig_idx]
+                results.append(row_result)
+                continue
+
+        # Snapshot at the FINAL anchor when in long-context modes.
+        # Earlier anchors share the same snapshot — the agent's
+        # behavior under repetition isn't grounded by the marginal
+        # 90 minutes of history.
+        t_test = int(cluster.get("t_test") or queries[-1]["ts"])
+        history_block = None
+        if mode in ("llm_longctx", "llm_memory", "mem0"):
+            history_block, _stats = snapshot_cache.get_or_build(
+                bq, user_id, t_test, model_name, context_budget,
+            )
+
+        if dry_run:
+            results.append({
+                "task": "c1c_same_preference_cluster",
+                "cluster_id": cluster["cluster_id"],
+                "mode": mode,
+                "responses": None,
+                "metrics": None,
+            })
+            continue
+
+        target_pref = cluster.get("target_pref", "")
+        primary_category = cluster.get("primary_category", "")
+        persona_hint = cluster.get("persona_hint") or {}
+        persona_categories = list(persona_hint.get("top_categories") or [])
+        persona_hashtags = list(persona_hint.get("top_hashtags") or [])
+        off_persona_distractors = list(cluster.get("off_persona_distractor_hashtags") or [])
+        n_allowed_repetitions = int(cluster.get("n_allowed_repetitions") or 2)
+
+        responses: list[dict] = []
+        total_turns = 0
+        stats_per_query: list[dict] = []
+        for q in queries:
+            ts = int(q["ts"])
+            prompt = prompts.over_personalization_repetition_recsys_prompt(
+                target_pref=target_pref,
+                primary_category=primary_category,
+                user_query=q["user_query"],
+                persona_top_categories=persona_categories,
+                persona_top_hashtags=persona_hashtags,
+                off_persona_distractor_hashtags=off_persona_distractors,
+                prior_responses=responses,
+                n_allowed_repetitions=n_allowed_repetitions,
+                history_block=history_block,
+            )
+            raw, turns, stats = _dispatch_agent(
+                mode, prompt, bq=bq, user_id=user_id, t=ts,
+                claude_model=claude_model, llm_client=llm_client,
+                task_type="over_personalization_repetition_recsys",
+            )
+            parsed = extract_json_from_response(raw) or {}
+            if not isinstance(parsed, dict):
+                parsed = {"title": "", "caption": raw, "hashtags": []}
+            resp = {
+                "title": parsed.get("title") or "",
+                "caption": parsed.get("caption") or "",
+                "hashtags": list(parsed.get("hashtags") or []),
+                "reasoning": parsed.get("reasoning") or "",
+                "ts": ts,
+            }
+            responses.append(resp)
+            total_turns += turns
+            stats_per_query.append(stats)
+
+        # LLM judge per response: how much did it invoke the target preference?
+        # Judge only target-query responses (skip fillers).
+        # Each query carries is_target=True/False from the interleaved builder.
+        target_hashtags = list(cluster.get("cluster_hashtags") or [])
+        target_indices = [i for i, q in enumerate(queries) if q.get("is_target", True)]
+        target_responses = [responses[i] for i in target_indices if i < len(responses)]
+        target_query_texts = [queries[i]["user_query"] for i in target_indices if i < len(queries)]
+
+        pref_invoked: list[float] = []
+        if enable_llm_judge and judge_client is not None:
+            judge_fn = (judge_client.query_llm
+                        if hasattr(judge_client, "query_llm") else judge_client)
+            from concurrent.futures import ThreadPoolExecutor
+            def _check_invoked(args):
+                r, q_text = args
+                resp_text = f"{r.get('title','')} {r.get('caption','')}".strip()
+                return _c1d_check_pref_invoked(
+                    resp_text, q_text,
+                    target_pref, primary_category, target_hashtags,
+                    judge_fn,
+                )
+            with ThreadPoolExecutor(max_workers=len(target_responses)) as pool:
+                pref_invoked = list(pool.map(_check_invoked,
+                    zip(target_responses, target_query_texts)))
+        else:
+            # Judge-disabled deterministic fallback: still gate empty/refusal to
+            # 0 (was a flat [10.0]*N auto-pass — a silence-win where refusing
+            # every turn scored 100%). Substantive turns get the benefit of the
+            # doubt (10) since we can't judge invocation without the LLM.
+            # NB: each r is a response dict — flatten to the same title+caption
+            # text the judge branch scores (passing the dict raw made tokenize
+            # raise TypeError and errored every judge-off repetition row).
+            pref_invoked = [
+                10.0 if metrics.is_substantive_response(
+                    f"{r.get('title','')} {r.get('caption','')}".strip()
+                ) else 0.0
+                for r in target_responses
+            ]
+
+        overuse = metrics.chatbot_pref_overuse_rate(
+            pref_invoked, n_allowed_repetitions=n_allowed_repetitions,
+        )
+
+        cluster_result = {
+            "task": "c1c_same_preference_cluster",
+            "cluster_id": cluster["cluster_id"],
+            "mode": mode,
+            "target_pref": target_pref,
+            "primary_category": primary_category,
+            "n_queries": len(queries),
+            "n_allowed_repetitions": n_allowed_repetitions,
+            "responses": responses,
+            "pref_invoked_per_response": pref_invoked,
+            "tool_calls": total_turns,
+            "subagent_stats": stats_per_query,
+            "metrics": overuse,
+        }
+        # Cache for sibling rows of this cluster (the split-refactor
+        # emits N rows per cluster; only the first row through the
+        # runner actually dispatches the agent — the rest read here).
+        if cluster.get("cluster_id"):
+            _C1C_CLUSTER_CACHE[cluster["cluster_id"]] = cluster_result
+        # Per-row view for THIS dispatch (query_index None on legacy
+        # single-row clusters).
+        query_index = cluster.get("query_index")
+        if query_index is not None:
+            row_result = dict(cluster_result)
+            row_result["query_index"] = query_index
+            row_result["is_head_zone"] = bool(cluster.get("is_head_zone"))
+            row_result["user_query"] = cluster.get("user_query", "")
+            target_indices = [
+                i for i, q in enumerate(queries) if q.get("is_target", True)
+            ]
+            if 0 <= query_index < len(target_indices):
+                orig_idx = target_indices[query_index]
+                if 0 <= orig_idx < len(responses):
+                    row_result["response_for_row"] = responses[orig_idx]
+            results.append(row_result)
+        else:
+            results.append(cluster_result)
+    return results
+
+
+# Process-local cluster cache for the c1c (repetition_recsys) split
+# refactor. Keyed by cluster_id. Cleared per eval process; no need
+# for TTL since each persona run is short-lived.
+_C1C_CLUSTER_CACHE: dict[str, dict] = {}
+
+
+# --- Task C1d: chatbot same-pref repetition (varied surface) -------------
+
+_C1D_PREF_INVOCATION_JUDGE_PROMPT = """You are auditing whether a chatbot response invoked a specific user preference. The preference is given below. Rate how much the response — by topic choice, recommendation, framing, or specific reference — leans on this preference.
+
+A response "invokes" the preference when:
+  - It explicitly recommends content / activities / items in that preference area, OR
+  - It pivots the answer toward the preference's topic (even subtly), OR
+  - It mentions the preference by name, by category, or by a close paraphrase.
+
+A response does NOT invoke the preference when:
+  - It answers the user's question on the question's own terms, with no detour through the preference area.
+  - It picks a recommendation, angle, or framing that's unrelated to the preference.
+
+## Target preference
+
+  persona_item: "{target_pref}"
+  category:     "{primary_category}"
+  hashtags this user engages with on the topic: {target_hashtags}
+
+## User's chatbot question
+
+  > {user_query}
+
+## Response under audit
+
+  {response}
+
+## Task
+Rate 0-10 how much this response leaned on the target preference. A response "leans on" it whether blatantly OR obliquely (an example/analogy drawn from it, advice framed through it, an unsolicited pivot toward it, a knowing aside). Oblique invocation is a FULL invocation, not a borderline case.
+
+Score anchors:
+  0-2 = leaned on the preference, blatantly or obliquely (see above)
+  5   = only a faint, plausibly-coincidental brush with the preference's area
+  10  = answered on its own terms with no preference influence
+
+## Output
+
+```json
+{{"restraint_score": <0-10>, "reason": "<one short sentence>"}}
+```
+"""
+
+
+def _c1d_check_pref_invoked(
+    response_text: str,
+    user_query: str,
+    target_pref: str,
+    primary_category: str,
+    target_hashtags: list,
+    judge_query_fn,
+) -> float | None:
+    """LLM judge: how much did `response_text` invoke `target_pref`?
+
+    Returns a 0-10 float where 10 = no invocation (full restraint) and
+    0 = entirely built around the preference. Empty / refusal responses are
+    gated to 0 (silence is NOT restraint). On a genuine JUDGE failure (judge
+    errored / returned nothing / unparseable) returns ``None`` — the caller
+    DROPS that response from the score (no auto-pass), so a flaky judge can
+    neither inflate nor deflate the headline; the failed case is just ignored.
+    """
+    if not callable(judge_query_fn):
+        return None
+    if not metrics.is_substantive_response(response_text or ""):
+        # Empty / refusal is NOT restraint — a model that declines every repeated
+        # query must not score a perfect 10 (silence-win). Gate it to 0.
+        return 0.0
+    prompt = _C1D_PREF_INVOCATION_JUDGE_PROMPT.format(
+        target_pref=target_pref[:200],
+        primary_category=primary_category or "(none)",
+        target_hashtags=", ".join(f"#{h.lstrip('#')}" for h in target_hashtags[:8]) or "(none)",
+        user_query=user_query[:240],
+        response=response_text[:800],
+    )
+    try:
+        raw = judge_query_fn(prompt)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    parsed = extract_json_from_response(raw) or {}
+    if not isinstance(parsed, dict):
+        return None
+    score = parsed.get("restraint_score")
+    if score is None:
+        # Backward compat: if judge returns old format with "invoked" key
+        invoked = parsed.get("invoked")
+        if invoked is not None:
+            return 0.0 if bool(invoked) else 10.0
+        return None
+    return max(0.0, min(10.0, float(score)))
+
+
+def run_task_c1d(
+    instances,
+    user_id,
+    bq: BackendQuery,
+    llm_client,
+    judge_client,
+    mode: str,
+    snapshot_cache: SnapshotCache,
+    model_name: str | None,
+    claude_model: str,
+    context_budget: int | None,
+    enable_llm_judge: bool,
+    dry_run: bool,
+    limit: int | None = None,
+) -> list[dict]:
+    """For each chatbot same-pref cluster, dispatch the agent on each of
+    the cluster's surface-diverse chatbot queries in sequence (prior
+    responses surfaced each turn). After dispatch, an LLM judge per
+    response decides whether it invoked the target preference. Score
+    via ``metrics.chatbot_pref_overuse_rate`` — tail responses must
+    NOT invoke target_pref."""
+    if limit is not None:
+        instances = instances[:limit]
+    from evaluation import metrics  # local — avoid circular at module load
+    results: list[dict] = []
+    for cluster in instances:
+        queries = cluster.get("queries") or []
+        if not queries:
+            continue
+
+        # cluster_id memoization — see _C1C_CLUSTER_CACHE rationale.
+        cluster_id = cluster.get("cluster_id", "")
+        query_index = cluster.get("query_index")
+        if cluster_id and query_index is not None:
+            cached = _C1D_CLUSTER_CACHE.get(cluster_id)
+            if cached is not None:
+                row_result = dict(cached)
+                row_result["query_index"] = query_index
+                row_result["is_head_zone"] = bool(cluster.get("is_head_zone"))
+                row_result["user_query"] = cluster.get("user_query", "")
+                if isinstance(cached.get("responses"), list):
+                    full_responses = cached["responses"]
+                    target_indices = [
+                        i for i, q in enumerate(queries) if q.get("is_target", True)
+                    ]
+                    if 0 <= query_index < len(target_indices):
+                        orig_idx = target_indices[query_index]
+                        if 0 <= orig_idx < len(full_responses):
+                            row_result["response_for_row"] = full_responses[orig_idx]
+                results.append(row_result)
+                continue
+
+        t_test = int(cluster.get("t_test") or queries[-1]["ts"])
+        history_block = None
+        if mode in ("llm_longctx", "llm_memory", "mem0"):
+            history_block, _stats = snapshot_cache.get_or_build(
+                bq, user_id, t_test, model_name, context_budget,
+            )
+
+        if dry_run:
+            results.append({
+                "task": "c1d_chatbot_same_pref",
+                "cluster_id": cluster["cluster_id"],
+                "mode": mode,
+                "responses": None,
+                "metrics": None,
+            })
+            continue
+
+        target_pref = cluster.get("target_pref", "")
+        primary_category = cluster.get("primary_category", "")
+        target_hashtags = list(cluster.get("target_hashtags") or [])
+        n_allowed_repetitions = int(cluster.get("n_allowed_repetitions") or 2)
+
+        responses: list[dict] = []
+        total_turns = 0
+        stats_per_query: list[dict] = []
+        for q in queries:
+            ts = int(q["ts"])
+            prompt = prompts.over_personalization_repetition_chatbot_prompt(
+                user_query=q["user_query"],
+                target_pref=target_pref,
+                primary_category=primary_category,
+                prior_responses=responses,
+                n_allowed_repetitions=n_allowed_repetitions,
+                history_block=history_block,
+            )
+            raw, turns, stats = _dispatch_agent(
+                mode, prompt, bq=bq, user_id=user_id, t=ts,
+                claude_model=claude_model, llm_client=llm_client,
+                task_type="over_personalization_repetition_chatbot",
+            )
+            parsed = extract_json_from_response(raw)
+            if isinstance(parsed, dict):
+                response_text = (parsed.get("response") or raw or "").strip()
+            else:
+                response_text = (raw or "").strip()
+            responses.append({
+                "ts": ts,
+                "user_query": q["user_query"],
+                "natural_anchor": q.get("natural_anchor", ""),
+                "response": response_text,
+            })
+            total_turns += turns
+            stats_per_query.append(stats)
+
+        # Judge only target-query responses (skip fillers).
+        target_indices = [i for i, q in enumerate(queries) if q.get("is_target", True)]
+        target_responses = [responses[i] for i in target_indices if i < len(responses)]
+
+        pref_invoked: list[float] = []
+        if enable_llm_judge and judge_client is not None:
+            judge_fn = (judge_client.query_llm
+                        if hasattr(judge_client, "query_llm") else judge_client)
+            from concurrent.futures import ThreadPoolExecutor
+            def _check_invoked(r):
+                return _c1d_check_pref_invoked(
+                    r["response"], r["user_query"],
+                    target_pref, primary_category, target_hashtags,
+                    judge_fn,
+                )
+            with ThreadPoolExecutor(max_workers=len(target_responses)) as pool:
+                pref_invoked = list(pool.map(_check_invoked, target_responses))
+        else:
+            # Judge-disabled deterministic fallback: still gate empty/refusal to
+            # 0 (was a flat [10.0]*N auto-pass — a silence-win where refusing
+            # every turn scored 100%). Substantive turns get the benefit of the
+            # doubt (10) since we can't judge invocation without the LLM.
+            # NB: each r is a response dict — score its "response" text (the
+            # same field the judge branch reads); passing the dict raw made
+            # tokenize raise TypeError and errored every judge-off row.
+            pref_invoked = [
+                10.0 if metrics.is_substantive_response(r.get("response") or "")
+                else 0.0
+                for r in target_responses
+            ]
+
+        overuse = metrics.chatbot_pref_overuse_rate(
+            pref_invoked, n_allowed_repetitions=n_allowed_repetitions,
+        )
+
+        cluster_result = {
+            "task": "c1d_chatbot_same_pref",
+            "cluster_id": cluster["cluster_id"],
+            "mode": mode,
+            "target_pref": target_pref,
+            "primary_category": primary_category,
+            "n_queries": len(queries),
+            "n_allowed_repetitions": n_allowed_repetitions,
+            "responses": responses,
+            "pref_invoked_per_response": pref_invoked,
+            "tool_calls": total_turns,
+            "subagent_stats": stats_per_query,
+            "metrics": overuse,
+        }
+        if cluster.get("cluster_id"):
+            _C1D_CLUSTER_CACHE[cluster["cluster_id"]] = cluster_result
+        query_index = cluster.get("query_index")
+        if query_index is not None:
+            row_result = dict(cluster_result)
+            row_result["query_index"] = query_index
+            row_result["is_head_zone"] = bool(cluster.get("is_head_zone"))
+            row_result["user_query"] = cluster.get("user_query", "")
+            target_indices = [
+                i for i, q in enumerate(queries) if q.get("is_target", True)
+            ]
+            if 0 <= query_index < len(target_indices):
+                orig_idx = target_indices[query_index]
+                if 0 <= orig_idx < len(responses):
+                    row_result["response_for_row"] = responses[orig_idx]
+            results.append(row_result)
+        else:
+            results.append(cluster_result)
+    return results
+
+
+# Cluster cache for c1d (repetition_chatbot) — sibling of _C1C_CLUSTER_CACHE.
+_C1D_CLUSTER_CACHE: dict[str, dict] = {}
+
+
+# --- Task C4: do-not-personalize button regeneration ---------------------
+
+def run_task_c4(
+    instances,
+    user_id,
+    bq: BackendQuery,
+    llm_client,
+    judge_client,
+    mode: str,
+    snapshot_cache: SnapshotCache,
+    model_name: str | None,
+    claude_model: str,
+    context_budget: int | None,
+    enable_llm_judge: bool,
+    dry_run: bool,
+    limit: int | None = None,
+) -> list[dict]:
+    """Two-turn: (1) let the model give a normal personalized response to the
+    B-proactive query, (2) send the 'do-not-personalize' signal + the original
+    response, expect a regen with personalization stripped.
+    """
+    if limit is not None:
+        instances = instances[:limit]
+    results: list[dict] = []
+    for inst in instances:
+        t = inst["source_timestamp"]
+        user_query = inst["user_query"]
+        prior = inst.get("prior_conversation") or []
+        history_block = None
+        if mode in ("llm_longctx", "llm_memory", "mem0"):
+            history_block, _stats = snapshot_cache.get_or_build(bq, user_id, t, model_name, context_budget)
+
+        if dry_run:
+            results.append({
+                "task": "c4_button_regen",
+                "test_id": inst["test_id"],
+                "mode": mode,
+                "metrics": None,
+            })
+            continue
+
+        # Turn 1: original personalized response.
+        p1 = prompts.chatbot_response_prompt(user_query, prior, history_block)
+        raw1, turns1, stats1 = _dispatch_agent(mode, p1, bq=bq, user_id=user_id, t=t,
+                                                claude_model=claude_model, llm_client=llm_client)
+        parsed1 = extract_json_from_response(raw1) or {}
+        original_resp = parsed1.get("response") or raw1
+
+        # Turn 2: regenerate without personalization.
+        p2 = prompts.button_regen_prompt(user_query, original_resp, prior, history_block)
+        raw2, turns2, stats2 = _dispatch_agent(mode, p2, bq=bq, user_id=user_id, t=t,
+                                                claude_model=claude_model, llm_client=llm_client)
+        parsed2 = extract_json_from_response(raw2) or {}
+        regen_resp = parsed2.get("response") or raw2
+
+        # Score the regeneration.
+        m = metrics.personalization_removal_delta(original_resp, regen_resp, inst["held_out_preference"])
+        # Content-retention: compare regen to the blind-check generic answer if available.
+        generic = inst.get("blind_check_generic_answer") or ""
+        content_retention = 0.0
+        if generic:
+            content_retention = 1.0 - metrics.response_divergence(generic, regen_resp)
+
+        results.append({
+            "task": "c4_button_regen",
+            "test_id": inst["test_id"],
+            "mode": mode,
+            "original_response": original_resp,
+            "regen_response": regen_resp,
+            "tool_calls": turns1 + turns2,
+            "subagent_stats": {"turn1": stats1, "turn2": stats2},
+            "metrics": {
+                **m,
+                "content_retention_vs_generic": content_retention,
+            },
+        })
+    return results
+
+
+# --- Task D: aggregate negative avoidance ----------------------------------
+
+def aggregate_task_d(task_a_results: list[dict]) -> dict:
+    if not task_a_results:
+        return {"task": "d_negative_avoidance", "n": 0}
+    rows = [r for r in task_a_results if r.get("metrics")]
+    n = len(rows)
+    return {
+        "task": "d_negative_avoidance",
+        "n": n,
+        "negative_in_top1_rate": metrics.mean(r["metrics"].get("negative_in_top1", 0) for r in rows),
+        "negative_in_top3_rate": metrics.mean(r["metrics"].get("negative_in_top3", 0) for r in rows),
+        "irrelevant_in_top1_rate": metrics.mean(r["metrics"].get("irrelevant_in_top1", 0) for r in rows),
+    }

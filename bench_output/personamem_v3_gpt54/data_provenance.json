@@ -1,0 +1,37 @@
+[
+  {
+    "file": "instagram.json",
+    "url": "https://hf-mirror.com/datasets/bowen-upenn/PersonaMem-v3/resolve/main/backend/8/instagram.json",
+    "sha256": "f7ac88fb2cf746765a9168b33eb7cc589004eec2902030632dc621642fdbeeef"
+  },
+  {
+    "file": "facebook.json",
+    "url": "https://hf-mirror.com/datasets/bowen-upenn/PersonaMem-v3/resolve/main/backend/8/facebook.json",
+    "sha256": "33f934e3263570cd2bd23bcd111356dd16158289ef0ea9ce60dbd7f643111d24"
+  },
+  {
+    "file": "threads.json",
+    "url": "https://hf-mirror.com/datasets/bowen-upenn/PersonaMem-v3/resolve/main/backend/8/threads.json",
+    "sha256": "b4a0d49ebcab1b84958ba8d6992dba8e4bbb2e452bcd8f8dfb4baebda187cec1"
+  },
+  {
+    "file": "chatbot.json",
+    "url": "https://hf-mirror.com/datasets/bowen-upenn/PersonaMem-v3/resolve/main/backend/8/chatbot.json",
+    "sha256": "025d7f6794517de73d3c8fa9b2fa93f7a4c2451e7e9815390fc73c7dbb8dea84"
+  },
+  {
+    "file": "ai_studio.json",
+    "url": "https://hf-mirror.com/datasets/bowen-upenn/PersonaMem-v3/resolve/main/backend/8/ai_studio.json",
+    "sha256": "aa29f96e1c403b342c4868db00e3de3cd1749fcf13f134137fe8ffb031bf1577"
+  },
+  {
+    "file": "calendar.json",
+    "url": "https://hf-mirror.com/datasets/bowen-upenn/PersonaMem-v3/resolve/main/backend/8/calendar.json",
+    "sha256": "b2ebc2a58d4284e6192b94610837429d96259f92304c5a4d20a34f04fda02587"
+  },
+  {
+    "file": "test.json",
+    "url": "https://hf-mirror.com/datasets/bowen-upenn/PersonaMem-v3/resolve/main/backend/8/test.json",
+    "sha256": "c3650a6125e19f766d0d138c8eaf9a28d417db46e7cf37c1400078233d8a81cb"
+  }
+]

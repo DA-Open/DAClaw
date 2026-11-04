@@ -1,0 +1,23 @@
+{
+  "query_id": "8:0036:recsys_2026-04-06_a1",
+  "snapshot": "/home/yangkuntao/DaraOS/bench_output/personamem_v3_gpt54/tasks/002/history/8/T_1775462400",
+  "prompt": "# Task: personalized social-media content recommendation\n\nIt's 2026-04-06 08:00 UTC. The recommendation system has proposed 16 candidate items. Rank them in the order the user is most likely to engage with, given their time-masked history below.\n\n## Candidate slate\n  [0] niyi, that lace edge caught me straight, finish is too correct sha (hashtags: #AfricanFashion, #AnkaraPrints, #GuipureLace)\n  [1] GoldBridal AfricanFashion HeadWrapTutorial (hashtags: #GoldBridal, #AfricanFashion, #HeadWrapTutorial, #GeleStyle, #FashionInspo, #CulturalVibes, #BeautyTutorial)\n  [2] RIP UberDriver Ghana (hashtags: #RIP, #UberDriver, #Ghana, #FuneralTribute, #Respect, #LegacyLivesOn, #FuneralServices)\n  [3] EmpoweredWomen RelationshipGoals SelfSufficiency (hashtags: #EmpoweredWomen, #RelationshipGoals, #SelfSufficiency, #ConfidenceIsKey, #LoveAndLessons, #RealTalkRelationships, #WomenEmpowerment)\n  [4] This Ankara is clean clean 😮‍💨 love the fit and those sleeve details. (hashtags: #AnkaraFashion, #AfricanFashion)\n  [5] Nice setup, but this one no concern me 😅 (hashtags: #catfishfarming, #qualityseeds, #aquaculture, #fishfarming, #agriculture, #sustainablefarming, #farmerssupport, #mirajfoodsandfishery)\n  [6] fashioninfluencer personalstyle confidenceiskey (hashtags: #fashioninfluencer, #personalstyle, #confidenceiskey, #thelimits_asooke, #crowngele, #brandambassador, #fashionlover, #selfexpression)\n  [7] AfricanFashion OnlineShopping FashionDeals (hashtags: #AfricanFashion, #OnlineShopping, #FashionDeals, #AchieversFashionHome, #ColorfulOutfits, #FacebookFashion, #WomensFashion)\n  [8] TosanAndTayo WeddingGuests Warri (hashtags: #TosanAndTayo, #WeddingGuests, #Warri, #Newlyweds, #LoveOfMyLife, #Congratulations)\n  [9] Nah, this is just cats in matching tiny glasses doing too much. (hashtags: #catsofinstagram, #felinefun, #humor, #entertainment, #enjoy, #lighthearted, #comedygold)\n  [10] small reminder to myself too\n\nwalk first, snack later\n\ndiscipline does not need announcement every day, it needs follow  (hashtags: #discipline, #healthroutine)\n  [11] AfricanArt RiverOfPeace SereneVibes (hashtags: #AfricanArt, #RiverOfPeace, #SereneVibes, #CulturalHeritage, #ArtAppreciation, #ImmersiveExperience, #NatureLovers)\n  [12] wedding photos, but make it clean, respectful, and not blocking every aunty from seeing the couple 💍 (hashtags: #weddingplanning, #yorubawedding, #photography)\n  [13] toddlersofinstagram beegees stayinalive (hashtags: #toddlersofinstagram, #beegees, #stayinalive, #funnykids, #dancingqueen, #fyp, #babylove)\n  [14] musicianlife liveperformance singersongwriter (hashtags: #musicianlife, #liveperformance, #singersongwriter, #TheCarnival, #LAclubscene, #musicstory, #behindthescenes)\n  [15] CelineDion BecauseYouLovedMe LoveSong (hashtags: #CelineDion, #BecauseYouLovedMe, #LoveSong, #RomanticMusic, #SingerSongwriter, #NewMusic, #EmotionalConnection)\n\n## Output\nRespond with ONE fenced ```json block containing the ranked indexes:\n```json\n{\n  \"ranked_indexes\": [<idx>, <idx>, ...],\n  \"reasoning\": \"<=2 sentences\"\n}\n```",
+  "config": {
+    "model": "gpt-5.4",
+    "base_url": "https://api2.aigcbest.top/v1",
+    "max_iterations": 30,
+    "benchmark": "/home/yangkuntao/DaraOS/PersonaMem-v3",
+    "user_id": "8",
+    "limit": 3,
+    "task_type": "personalized_recommendation",
+    "selection": "first N matching official test.json instances, in file order",
+    "scorer": "upstream compute_personalized_recommendation_metrics",
+    "judge_model": null,
+    "harness": "DAClaw run_agent.AIAgent",
+    "tools": [
+      "read_file",
+      "search_files"
+    ],
+    "api_key_env": "PM3_API_KEY"
+  }
+}

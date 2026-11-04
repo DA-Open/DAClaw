@@ -1,0 +1,39 @@
+{
+  "repository": "KAKA22/SpreadsheetBench-v2",
+  "dataset_url": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip#spreadsheetbench-v2/Debugging/dataset.json",
+  "selection": "first N records in official file order",
+  "limit": 3,
+  "files": [
+    {
+      "file": "spreadsheet/01_Debugging/input_files/Double Counting_input.xlsx",
+      "url": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip#spreadsheetbench-v2/Debugging/spreadsheet/01_Debugging/input_files/Double Counting_input.xlsx",
+      "sha256_original_download": "e6d8eb78c3c91d352c054a5c043493861954ffa1cf75f80076a1b2d062709c10"
+    },
+    {
+      "file": "spreadsheet/01_Debugging/01_golden.xlsx",
+      "url": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip#spreadsheetbench-v2/Debugging/spreadsheet/01_Debugging/01_golden.xlsx",
+      "sha256_original_download": "4ea318ac60b4266a0b752d92d8174c7e526c99570d987764e20bcacfde68c151"
+    },
+    {
+      "file": "spreadsheet/01_Debugging/input_files/Embedded Hardcode_input.xlsx",
+      "url": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip#spreadsheetbench-v2/Debugging/spreadsheet/01_Debugging/input_files/Embedded Hardcode_input.xlsx",
+      "sha256_original_download": "6da43f3b6d18b4cfdaf5aafd0bbb55b4537607c8d03a26a7a0eb4b68b68f5aeb"
+    },
+    {
+      "file": "spreadsheet/01_Debugging/01_golden.xlsx",
+      "url": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip#spreadsheetbench-v2/Debugging/spreadsheet/01_Debugging/01_golden.xlsx",
+      "sha256_original_download": "4ea318ac60b4266a0b752d92d8174c7e526c99570d987764e20bcacfde68c151"
+    },
+    {
+      "file": "spreadsheet/01_Debugging/input_files/Errors_input.xlsx",
+      "url": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip#spreadsheetbench-v2/Debugging/spreadsheet/01_Debugging/input_files/Errors_input.xlsx",
+      "sha256_original_download": "db44c7fba3299b49a07572c2be03ea4544fabbdf633d22c978013857198dd9a9"
+    },
+    {
+      "file": "spreadsheet/01_Debugging/01_golden.xlsx",
+      "url": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip#spreadsheetbench-v2/Debugging/spreadsheet/01_Debugging/01_golden.xlsx",
+      "sha256_original_download": "4ea318ac60b4266a0b752d92d8174c7e526c99570d987764e20bcacfde68c151"
+    }
+  ],
+  "release_archive": "https://hf-mirror.com/datasets/KAKA22/SpreadsheetBench-v2/resolve/main/spreadsheetbench-v2-09-10.zip"
+}

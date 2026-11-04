@@ -1,0 +1,5 @@
+{
+  "id": "01_01",
+  "prompt": "Please audit and fix this file thoroughly. Errors may include but are not limited to: formula logic errors or inconsistencies, hardcoded values that should be formulas, broken cell references, data validation issues, potential calculation errors, inconsistent formatting or naming conventions, best practice violations, and any other issues that could affect accuracy or maintainability.\n\nInput File: /home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/input.xlsx\nOutput Path: /home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/01_01_output.xlsx\nUse the terminal and Python/openpyxl to inspect and edit the workbook. Preserve existing formatting and cells unless the task requires changes. Save the completed workbook at the exact Output Path and verify it exists.\n",
+  "output": "/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_01/01_01_output.xlsx"
+}

@@ -1,0 +1,171 @@
+  ▏ 💻 $         python - <<'PY'
+import openpyxl, json, os
+path='/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/input.xlsx'
+wb=openpyxl.load_workbook(path)
+print('sheets', wb.sheetnames)
+for ws in wb.worksheets:
+    print(ws.title, ws.max_row, ws.max_column)
+    # find formulas with REF
+    refs=[]
+    for row in ws.iter_rows():
+        for c in row:
+            if isinstance(c.value,str) and c.value.startswith('=') and '#REF!' in c.value:
+                refs.append(c.coordinate+':'+c.value)
+    if refs:
+        print('REF_FORMULAS', ws.title, len(refs))
+        for x in refs[:20]: print(x)
+PY  1.0s
+  ▏ 💻 $         python - <<'PY'
+import openpyxl, re
+from openpyxl import load_workbook
+path='/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/input.xlsx'
+wb=load_workbook(path)
+for s in ['Ex 5 - M&A','Ex 1 - LBO']:
+    ws=wb[s]
+    print('\nSHEET',s)
+    for r in range(1, min(ws.max_row,95)+1):
+        vals=[]
+        for c in range(1, min(ws.max_column,37)+1):
+            v=ws.cell(r,c).value
+            if v is not None:
+                vals.append(f"{openpyxl.utils.get_column_letter(c)}{r}={v}")
+        if vals and (s=='Ex 5 - M&A' and r<=35 or s=='Ex 1 - LBO' and 1<=r<=40):
+            print(' | '.join(vals[:20]))
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+import openpyxl
+from openpyxl import load_workbook
+path='/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/input.xlsx'
+wb=load_workbook(path)
+# inspect all formulas in Ex5 with REF and determine pattern/count rows
+ws=wb['Ex 5 - M&A']
+for r in range(12,81):
+    vals=[ws[f'{col}{r}'].value for col in ['B','C','D','E','F','G','I','J','K','L','M','N','P','Q','R','S','T','U','W','X','Y','Z','AA','AB']]
+    if any(isinstance(v,str) and '#REF!' in v for v in vals):
+        print(r, vals)
+print('--- Ex1 rows with REF ---')
+ws=wb['Ex 1 - LBO']
+for r in range(18,96):
+    row=[]
+    hit=False
+    for c in range(31,38):
+        v=ws.cell(r,c).value
+        if isinstance(v,str) and '#REF!' in v:
+            hit=True
+        row.append(v)
+    if hit:
+        print(r,row)
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+import openpyxl
+from openpyxl import load_workbook
+wb=load_workbook('/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/input.xlsx')
+ws=wb['Ex 1 - LBO']
+for r in range(41,96):
+    vals=[]
+    for c in range(31,38):
+        v=ws.cell(r,c).value
+        if v is not None:
+            vals.append(f'{openpyxl.utils.get_column_letter(c)}{r}={v}')
+    if vals:
+        print(' | '.join(vals))
+PY  0.6s
+  ▏ 💻 $         python - <<'PY'
+import openpyxl, copy, os
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+infile='/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/input.xlsx'
+outfile='/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/01_03_output.xlsx'
+wb=load_workbook(infile)
+# Fix Ex 5 - M&A scenario selector refs using active scenario selector Ex1!$C$9 = 3
+ws=wb['Ex 5 - M&A']
+for row in [12,15,18,21,24,27,35,45,55,65,78,79,80]:
+    for col in ['C','D','E','F','G']:
+        target={'C':'J','D':'K','E':'L','F':'M','G':'N'}[col]
+        ws[f'{col}{row}'] = f'=+CHOOSE(\'Ex 1 - LBO\'!$C$9,{target}{row},{chr(ord(target)+7)}{row},{chr(ord(target)+14)}{row})'
+# rows with only first active col
+for row in [22,74,75,76]:
+    ws[f'C{row}'] = f'=+CHOOSE(\'Ex 1 - LBO\'!$C$9,J{row},Q{row},X{row})'
+# triangular blocks
+for base_row in [36,46,56,66]:
+    for col,target in [('D','K'),('E','L'),('F','M'),('G','N')]:
+        offs={'D':0,'E':1,'F':2,'G':3}[col]
+        q=['R','S','T','U'][offs]
+        x=['Y','Z','AA','AB'][offs]
+        ws[f'{col}{base_row}'] = f'=+CHOOSE(\'Ex 1 - LBO\'!$C$9,{target}{base_row},{q}{base_row},{x}{base_row})'
+for base_row in [37,47,57,67]:
+    for col,target,q,x in [('E','L','S','Z'),('F','M','T','AA'),('G','N','U','AB')]:
+        ws[f'{col}{base_row}'] = f'=+CHOOSE(\'Ex 1 - LBO\'!$C$9,{target}{base_row},{q}{base_row},{x}{base_row})'
+for base_row in [38,48,58,68]:
+    for col,target,q,x in [('F','M','T','AA'),('G','N','U','AB')]:
+        ws[f'{col}{base_row}'] = f'=+CHOOSE(\'Ex 1 - LBO\'!$C$9,{target}{base_row},{q}{base_row},{x}{base_row})'
+for base_row in [39,49,59,69]:
+    ws[f'G{base_row}'] = f'=+CHOOSE(\'Ex 1 - LBO\'!$C$9,N{base_row},U{base_row},AB{base_row})'
+# Fix Ex1 sensitivity tables by restoring data table formulas pattern from first col across rows
+ws=wb['Ex 1 - LBO']
+# helper copy row formulas horizontally from AG to AK based on row labels and anchor patterns
+for row in [18,19,20,21,22,27,28,29,30,31,36,37,38,39,40,45,46,47,48,49]:
+    for col in ['AH','AI','AJ','AK']:
+        prev=chr(ord(col[0])-1) if len(col)==2 else None
+# set explicit formulas
+# block 1 premiums
+for col,left in zip(['AH','AI','AJ','AK'], ['AG','AH','AI','AJ']):
+    r=18; ws[f'{col}{r}']=f'=TABLE($AF$17,$C$31,$AF18,{left}$17)'
+for r in [19,20,21,22]:
+    for col,left in zip(['AG','AH','AI','AJ','AK'], ['AG','AH','AI','AJ','AK']):
+        ws[f'{col}{r}']=f'=TABLE($AF$17,$C$31,$AF{r},{left}$17)'
+# block2 EBITDA margin
+ws['AH27']='=TABLE($AF$26,$M$27,$AF27,AH$26)'
+ws['AI27']='=TABLE($AF$26,$M$27,$AF27,AI$26)'
+ws['AJ27']='=TABLE($AF$26,$M$27,$AF27,AJ$26)'
+ws['AK27']='=TABLE($AF$26,$M$27,$AF27,AK$26)'
+for r in [28,29,30,31]:
+    for col in ['AG','AH','AI','AJ','AK']:
+        ws[f'{col}{r}']=f'=TABLE($AF$26,$M$27,$AF{r},{col}$26)'
+# block3 exit multiple vs growth
+ws['AH36']='=TABLE($AF$35,$C$20,$AF36,AH$35)'
+ws['AI36']='=TABLE($AF$35,$C$20,$AF36,AI$35)'
+ws['AJ36']='=TABLE($AF$35,$C$20,$AF36,AJ$35)'
+ws['AK36']='=TABLE($AF$35,$C$20,$AF36,AK$35)'
+for r in [37,38,39,40]:
+    for col in ['AG','AH','AI','AJ','AK']:
+        ws[f'{col}{r}']=f'=TABLE($AF$35,$C$20,$AF{r},{col}$35)'
+# block4 M&A purchase multiple vs exit multiple
+ws['AH45']='=TABLE($AF$44,$C$20,$AF45,AH$44)'
+ws['AI45']='=TABLE($AF$44,$C$20,$AF45,AI$44)'
+ws['AJ45']='=TABLE($AF$44,$C$20,$AF45,AJ$44)'
+ws['AK45']='=TABLE($AF$44,$C$20,$AF45,AK$44)'
+for r in [46,47,48,49]:
+    for col in ['AG','AH','AI','AJ','AK']:
+        ws[f'{col}{r}']=f'=TABLE($AF$44,$C$20,$AF{r},{col}$44)'
+# save
+wb.save(outfile)
+print('saved', outfile, os.path.exists(outfile), os.path.getsize(outfile))
+# verify no #REF formulas remain except maybe cached values not formulas? inspect formulas only
+wb2=load_workbook(outfile)
+count=0
+for ws in wb2.worksheets:
+    for row in ws.iter_rows():
+        for c in row:
+            if isinstance(c.value,str) and c.value.startswith('=') and '#REF!' in c.value:
+                print('remaining', ws.title, c.coordinate, c.value)
+                count+=1
+print('remaining_count', count)
+PY  1.0s
+  ▏ 💻 $         python - <<'PY'
+import os, openpyxl
+path='/home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/01_03_output.xlsx'
+print('exists', os.path.exists(path))
+wb=openpyxl.load_workbook(path)
+print('sheets', wb.sheetnames)
+for s in ['Ex 5 - M&A','Ex 1 - LBO']:
+    ws=wb[s]
+    bad=[]
+    for row in ws.iter_rows():
+        for c in row:
+            if isinstance(c.value,str) and c.value.startswith('=') and '#REF!' in c.value:
+                bad.append(c.coordinate)
+    print(s, 'bad', len(bad))
+print('Ex5 C12', wb['Ex 5 - M&A']['C12'].value)
+print('Ex1 AH18', wb['Ex 1 - LBO']['AH18'].value)
+PY  0.6s

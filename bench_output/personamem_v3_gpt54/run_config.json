@@ -1,0 +1,18 @@
+{
+  "model": "gpt-5.4",
+  "base_url": "https://api2.aigcbest.top/v1",
+  "max_iterations": 30,
+  "benchmark": "/home/yangkuntao/DaraOS/PersonaMem-v3",
+  "user_id": "8",
+  "limit": 3,
+  "task_type": "personalized_recommendation",
+  "selection": "first N matching official test.json instances, in file order",
+  "scorer": "upstream compute_personalized_recommendation_metrics",
+  "judge_model": null,
+  "harness": "DAClaw run_agent.AIAgent",
+  "tools": [
+    "read_file",
+    "search_files"
+  ],
+  "api_key_env": "PM3_API_KEY"
+}

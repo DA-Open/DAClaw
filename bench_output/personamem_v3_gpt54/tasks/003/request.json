@@ -1,0 +1,23 @@
+{
+  "query_id": "8:0042:recsys_2026-04-06_a2",
+  "snapshot": "/home/yangkuntao/DaraOS/bench_output/personamem_v3_gpt54/tasks/003/history/8/T_1775473200",
+  "prompt": "# Task: personalized social-media content recommendation\n\nIt's 2026-04-06 11:00 UTC. The recommendation system has proposed 16 candidate items. Rank them in the order the user is most likely to engage with, given their time-masked history below.\n\n## Candidate slate\n  [0] big respect for organizers who start on time and still keep the room warm\n\nthat one is not magic, it is planning (hashtags: #eventplanning, #community, #osaka)\n  [1] dance entertainment Erkuah (hashtags: #dance, #entertainment, #Erkuah, #queenmode, #redandgold, #funvideos)\n  [2] Clean energy, sharp timing. This one’s actually polished. (hashtags: #dance, #performanceart, #colorfulvibes, #energizer)\n  [3] entitledbrat motorcyclelife lawandorder (hashtags: #entitledbrat, #motorcyclelife, #lawandorder, #humor, #sarcasm, #consequences)\n  [4] Clean footwork, real bounce. Whoever edited this knew the assignment. (hashtags: #dance, #africanmusic, #music)\n  [5] icebaththerapy recovery wellness (hashtags: #icebaththerapy, #recovery, #wellness, #dance, #fitnessmotivation, #mental, #selfdiscovery)\n  [6] VkarateAcademy MartialArts SelfDefense (hashtags: #VkarateAcademy, #MartialArts, #SelfDefense, #KarateForKids, #EmpowermentThroughMartialArts, #FitnessMotivation, #DisciplineAndFocus)\n  [7] funnyvideos animalhumor momlife (hashtags: #funnyvideos, #animalhumor, #momlife, #wildlife, #humor, #lighthearted, #comedy)\n  [8] birthdaygirl happymom mayyuledochie (hashtags: #birthdaygirl, #happymom, #mayyuledochie, #firstbirthday, #celebration, #familylove, #lifestyle)\n  [9] Sharp Steps, Clean Finish (hashtags: #dance, #performance, #danceroutine, #dancelife)\n  [10] twinning edsheeran viral (hashtags: #twinning, #edsheeran, #viral, #viralreels, #lookalike, #inspiration)\n  [11] GospelMusic YorubaPraise AfricanCulture (hashtags: #GospelMusic, #YorubaPraise, #AfricanCulture, #ChristianMusic, #WorshipSong, #SpiritualMusic)\n  [12] WorldAthleticsChampionships TeamNigeria TobiAmusan (hashtags: #WorldAthleticsChampionships, #TeamNigeria, #TobiAmusan, #SportsEquity, #NigerianAthletes, #TrackAndField)\n  [13] fyp reels viral (hashtags: #fyp, #reels, #viral, #trending, #dance, #dancer, #icebath, #cryotherapy)\n  [14] parentinglife toddlerlife momsofinstagram (hashtags: #parentinglife, #toddlerlife, #momsofinstagram, #dadlife)\n  [15] drumming music performance (hashtags: #drumming, #music, #performance, #viral, #fyp, #fypvideoreels, #musician, #drummer)\n\n## Output\nRespond with ONE fenced ```json block containing the ranked indexes:\n```json\n{\n  \"ranked_indexes\": [<idx>, <idx>, ...],\n  \"reasoning\": \"<=2 sentences\"\n}\n```",
+  "config": {
+    "model": "gpt-5.4",
+    "base_url": "https://api2.aigcbest.top/v1",
+    "max_iterations": 30,
+    "benchmark": "/home/yangkuntao/DaraOS/PersonaMem-v3",
+    "user_id": "8",
+    "limit": 3,
+    "task_type": "personalized_recommendation",
+    "selection": "first N matching official test.json instances, in file order",
+    "scorer": "upstream compute_personalized_recommendation_metrics",
+    "judge_model": null,
+    "harness": "DAClaw run_agent.AIAgent",
+    "tools": [
+      "read_file",
+      "search_files"
+    ],
+    "api_key_env": "PM3_API_KEY"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "query_id": "8:0035:recsys_2026-04-06_a0",
+  "seq": 35,
+  "user_id": "8",
+  "task_type": "personalized_recommendation",
+  "status": "ok",
+  "metrics": {
+    "n_ranked": 16,
+    "valid": true,
+    "tier_concordance": 0.507,
+    "recall_at_1": 1.0,
+    "recall_at_3": 1.0,
+    "recall_at_5": 1.0,
+    "ndcg_at_3": 0.5209,
+    "ndcg_at_5": 0.0,
+    "mrr": 1.0,
+    "hit_at_1": 1.0,
+    "hit_at_3": 1.0,
+    "hard_neg_above_filler_count": 7,
+    "hard_neg_violation_rate": 1.0
+  },
+  "agent_response": "```json\n{\n  \"ranked_indexes\": [13, 8, 7, 9, 3, 15, 2, 4, 11, 5, 12, 10, 6, 0, 14, 1],\n  \"reasoning\": \"The user’s strongest recent positives cluster around Nigerian comedy, calm faith/worship content, affectionate family/couple life, and practical home-cooking themes, while multiple exact or near-exact candidates like Tobi Amusan, Apostle Joshua Selman posts, ZOKEShorts, banga cooking, and some testimony/gospel items were explicitly skipped in history. So I ranked comedy and low-noise faith reminders highest, then family/cooking/lifestyle fits, with repeatedly skipped creators/topics and unrelated festival fashion/sports at the bottom.\"\n}\n```",
+  "api_calls": 6,
+  "tool_calls": 23,
+  "duration_ms": 127961
+}

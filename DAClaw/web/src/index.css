@@ -1,0 +1,338 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* DAClaw Agent — Design tokens                                        */
+/* Matched to daclaw-agent.DA-Open.com (dark teal theme)          */
+/* ------------------------------------------------------------------ */
+
+/* --- Font faces --- */
+@font-face { font-family: "Collapse"; src: url("/fonts/Collapse-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Collapse"; src: url("/fonts/Collapse-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Courier Prime"; src: url("/fonts/CourierPrime-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Courier Prime"; src: url("/fonts/CourierPrime-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "RulesCompressed"; src: url("/fonts/RulesCompressed-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "RulesCompressed"; src: url("/fonts/RulesCompressed-Medium.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "RulesExpanded"; src: url("/fonts/RulesExpanded-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "RulesExpanded"; src: url("/fonts/RulesExpanded-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+@font-face { font-family: "Mondwest"; src: url("/fonts/Mondwest-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+
+@theme {
+  /* ---- DAClaw palette (light analytical workspace) ---- */
+  --color-background: #ffffff;
+  --color-foreground: #0f172a;
+  --color-card: #ffffff;
+  --color-card-foreground: #17212b;
+  --color-primary: #0f766e;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #f4f4f5;
+  --color-secondary-foreground: #18181b;
+  --color-muted: #f4f4f5;
+  --color-muted-foreground: #52525b;
+  --color-accent: #f1f5f9;
+  --color-accent-foreground: #0f172a;
+  --color-destructive: #c93535;
+  --color-destructive-foreground: #fff;
+  --color-success: #21895d;
+  --color-warning: #b06a00;
+  --color-border: #e4e4e7;
+  --color-input: #d4d4d8;
+  --color-ring: #0f766e;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #17212b;
+
+  /* ---- Font stacks ---- */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-display: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --font-expanded: "RulesExpanded", Arial, sans-serif;
+  --font-compressed: "RulesCompressed", Arial, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html.dark,
+html[data-theme="dark"] {
+  color-scheme: dark;
+  /* Softer "dim slate" dark theme — lifted off near-black so it reads lighter
+     and less heavy while keeping good contrast and the teal accent. */
+  --color-background: #131922;
+  --color-foreground: #eef2f7;
+  --color-card: #1a212c;
+  --color-card-foreground: #eef2f7;
+  --color-primary: #14b8a6;
+  --color-primary-foreground: #041312;
+  --color-secondary: #232c39;
+  --color-secondary-foreground: #eef2f7;
+  --color-muted: #232c39;
+  --color-muted-foreground: #a3adbb;
+  --color-accent: #2a3543;
+  --color-accent-foreground: #f8fafc;
+  --color-destructive: #f87171;
+  --color-destructive-foreground: #190707;
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-border: #313c4b;
+  --color-input: #3f4a5a;
+  --color-ring: #2dd4bf;
+  --color-popover: #1a212c;
+  --color-popover-foreground: #eef2f7;
+}
+
+/* ---- Global body ---- */
+body {
+  margin: 0;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---- Selection ---- */
+::selection {
+  background: var(--color-foreground);
+  color: var(--color-background);
+}
+
+/* ---- Scrollbars (thin, subtle) ---- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+*:hover {
+  scrollbar-color: color-mix(in srgb, var(--color-foreground) 15%, transparent) transparent;
+}
+html, body {
+  overflow-x: hidden;
+  scrollbar-color: color-mix(in srgb, var(--color-foreground) 25%, transparent) transparent;
+}
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-foreground) 20%, transparent);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-foreground) 35%, transparent);
+}
+
+/* ---- Hide scrollbar utility ---- */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---- Code blocks ---- */
+code {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.15em 0.4em;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-foreground) 8%, transparent);
+}
+
+.katex {
+  color: inherit;
+  font-size: 1em;
+}
+.katex-display {
+  margin: 0;
+}
+.katex-inline .katex {
+  vertical-align: -0.08em;
+}
+
+/* ---- Dither texture ---- */
+.dither {
+  background: repeating-conic-gradient(currentColor 0% 25%, #0000 0% 50%) 0 0 / 2px 2px;
+}
+
+/* ---- Blink cursor (only on group hover, like canonical) ---- */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.blink {
+  display: none;
+}
+.group:hover .blink {
+  display: inline-block;
+  animation: blink 1s step-end infinite;
+}
+
+/* ---- Page transitions ---- */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(16px); }
+}
+
+/* ---- Plus-lighter blend for headings ---- */
+.blend-lighter {
+  mix-blend-mode: normal;
+}
+
+/* ---- Font utilities ---- */
+.font-display { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+.font-expanded { font-family: "RulesExpanded", Arial, sans-serif; }
+.font-compressed { font-family: "RulesCompressed", Arial, sans-serif; }
+.font-courier { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+.font-collapse { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; }
+.font-mono-ui { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace; }
+
+/* ---- Subtle grain overlay for badges ---- */
+.grain {
+  position: relative;
+}
+.grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.12;
+  pointer-events: none;
+  background: repeating-conic-gradient(currentColor 0% 25%, #0000 0% 50%) 0 0 / 2px 2px;
+}
+
+/* ---- Global noise grain (canonical: color-dodge, #eaeaea, high density) ---- */
+.noise-overlay {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 101;
+  mix-blend-mode: multiply;
+  opacity: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' fill='%23eaeaea' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+  background-size: 512px 512px;
+}
+
+/* ---- Subtle dashboard wash ---- */
+.warm-glow {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  mix-blend-mode: multiply;
+  opacity: 0;
+  background: none;
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .mission-shell > .data-sidebar {
+    position: absolute !important;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: min(86vw, 340px) !important;
+    transform: translateX(-104%);
+    transition: transform .28s cubic-bezier(.2,.8,.2,1);
+    box-shadow: 28px 0 90px rgba(0,0,0,.5);
+  }
+  .data-sidebar-open { transform: translateX(0); }
+  .mission-shell > .data-sidebar-backdrop { position: fixed !important; }
+  .data-sidebar-backdrop, .data-sidebar-close, .data-mobile-menu { display: inline-flex; }
+  .data-resizer { display: none; }
+  .data-center { width: 100%; min-width: 0; }
+  .mission-shell > .data-artifact {
+    position: absolute !important;
+    inset: 0;
+    z-index: 70;
+    width: 100% !important;
+    border-left: 0;
+  }
+  .mission-hero { margin-top: 5vh; padding-inline: 12px; }
+  .mission-title { font-size: clamp(2.4rem, 13vw, 4rem); }
+}
+
+/* ETL lineage edges — subtle flowing dash */
+.etl-edge {
+  stroke-dasharray: 6 5;
+  animation: etl-flow 0.9s linear infinite;
+}
+@keyframes etl-flow {
+  to { stroke-dashoffset: -11; }
+}
+
+/* ------------------------------------------------------------------ */
+/* Data intelligence mission-control surface                           */
+/* ------------------------------------------------------------------ */
+.mission-app,
+.mission-shell {
+  --color-background: #1a2536;
+  --color-foreground: #eef5fb;
+  --color-card: #212e42;
+  --color-card-foreground: #eef5fb;
+  --color-secondary: #2a3a52;
+  --color-secondary-foreground: #eaf3fb;
+  --color-muted: #2a3a52;
+  --color-muted-foreground: #9fb0c8;
+  --color-accent: #32445f;
+  --color-accent-foreground: #f4faff;
+  --color-border: #384964;
+  --color-input: #445d80;
+  --color-ring: #54e6d1;
+  --color-popover: #212e42;
+  --color-popover-foreground: #eef5fb;
+}
+.mission-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(73, 111, 165, .055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(73, 111, 165, .055) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, black, transparent 94%);
+  opacity: .75;
+}
+.mission-shell > * { position: relative; z-index: 1; }
+.mission-sidebar { box-shadow: 22px 0 80px rgba(0, 0, 0, .18); }
+.mission-primary {
+  background: linear-gradient(115deg, #4f8cff, #54e6d1 72%);
+  box-shadow: 0 10px 34px rgba(79, 140, 255, .2), 0 0 0 1px rgba(111, 241, 225, .16) inset;
+  transition: transform .2s ease, filter .2s ease, box-shadow .2s ease;
+}
+.mission-primary:hover { transform: translateY(-1px); filter: brightness(1.06); box-shadow: 0 15px 44px rgba(79, 140, 255, .3); }
+.mission-title {
+  background: linear-gradient(110deg, #ffffff 4%, #7fb4ff 45%, #8cf3e4 76%, #b59cff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 20px 80px rgba(79, 140, 255, .16);
+}
+.mission-node { border-color: rgba(120, 151, 196, .12); background: rgba(255,255,255,.018); }
+.mission-node-running { border-color: rgba(84,230,209,.45); background: rgba(84,230,209,.08); box-shadow: 0 0 24px rgba(84,230,209,.08); }
+.mission-node-completed { border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.055); }
+.mission-node-error { border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.08); }
+.mission-workflow { animation: mission-rise .45s cubic-bezier(.2,.8,.2,1) both; }
+@keyframes mission-rise { from { opacity: 0; transform: translateY(8px) scale(.99); } to { opacity: 1; transform: none; } }
+.mission-canvas { box-shadow: inset 0 0 90px rgba(10,20,38,.18); }
+.mission-canvas .bg-card { background-color: rgba(33,46,66,.94); }
+.mission-canvas .border-border { border-color: rgba(65,91,129,.58); }
+.mission-shell iframe { border-radius: 0 0 18px 18px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-workflow, .mission-primary, .etl-edge { animation: none !important; transition: none !important; }
+}

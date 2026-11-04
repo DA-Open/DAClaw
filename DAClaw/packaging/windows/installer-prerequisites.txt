@@ -1,0 +1,15 @@
+DAClaw Windows installer preview
+
+This installer creates a private Python virtual environment inside the selected install folder:
+
+  <install-folder>\venv
+
+DAClaw packages are installed into that virtual environment, not into your base Python environment.
+
+Current preview requirement:
+
+  Python 3.11 or newer must already be installed.
+
+The installer payload includes the built DAClaw Web UI, so Node.js, npm, and Git are not required on the user's computer.
+
+Future releases should bundle or download Python automatically so this prerequisite goes away.

@@ -1,0 +1,9 @@
+Please audit and fix this file thoroughly. Errors may include but are not limited to: deleted rows causing #REF! errors, broken cross-sheet references, typos in sheet names, and cascading calculation failures. Fixes must be applied in the correct order - restoring structural elements before fixing dependent formulas.
+
+Reference data: The model uses 3 scenario cases (Base, Upside, Downside). The active scenario case selector value is 3.
+
+Note: After fixing all formulas, the debt schedule and sensitivity tables may still show #REF! due to stale cached values from the circular reference. To resolve: click any #REF! cell in the debt schedule, press F2 then Enter to force recalculation, then press Ctrl+Alt+F9 (or Cmd+Option+F9 on Mac) several times to let the iterative calculation converge.
+
+Input File: /home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/input.xlsx
+Output Path: /home/yangkuntao/DaraOS/bench_output/spreadsheetbench2_gpt54/tasks/01_03/01_03_output.xlsx
+Use the terminal and Python/openpyxl to inspect and edit the workbook. Preserve existing formatting and cells unless the task requires changes. Save the completed workbook at the exact Output Path and verify it exists.

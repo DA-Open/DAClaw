@@ -1,0 +1,599 @@
+"""Task: personalized_recommendation
+
+Models a *proactive recsys feed push*: at each picked t_test, the agent
+is shown a slate of candidates (1 held-out + 7 hard negatives + fillers)
+and asked to rank them as if it were the recsys deciding what to surface
+next in the user's feed. There is no user-typed query — the user_query
+field is left empty so the runner knows to skip the chat preamble and
+just rank the slate.
+
+Slate construction:
+  - held_out: a real positive engagement the user has AFTER t_test inside
+    the anchor window. The agent's job is to rank this at position 1.
+  - hard_negatives: real items the user negatively engaged with (or items
+    whose hashtags overlap held_out's but the user didn't engage). These
+    are surface-similar — testing whether the agent picks up on the
+    user's actual preference signal vs. just hashtag co-occurrence.
+  - fillers: random pre-t_test events with NO hashtag overlap (noise).
+
+Time-masking: t_test cuts history. The agent must rank candidates
+without seeing the user's actual post-t_test engagement.
+
+Multi-anchor fan-out: per-day quotas were too restrictive (≤8 days × strict
+hard-negative gate left most users with ~5 instances). The builder now
+fans out 3–5 anchors per eligible day (morning / midday / afternoon /
+evening / late-evening), so a single active user-day can yield several
+slates with disjoint held-out + hard-negative pools.
+
+Metrics: recall@k, ndcg@k, mrr, hit@k. Deterministic — no LLM judge.
+"""
+
+from __future__ import annotations
+
+import datetime as _dt
+import random
+from collections import Counter
+
+from evaluation.backend_query import BackendQuery
+
+
+# Targeted anchor count per user. Per-day fan-out (7 anchors/day across
+# the active hours) on a typical 8-day window gives ~56 candidate anchors;
+# after the hard-negatives gate drops a portion, surviving instances land
+# comfortably in the 30–35 range that task_distribution.py targets.
+PERSONALIZED_REC_DEFAULT_N_ANCHORS: int = 56
+SLATE_SIZE: int = 16            # 1 held-out + 7 hard negatives + 8 fillers
+N_HARD_NEGATIVES: int = 7
+
+# Anchor offsets within a UTC day (hours past midnight UTC). Each yields
+# a separate 3-hour slate window. 7 anchors × ~8 active days = 56 candidate
+# instances upstream of floor-failure drops, comfortably above the 30/35
+# task-distribution target.
+_ANCHOR_HOURS: tuple[int, ...] = (5, 8, 11, 14, 17, 20, 23)
+_ANCHOR_WINDOW_SECONDS: int = 3 * 3600
+
+# Minimum hard negatives required for a slate to be ranking-worthy.
+# Was 3 (per-day single-anchor design); softened to 2 for the multi-anchor
+# fan-out so anchors with narrow-hashtag held-outs aren't all dropped.
+# Hard negatives are the discriminative items in the slate; 2+ still
+# tests the agent's ability to prefer the held-out over surface-similar
+# rejected items.
+_MIN_HARD_NEGATIVES: int = 2
+
+_TASK_ID = "personalized_recommendation"
+
+
+def _content_summary(e: dict) -> dict:
+    """Compact projection for a candidate slate item.
+
+    Falls back through title → caption → first hashtag → "post on
+    {app}" so no candidate ever renders as an empty `<item>` placeholder
+    in the user-facing query string."""
+    content = e.get("content") or {}
+    hashtags = list(e.get("source_hashtags") or [])[:8]
+    app = e.get("_app", "")
+    title = (content.get("title") or content.get("caption") or "").strip()
+    if not title and hashtags:
+        title = " ".join(h.lstrip("#") for h in hashtags[:3])
+    if not title:
+        title = f"post on {app}" if app else "post"
+    return {
+        "source_object_id": e.get("source_object_id", ""),
+        "title": title[:120],
+        "caption": (content.get("caption") or "")[:200],
+        "hashtags": hashtags,
+        "source_app": app,
+        "source_timestamp": int(e.get("source_timestamp") or 0),
+    }
+
+
+def _hashtag_set(e: dict) -> set[str]:
+    return {(h or "").lstrip("#").lower() for h in (e.get("source_hashtags") or []) if h}
+
+
+def build_personalized_recommendation(
+    bq: BackendQuery,
+    user_id: str,
+    t_anchor: int,
+    n_anchors: int = PERSONALIZED_REC_DEFAULT_N_ANCHORS,
+    rng_seed: int = 0,
+) -> list[dict]:
+    """Build proactive-recsys ranking instances scattered across the
+    user's interaction window. Multi-anchor fan-out: each eligible day
+    contributes up to len(_ANCHOR_HOURS) anchors (separated 4h+) so a
+    single active day can yield 3–5 distinct slates instead of one.
+
+    Each instance carries a 16-item slate where:
+      - held_out is a real positive engagement inside the anchor's
+        4-hour window (the next thing the user actually engaged with),
+      - hard negatives are real items the user disliked or skipped that
+        share ≥1 hashtag with held_out (drawn from history strictly
+        before t_test),
+      - fillers are random pre-t_test events with NO hashtag overlap.
+
+    Time-mask discipline: only events with source_timestamp < t_test are
+    visible to the agent. Held_out and hard negatives are not.
+    """
+    from evaluation.tasks.e3_daily_briefing_multi import (
+        _collect_day_buckets,
+        _events_in_window,
+        _POSITIVE_INTERACTION_TYPES,
+        _NEGATIVE_INTERACTION_TYPES,
+    )
+
+    pos_buckets = _collect_day_buckets(bq, user_id, positive_only=True)
+    eligible = [d for d, rows in pos_buckets.items() if len(rows) >= 1]
+    if not eligible:
+        return []
+    eligible.sort()
+    if len(eligible) >= 3:
+        eligible = eligible[1:-1]   # 24h guard on both ends
+
+    # Build a flat pool of all events across the user (for filler sampling
+    # and held-out / hard-negative gating).
+    all_events: list[dict] = []
+    for app in ("instagram", "facebook", "threads"):
+        for e in bq._load_events(user_id, app):
+            row = dict(e)
+            row.setdefault("_app", app)
+            all_events.append(row)
+    all_events.sort(key=lambda e: int(e.get("source_timestamp") or 0))
+
+    rng = random.Random(rng_seed or hash(user_id) % (2**31))
+
+    # Build the anchor list: round-robin across days × anchor-hours so a
+    # user with few active days still gets multiple anchors per day, but
+    # we don't pile all anchors onto the busiest day. Capped at n_anchors.
+    by_pos_volume_desc = sorted(eligible, key=lambda d: -len(pos_buckets[d]))
+    candidate_anchors: list[tuple[str, int, int]] = []  # (day, anchor_idx, hour)
+    for anchor_idx, hour in enumerate(_ANCHOR_HOURS):
+        for day in by_pos_volume_desc:
+            candidate_anchors.append((day, anchor_idx, hour))
+    candidate_anchors = candidate_anchors[:n_anchors]
+
+    instances: list[dict] = []
+    used_holdouts_per_day: dict[str, set] = {}
+    instance_counter = 0
+    for day, anchor_idx, hour in candidate_anchors:
+        dt0 = _dt.datetime.strptime(day, "%Y-%m-%d").replace(
+            hour=hour, minute=0, second=0, tzinfo=_dt.timezone.utc
+        )
+        anchor_ts = int(dt0.timestamp())
+        window_end = anchor_ts + _ANCHOR_WINDOW_SECONDS
+
+        # Held-out: a positive engagement inside the anchor's 4-hour window.
+        # Disjoint from prior anchors on the same day so multi-anchor
+        # fan-out doesn't re-test the same item.
+        used = used_holdouts_per_day.setdefault(day, set())
+        pos_in_window = [
+            e for e in _events_in_window(pos_buckets, day, anchor_ts, window_end)
+            if e.get("source_object_id") not in used
+        ]
+        if not pos_in_window:
+            continue
+        held_out = pos_in_window[0]
+        used.add(held_out.get("source_object_id"))
+        held_hashtags = _hashtag_set(held_out)
+
+        # Hard negatives: events in the user's history (strictly pre-t_test)
+        # where the user explicitly or implicitly disliked, AND whose
+        # hashtags overlap held_out's. Surface-similar but unwanted.
+        neg_pool = [
+            e for e in all_events
+            if (e.get("source_interaction_type") or "") in _NEGATIVE_INTERACTION_TYPES
+            and _hashtag_set(e) & held_hashtags
+            and int(e.get("source_timestamp") or 0) < anchor_ts
+        ]
+        rng.shuffle(neg_pool)
+        hard_negatives = neg_pool[:N_HARD_NEGATIVES]
+
+        # If we don't have enough negative-engagement hard negatives, fall
+        # back to events with overlapping hashtags but ZERO engagement
+        # signal (the user didn't react either way — adjacent but
+        # unwanted at this moment).
+        if len(hard_negatives) < N_HARD_NEGATIVES:
+            seen_ids = {e.get("source_object_id") for e in hard_negatives}
+            seen_ids.add(held_out.get("source_object_id"))
+            for e in all_events:
+                if int(e.get("source_timestamp") or 0) >= anchor_ts:
+                    continue
+                if e.get("source_object_id") in seen_ids:
+                    continue
+                if not (_hashtag_set(e) & held_hashtags):
+                    continue
+                hard_negatives.append(e)
+                seen_ids.add(e.get("source_object_id"))
+                if len(hard_negatives) >= N_HARD_NEGATIVES:
+                    break
+
+        if len(hard_negatives) < _MIN_HARD_NEGATIVES:
+            # Not enough adjacent items in the user's data to make a
+            # meaningful ranking task — skip this anchor.
+            continue
+
+        # Title de-dup (audit 2026-05-31): the held-out target's title must
+        # appear EXACTLY ONCE in the slate. A hard-neg / filler sharing its
+        # title makes the target text-guessable (the agent can pick the
+        # duplicated title without reasoning). Drop title-collisions; the
+        # filler backfill below keeps the slate at SLATE_SIZE.
+        def _title_of(row: dict) -> str:
+            return (_content_summary(row).get("title") or "").strip().lower()
+
+        seen_titles: set[str] = set()
+        _ho_title = _title_of(held_out)
+        if _ho_title:
+            seen_titles.add(_ho_title)
+        _negs_dedup: list[dict] = []
+        for n in hard_negatives:
+            t = _title_of(n)
+            if t and t in seen_titles:
+                continue
+            if t:
+                seen_titles.add(t)
+            _negs_dedup.append(n)
+        hard_negatives = _negs_dedup
+
+        # Fillers: random pre-t_test events with NO hashtag overlap (noise),
+        # and NO title collision with held_out / hard_negs / each other.
+        used_ids = {held_out.get("source_object_id")} | {
+            n.get("source_object_id") for n in hard_negatives
+        }
+        filler_pool = [
+            e for e in all_events
+            if e.get("source_object_id") not in used_ids
+            and int(e.get("source_timestamp") or 0) < anchor_ts
+            and not (_hashtag_set(e) & held_hashtags)
+        ]
+        rng.shuffle(filler_pool)
+        n_fillers = SLATE_SIZE - 1 - len(hard_negatives)
+        fillers = []
+        for e in filler_pool:
+            if len(fillers) >= n_fillers:
+                break
+            t = _title_of(e)
+            if t and t in seen_titles:
+                continue
+            if t:
+                seen_titles.add(t)
+            fillers.append(e)
+
+        # Assemble + shuffle the slate so held_out isn't always at idx=0.
+        slate_rows: list[dict] = [held_out] + hard_negatives + fillers
+        order = list(range(len(slate_rows)))
+        rng.shuffle(order)
+        slate = [_content_summary(slate_rows[j]) for j in order]
+        held_out_idx = order.index(0)
+        hard_negative_idxs = [order.index(j + 1) for j in range(len(hard_negatives))]
+
+        # User-facing query: empty (proactive recsys feed push — there is
+        # no user-typed query, the runner skips the chat preamble and just
+        # ranks the slate).
+        query_text = ""
+
+        instances.append({
+            "instance_id": f"recsys_{day}_a{anchor_idx}",
+            "task_id": _TASK_ID,
+            "entry_point": "chatbot_routed",
+            "t_test": anchor_ts,
+            "anchor_hour_utc": hour,
+            "day_index": instance_counter,
+            "day_label": day,
+            "candidates": slate,
+            "held_out_idx": held_out_idx,
+            "hard_negative_idxs": hard_negative_idxs,
+            "query_text": query_text,
+        })
+        instance_counter += 1
+    return instances
+
+
+# Backward-compat alias for any caller that still imports the old function name.
+build_e4_google_search = build_personalized_recommendation
+
+
+def personalized_recommendation_prompt(instance: dict, history_block: str | None) -> str:
+    cands = instance.get("candidates") or []
+    hour = int(instance.get("anchor_hour_utc") or 8)
+    cand_lines = "\n".join(
+        f"  [{i}] {c.get('title','')} (hashtags: {', '.join(c.get('hashtags', []))})"
+        for i, c in enumerate(cands)
+    )
+    history = (
+        f"\n## User history (time-masked to before {instance['day_label']} {hour:02d}:00 UTC)\n"
+        f"{history_block}\n"
+        if history_block else ""
+    )
+    # Two flavors share this prompt:
+    #   1. Empty query_text → proactive recsys feed-push framing (no
+    #      user-typed query, just a slate to rank).
+    #   2. Real user query text → moment-aware curation framing (the user
+    #      asked the agent for a curated feed at this moment). The merge
+    #      from the old `agentic_moment_recommendation` task lands here:
+    #      the agentic MCP-feed path is impractical without a live backend,
+    #      so moment instances now ride the same deterministic ranking
+    #      metric as proactive recsys but with a voiced user query.
+    raw_query = (instance.get("query_text") or "").strip()
+    is_recsys = not raw_query
+    if is_recsys:
+        framing = (
+            f"It's {instance['day_label']} {hour:02d}:00 UTC. The recommendation "
+            f"system has proposed {len(cands)} candidate items. Rank them in "
+            f"the order the user is most likely to engage with, given their "
+            f"time-masked history below."
+        )
+    else:
+        moment = (instance.get("moment") or "").strip()
+        moment_line = f" (moment: {moment})" if moment else ""
+        framing = (
+            f"It's {instance['day_label']} {hour:02d}:00 UTC{moment_line}. "
+            f"The user just asked their agent: \"{raw_query}\"\n\n"
+            f"Below are {len(cands)} candidate items already in the user's "
+            f"feeds. Rank them in the order the user is most likely to want "
+            f"to see right now, given the moment + their time-masked history."
+        )
+    return f"""# Task: personalized social-media content recommendation
+
+{framing}
+
+## Candidate slate
+{cand_lines}
+{history}
+## Output
+Respond with ONE fenced ```json block containing the ranked indexes:
+```json
+{{
+  "ranked_indexes": [<idx>, <idx>, ...],
+  "reasoning": "<=2 sentences"
+}}
+```"""
+
+
+def _recall_at_k(ranked: list[int], target: int, k: int) -> float:
+    return 1.0 if target in ranked[:k] else 0.0
+
+
+def _hit_at_k(ranked: list[int], target: int, k: int) -> float:
+    return _recall_at_k(ranked, target, k)
+
+
+def _mrr(ranked: list[int], target: int) -> float:
+    for i, r in enumerate(ranked):
+        if r == target:
+            return 1.0 / (i + 1)
+    return 0.0
+
+
+# NDCG relevance grades. Hard-negatives carry a NEGATIVE relevance so that
+# ranking one high actively *subtracts* from the score (not merely wastes a
+# slot) — we penalize surfacing items the user actively rejected. Tunable: make
+# _NDCG_REL_HARD_NEG more negative to penalize hard-negatives harder.
+_NDCG_REL_TARGET = 2.0
+_NDCG_REL_FILLER = 1.0
+_NDCG_REL_HARD_NEG = -2.0
+
+
+def _graded_ndcg_at_k(ranked: list[int], positives, hard_negs, k: int,
+                      filler_grade: float = _NDCG_REL_FILLER) -> float:
+    """Graded NDCG@K shared by every ranking task. Relevance grades:
+
+        positive (held-out / directive-matching) = +2
+        neutral filler                            = +1  (overridable via filler_grade)
+        hard-negative (rejected / carve-out)      = -2
+
+    `filler_grade` defaults to +1 (graded). Tasks whose slates carry NO
+    hard-negatives (e.g. hidden_persona_recommendation: 1 resonant target +
+    neutral fillers, no rejected items) MUST pass `filler_grade=0` (binary
+    relevance) — otherwise the +1 filler with no -2 floor gives a ~75% NDCG
+    floor and ~79% random baseline, which is undiscriminating. See EVAL.md
+    "Hidden-persona NDCG" / AUDIT.md.
+
+    A hard-negative ranked into a top slot contributes NEGATIVE discounted gain,
+    so it actively drags the score down (the more so the higher it sits), on top
+    of pushing positives/fillers lower. The score therefore rewards BOTH
+    "positives near the top" AND "hard-negatives at the bottom" — and punishes
+    the inverse. Standard log2 position discount; normalized by the ideal
+    ordering (positives, then fillers, then hard-negatives) and clamped to [0, 1].
+
+    Generalizes over a SET of positives, so it serves both the recsys slates
+    (one held-out target) and the @ai-directive slate (a set of directive-
+    matching items + carve-outs as the hard-negatives). Tune via _NDCG_REL_*.
+    """
+    import math
+    pos = set(positives or [])
+    hard = set(hard_negs or [])
+
+    def _rel(idx: int) -> float:
+        if idx in pos:
+            return _NDCG_REL_TARGET
+        return _NDCG_REL_HARD_NEG if idx in hard else filler_grade
+
+    def _dcg(order: list[int]) -> float:
+        return sum(_rel(idx) / math.log2(i + 2) for i, idx in enumerate(order[:k]))
+
+    idcg = _dcg(sorted(ranked, key=_rel, reverse=True))
+    if idcg <= 0:
+        return 0.0
+    return max(0.0, _dcg(ranked) / idcg)
+
+
+def _ndcg_at_k(ranked: list[int], target: int, hard_negatives: list[int], k: int,
+               filler_grade: float = _NDCG_REL_FILLER) -> float:
+    """Single-target wrapper around `_graded_ndcg_at_k` for the recsys slates
+    (one held-out `target` + hard negatives). See it for the grading.
+
+    NOTE: this previously credited only the target's own position and ignored
+    `hard_negatives` entirely; then a no-penalty graded version (hard-neg = 0)
+    only let them waste a slot. The shared helper now actively penalizes them.
+    `filler_grade=0` selects binary relevance for no-hard-neg slates.
+    """
+    return _graded_ndcg_at_k(ranked, {target}, hard_negatives, k, filler_grade=filler_grade)
+
+
+def _tier_concordance(ranked: list[int], target: int, hard_negatives: list[int],
+                      n_candidates: int) -> float | None:
+    """Proposal A — fraction of cross-tier constrained pairs ordered correctly.
+
+    The slate has three relevance tiers, ideal order:
+        gold (held-out)  >  fillers (neutral)  >  hard-negatives (rejected)
+    The constrained pairs the ideal order requires are:
+        gold > each filler        (f pairs)
+        gold > each hard-negative  (h pairs)
+        each filler > each hard-neg (f*h pairs)
+    Within-tier order is unconstrained (ties → not counted). Score is the
+    fraction of those f + h + f*h pairs the model ranked correctly. It is 1.0
+    iff the gold is #1 AND every hard-negative sits below every filler, and 0.0
+    at the fully-inverted order. Items the model didn't rank are treated as tied
+    at the bottom (so an incomplete ranking loses those pairs). Returns None for
+    a degenerate slate with no fillers AND no hard-negatives.
+    """
+    if not isinstance(target, int):
+        return None
+    hard = [i for i in (hard_negatives or [])
+            if isinstance(i, int) and 0 <= i < n_candidates and i != target]
+    hard_set = set(hard)
+    fillers = [i for i in range(n_candidates) if i != target and i not in hard_set]
+    f, h = len(fillers), len(hard)
+    total = f + h + f * h
+    if total == 0:
+        return None
+    bottom = len(ranked)
+    pos = {idx: p for p, idx in enumerate(ranked)}
+    above = lambda x, y: pos.get(x, bottom) < pos.get(y, bottom)  # strict
+
+    correct = 0
+    for x in fillers + hard:          # gold above every filler and hard-neg
+        if above(target, x):
+            correct += 1
+    for fi in fillers:                # every filler above every hard-neg
+        for hn in hard:
+            if above(fi, hn):
+                correct += 1
+    return round(correct / total, 4)
+
+
+def compute_personalized_recommendation_metrics(parsed: dict, instance: dict,
+                                                filler_grade: float = _NDCG_REL_FILLER) -> dict:
+    ranked = parsed.get("ranked_indexes") or []
+    target = instance.get("held_out_idx")
+    hard_negs = instance.get("hard_negative_idxs") or []
+    if not isinstance(target, int):
+        return {"n_ranked": len(ranked), "valid": False}
+
+    # --- hard_neg_violation_rate ---
+    # Fraction of hard negatives ranked above the lowest-ranked filler.
+    n_candidates = len(instance.get("candidates") or [])
+    all_indices = set(range(n_candidates))
+    excluded = {target} | set(hard_negs)
+    filler_indices = all_indices - excluded
+
+    if filler_indices and hard_negs:
+        # Build a position lookup for the ranked list.
+        rank_pos = {idx: pos for pos, idx in enumerate(ranked)}
+        bottom = len(ranked)  # default position for items not in ranked
+
+        # Lowest-ranked filler = the filler with the largest position value
+        # (i.e., ranked last among fillers).
+        lowest_filler_pos = max(rank_pos.get(f, bottom) for f in filler_indices)
+
+        # Count hard negatives that appear before (above) this position.
+        hard_neg_above_count = sum(
+            1 for hn in hard_negs if rank_pos.get(hn, bottom) < lowest_filler_pos
+        )
+        hard_neg_violation = round(hard_neg_above_count / max(1, len(hard_negs)), 4)
+    else:
+        hard_neg_above_count = 0
+        hard_neg_violation = 0.0
+
+    return {
+        "n_ranked": len(ranked),
+        "valid": True,
+        # HEADLINE (Proposal A): 3-tier (gold > fillers > hard-negs) pair
+        # concordance. 1.0 iff gold is #1 and all hard-negs are below all fillers.
+        "tier_concordance": _tier_concordance(ranked, target, hard_negs, n_candidates),
+        "recall_at_1": _recall_at_k(ranked, target, 1),
+        "recall_at_3": _recall_at_k(ranked, target, 3),
+        "recall_at_5": _recall_at_k(ranked, target, 5),
+        "ndcg_at_3":   round(_ndcg_at_k(ranked, target, hard_negs, 3, filler_grade=filler_grade), 4),
+        "ndcg_at_5":   round(_ndcg_at_k(ranked, target, hard_negs, 5, filler_grade=filler_grade), 4),
+        "mrr":         round(_mrr(ranked, target), 4),
+        "hit_at_1":    _hit_at_k(ranked, target, 1),
+        "hit_at_3":    _hit_at_k(ranked, target, 3),
+        "hard_neg_above_filler_count": hard_neg_above_count,
+        "hard_neg_violation_rate": hard_neg_violation,
+    }
+
+
+def run_personalized_recommendation(
+    instances,
+    user_id,
+    bq: BackendQuery,
+    llm_client,
+    judge_client,
+    mode: str,
+    snapshot_cache,
+    model_name: str | None,
+    claude_model: str,
+    context_budget: int | None,
+    enable_llm_judge: bool,
+    dry_run: bool,
+    limit: int | None = None,
+) -> list[dict]:
+    """Deterministic ranking-metric runner. The agent ranks the provided
+    slate using only its time-masked history (no external tools)."""
+    from data_preparation.utils import extract_json_from_response
+    from evaluation.inference_utils import dispatch_agent_run
+
+    if limit is not None:
+        instances = instances[:limit]
+
+    results: list[dict] = []
+    for inst in instances:
+        t = inst["t_test"]
+        history_block = None
+        history_tokens = 0
+        if mode in ("llm_longctx", "llm_memory", "mem0"):
+            history_block, stats = snapshot_cache.get_or_build(
+                bq, user_id, t, model_name, context_budget
+            )
+            history_tokens = stats["total_tokens"]
+        prompt = personalized_recommendation_prompt(inst, history_block)
+        if dry_run:
+            results.append({
+                "task": _TASK_ID,
+                "user_id": user_id,
+                "instance_id": inst["instance_id"],
+                "day_label": inst.get("day_label"),
+                "mode": mode,
+                "history_tokens": history_tokens,
+                "metrics": None,
+            })
+            continue
+
+        raw_response, tool_call_count, subagent_stats = dispatch_agent_run(
+            mode, prompt, bq=bq, user_id=user_id, t=t,
+            claude_model=claude_model, llm_client=llm_client, task_type=_TASK_ID,
+        )
+        parsed = extract_json_from_response(raw_response) or {}
+        m = compute_personalized_recommendation_metrics(parsed, inst)
+        results.append({
+            "task": _TASK_ID,
+            "user_id": user_id,
+            "instance_id": inst["instance_id"],
+            "day_label": inst.get("day_label"),
+            "mode": mode,
+            "metrics": m,
+            "agent_response": raw_response,
+            "subagent_stats": subagent_stats,
+            "history_tokens": history_tokens,
+            "tool_call_count": tool_call_count,
+        })
+    return results
+
+
+# Backward-compat aliases — kept so any caller still importing the old
+# function/constant names resolves without code change. New callers should
+# use the canonical names.
+run_e4_google_search = run_personalized_recommendation
+e4_prompt = personalized_recommendation_prompt
+compute_e4_metrics = compute_personalized_recommendation_metrics
+E4_DEFAULT_N_DAYS = PERSONALIZED_REC_DEFAULT_N_ANCHORS

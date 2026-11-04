@@ -1,0 +1,254 @@
+{
+  "modifications": [
+    {
+      "mod_id": "mod_001",
+      "ts": 1775194800,
+      "formatted_timestamp": "11:00, 04/03/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_001",
+        "title": "Morning grant review block",
+        "start_ts": 1775194800,
+        "end_ts": 1775202000,
+        "location": {
+          "city": "Osaka",
+          "region": "Osaka",
+          "country": "Japan",
+          "lat": 34.6937,
+          "lon": 135.5023,
+          "precision": "city"
+        },
+        "type": "work",
+        "linked_preferences": [],
+        "is_preference_driven": false,
+        "relation_to_social": "unrelated"
+      }
+    },
+    {
+      "mod_id": "mod_002",
+      "ts": 1775216400,
+      "formatted_timestamp": "17:00, 04/03/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_002",
+        "title": "Low-calorie dinner prep and evening prayer",
+        "start_ts": 1775216400,
+        "end_ts": 1775221800,
+        "location": {
+          "city": "Osaka",
+          "region": "Osaka",
+          "country": "Japan",
+          "lat": 34.6937,
+          "lon": 135.5023,
+          "precision": "city"
+        },
+        "type": "personal",
+        "linked_preferences": [
+          "low-calorie eating as part of a weight loss goal",
+          "inspirational content framed around Muslim faith and trusting God’s plan"
+        ],
+        "is_preference_driven": true,
+        "relation_to_social": "unrelated"
+      }
+    },
+    {
+      "mod_id": "mod_003",
+      "ts": 1775271600,
+      "formatted_timestamp": "08:20, 04/04/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_003",
+        "title": "Neighborhood association meeting",
+        "start_ts": 1775271600,
+        "end_ts": 1775278800,
+        "location": {
+          "city": "Osaka",
+          "region": "Osaka",
+          "country": "Japan",
+          "lat": 34.6937,
+          "lon": 135.5023,
+          "precision": "city"
+        },
+        "type": "work",
+        "linked_preferences": [],
+        "is_preference_driven": false,
+        "relation_to_social": "unrelated"
+      }
+    },
+    {
+      "mod_id": "mod_004",
+      "ts": 1775282400,
+      "formatted_timestamp": "11:20, 04/04/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_004",
+        "title": "Haircare research: micro locs maintenance",
+        "start_ts": 1775282400,
+        "end_ts": 1775286000,
+        "location": {
+          "city": "Osaka",
+          "region": "Osaka",
+          "country": "Japan",
+          "lat": 34.6937,
+          "lon": 135.5023,
+          "precision": "city"
+        },
+        "type": "personal",
+        "linked_preferences": [
+          "micro locs and natural hair care routines"
+        ],
+        "is_preference_driven": true,
+        "relation_to_social": "adjacent"
+      }
+    },
+    {
+      "mod_id": "mod_005",
+      "ts": 1775295686,
+      "formatted_timestamp": "15:21, 04/04/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_005",
+        "title": "Flight to Lagos",
+        "start_ts": 1775295686,
+        "end_ts": 1775324486,
+        "location": {
+          "city": "Lagos",
+          "region": "Lagos",
+          "country": "Nigeria",
+          "lat": 6.5244,
+          "lon": 3.3792,
+          "precision": "city"
+        },
+        "type": "travel",
+        "linked_preferences": [],
+        "is_preference_driven": false,
+        "relation_to_social": "unrelated"
+      }
+    },
+    {
+      "mod_id": "mod_006",
+      "ts": 1775338800,
+      "formatted_timestamp": "03:40, 04/05/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_006",
+        "title": "Family brunch in Lekki",
+        "start_ts": 1775338800,
+        "end_ts": 1775346000,
+        "location": {
+          "city": "Lagos",
+          "region": "Lagos",
+          "country": "Nigeria",
+          "lat": 6.5244,
+          "lon": 3.3792,
+          "precision": "city"
+        },
+        "type": "social",
+        "linked_preferences": [
+          "family relationships",
+          "affectionate couple-life content centered on romance and partnership"
+        ],
+        "is_preference_driven": true,
+        "relation_to_social": "related"
+      }
+    },
+    {
+      "mod_id": "mod_007",
+      "ts": 1775353200,
+      "formatted_timestamp": "07:40, 04/05/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_007",
+        "title": "Ibadan cultural news catch-up",
+        "start_ts": 1775353200,
+        "end_ts": 1775356800,
+        "location": {
+          "city": "Lagos",
+          "region": "Lagos",
+          "country": "Nigeria",
+          "lat": 6.5244,
+          "lon": 3.3792,
+          "precision": "city"
+        },
+        "type": "personal",
+        "linked_preferences": [
+          "follows live coverage of major Ibadan cultural events, including the Olubadan coronation",
+          "ibadan local content"
+        ],
+        "is_preference_driven": true,
+        "relation_to_social": "adjacent"
+      }
+    },
+    {
+      "mod_id": "mod_008",
+      "ts": 1775367600,
+      "formatted_timestamp": "11:40, 04/05/2026",
+      "action": "updated",
+      "entry_id": "cal_006",
+      "diff": {
+        "end_ts": {
+          "from": 1775346000,
+          "to": 1775347800
+        },
+        "notes": {
+          "from": "",
+          "to": "Family arrived late; extend table booking."
+        }
+      }
+    },
+    {
+      "mod_id": "mod_009",
+      "ts": 1775379600,
+      "formatted_timestamp": "15:00, 04/05/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_008",
+        "title": "Wedding photography mood board review",
+        "start_ts": 1775379600,
+        "end_ts": 1775383200,
+        "location": {
+          "city": "Lagos",
+          "region": "Lagos",
+          "country": "Nigeria",
+          "lat": 6.5244,
+          "lon": 3.3792,
+          "precision": "city"
+        },
+        "type": "personal",
+        "linked_preferences": [
+          "Yoruba traditional wedding ceremonies and wedding inspiration",
+          "social events"
+        ],
+        "is_preference_driven": true,
+        "relation_to_social": "related"
+      }
+    },
+    {
+      "mod_id": "mod_010",
+      "ts": 1775394000,
+      "formatted_timestamp": "19:00, 04/05/2026",
+      "action": "added",
+      "entry": {
+        "entry_id": "cal_009",
+        "title": "Call with wife and family in Ibadan",
+        "start_ts": 1775394000,
+        "end_ts": 1775397600,
+        "location": {
+          "city": "Lagos",
+          "region": "Lagos",
+          "country": "Nigeria",
+          "lat": 6.5244,
+          "lon": 3.3792,
+          "precision": "city"
+        },
+        "type": "personal",
+        "linked_preferences": [
+          "family relationships",
+          "learning French language and common French phrases"
+        ],
+        "is_preference_driven": true,
+        "relation_to_social": "adjacent"
+      }
+    }
+  ]
+}

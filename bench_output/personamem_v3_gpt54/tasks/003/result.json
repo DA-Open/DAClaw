@@ -1,0 +1,26 @@
+{
+  "query_id": "8:0042:recsys_2026-04-06_a2",
+  "seq": 42,
+  "user_id": "8",
+  "task_type": "personalized_recommendation",
+  "status": "ok",
+  "metrics": {
+    "n_ranked": 16,
+    "valid": true,
+    "tier_concordance": 0.4348,
+    "recall_at_1": 0.0,
+    "recall_at_3": 1.0,
+    "recall_at_5": 1.0,
+    "ndcg_at_3": 0.0,
+    "ndcg_at_5": 0.0,
+    "mrr": 0.5,
+    "hit_at_1": 0.0,
+    "hit_at_3": 1.0,
+    "hard_neg_above_filler_count": 6,
+    "hard_neg_violation_rate": 1.0
+  },
+  "agent_response": "```json\n{\n  \"ranked_indexes\": [4, 9, 2, 1, 15, 11, 0, 14, 7, 12, 6, 8, 10, 13, 5, 3],\n  \"reasoning\": \"Recent history shows repeated positive engagement with African dance/performance content, plus self-authored community/event-planning and gospel posts; parenting and light humor are secondary interests. Items tied to generic viral bait, wellness/ice-bath content, or conflict/sarcasm are less aligned with the user’s demonstrated behavior.\"\n}\n```",
+  "api_calls": 5,
+  "tool_calls": 12,
+  "duration_ms": 94157
+}

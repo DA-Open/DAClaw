@@ -1,0 +1,23 @@
+[
+  {
+    "id": "01_01",
+    "instruction": "Please audit and fix this file thoroughly. Errors may include but are not limited to: formula logic errors or inconsistencies, hardcoded values that should be formulas, broken cell references, data validation issues, potential calculation errors, inconsistent formatting or naming conventions, best practice violations, and any other issues that could affect accuracy or maintainability.",
+    "spreadsheet_path": "spreadsheet/01_Debugging/input_files/Double Counting_input.xlsx",
+    "golden_response_path": "spreadsheet/01_Debugging/01_golden.xlsx",
+    "answer_position": "'Ex 1 - LBO'!B1:AK95,'Ex 2 - Valuation Bridge'!B2:C36,'Ex 3 - PF P&L'!B1:I30,'Ex 4 - Organic Operating Model'!B1:AF41,'Ex 5 - M&A'!B1:AB81,'Ex 6 - Amdocs Historical M&A'!B2:J19,'Ex 7 - SOFR'!B2:E79,'Ex 8 - Public Comps'!B2:F37,'Ex 9 - Transaction Comps'!B2:G24,'Ex 10 - Balance Sheet'!B2:F33,'Ex 11 - Income Statement'!B2:K28,'Ex 12 - Cash Flow Statement'!B2:G44"
+  },
+  {
+    "id": "01_02",
+    "instruction": "Please audit and fix this file thoroughly. Errors may include but are not limited to: formula logic errors or inconsistencies, hardcoded values that should be formulas, broken cell references, data validation issues, potential calculation errors, inconsistent formatting or naming conventions, best practice violations, and any other issues that could affect accuracy or maintainability.",
+    "spreadsheet_path": "spreadsheet/01_Debugging/input_files/Embedded Hardcode_input.xlsx",
+    "golden_response_path": "spreadsheet/01_Debugging/01_golden.xlsx",
+    "answer_position": "'Ex 1 - LBO'!B1:AK95,'Ex 2 - Valuation Bridge'!B2:C36,'Ex 3 - PF P&L'!B1:I30,'Ex 4 - Organic Operating Model'!B1:AF41,'Ex 5 - M&A'!B1:AB81,'Ex 6 - Amdocs Historical M&A'!B2:J19,'Ex 7 - SOFR'!B2:E79,'Ex 8 - Public Comps'!B2:F37,'Ex 9 - Transaction Comps'!B2:G24,'Ex 10 - Balance Sheet'!B2:F33,'Ex 11 - Income Statement'!B2:K28,'Ex 12 - Cash Flow Statement'!B2:G44"
+  },
+  {
+    "id": "01_03",
+    "instruction": "Please audit and fix this file thoroughly. Errors may include but are not limited to: deleted rows causing #REF! errors, broken cross-sheet references, typos in sheet names, and cascading calculation failures. Fixes must be applied in the correct order - restoring structural elements before fixing dependent formulas.\n\nReference data: The model uses 3 scenario cases (Base, Upside, Downside). The active scenario case selector value is 3.\n\nNote: After fixing all formulas, the debt schedule and sensitivity tables may still show #REF! due to stale cached values from the circular reference. To resolve: click any #REF! cell in the debt schedule, press F2 then Enter to force recalculation, then press Ctrl+Alt+F9 (or Cmd+Option+F9 on Mac) several times to let the iterative calculation converge.",
+    "spreadsheet_path": "spreadsheet/01_Debugging/input_files/Errors_input.xlsx",
+    "golden_response_path": "spreadsheet/01_Debugging/01_golden.xlsx",
+    "answer_position": "'Ex 1 - LBO'!B1:AK95,'Ex 2 - Valuation Bridge'!B2:C36,'Ex 3 - PF P&L'!B1:I30,'Ex 4 - Organic Operating Model'!B1:AF41,'Ex 5 - M&A'!B1:AB81,'Ex 6 - Amdocs Historical M&A'!B2:J19,'Ex 7 - SOFR'!B2:E79,'Ex 8 - Public Comps'!B2:F37,'Ex 9 - Transaction Comps'!B2:G24,'Ex 10 - Balance Sheet'!B2:F33,'Ex 11 - Income Statement'!B2:K28,'Ex 12 - Cash Flow Statement'!B2:G44"
+  }
+]
