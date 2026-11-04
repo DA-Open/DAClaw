@@ -1,0 +1,26 @@
+# Packages ARE (meta-agents-research-environments==1.2.0) needs that are not in
+# the DAClaw venv. Installed with --no-deps into a separate --target directory
+# together with ARE; packages DAClaw already has keep DAClaw's versions.
+beautifulsoup4==4.15.0
+cobble==0.1.4
+datasets==4.0.0
+dill==0.3.8
+httpcore2==2.16.0
+httpx2==2.16.0
+httpx-aiohttp==0.2.0
+inputimeout==1.0.4
+litellm==1.71.1
+mammoth==1.8.0
+markdownify==0.14.1
+multiprocess==0.70.16
+pdfminer-six==20231228
+pillow==11.1.0
+polars-lts-cpu==1.33.1
+puremagic==1.27
+python-pptx==1.0.2
+rapidfuzz==3.12.1
+soupsieve==3.0.4
+tiktoken==0.14.0
+truststore==0.10.5
+xlsxwriter==3.3.1
+xxhash==4.0.2
