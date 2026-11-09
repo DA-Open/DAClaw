@@ -80,3 +80,7 @@ packaging/defaults/.env
 result
 website/static/api/skills-index.json
 tasks/
+
+# SpreadsheetBench 2 generated runs
+/outputs/ssb2-smoke/
+/outputs/spreadsheetbench2/

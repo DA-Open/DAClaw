@@ -343,3 +343,11 @@ For eval benchmarks, follow the pattern in `terminalbench2_env.py`:
 | `system_prompt` | System message for the agent | `None` |
 | `tool_call_parser` | Parser name for Phase 2 | `daclaw` |
 | `eval_handling` | `STOP_TRAIN`, `LIMIT_TRAIN`, `NONE` | `STOP_TRAIN` |
+
+## SpreadsheetBench 2 (standalone evaluation)
+
+The [SpreadsheetBench 2 adapter](benchmarks/spreadsheetbench2/README.md) calls the
+real DAClaw AIAgent directly, without Atropos or SWE-agent. It supports isolated
+worker processes, task selection, resume, trajectory logs, and the unchanged
+official cell evaluator. An offline smoke test exercises real terminal tool
+calls with fixture model responses.

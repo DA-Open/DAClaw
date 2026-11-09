@@ -1,0 +1,10 @@
+{
+  "model": "YOUR_MODEL_NAME",
+  "base_url": "https://YOUR_OPENAI_COMPATIBLE_ENDPOINT/v1",
+  "api_key_env": "SSB2_API_KEY",
+  "provider": "custom",
+  "api_mode": "chat_completions",
+  "max_iterations": 40,
+  "max_tokens": 8192,
+  "request_overrides": {}
+}
