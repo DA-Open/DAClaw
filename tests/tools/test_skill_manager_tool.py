@@ -247,6 +247,36 @@ class TestCreateSkill:
         assert not (outside / "my-skill" / "SKILL.md").exists()
 
 
+class TestFindSkillByCategoryPath:
+    """skill_view accepts "category/name"; skill_manage must resolve it too."""
+
+    def test_find_by_category_path(self, tmp_path):
+        with _skill_dir(tmp_path):
+            _create_skill("my-skill", VALID_SKILL_CONTENT, category="devops")
+            found = _find_skill("devops/my-skill")
+        assert found is not None
+        assert found["path"] == tmp_path / "devops" / "my-skill"
+
+    def test_patch_by_category_path(self, tmp_path):
+        with _skill_dir(tmp_path):
+            _create_skill("my-skill", VALID_SKILL_CONTENT, category="devops")
+            result = _patch_skill("devops/my-skill", "Do the thing.", "Do the new thing.")
+        assert result["success"] is True, result
+        content = (tmp_path / "devops" / "my-skill" / "SKILL.md").read_text()
+        assert "Do the new thing." in content
+
+    def test_wrong_category_does_not_match(self, tmp_path):
+        with _skill_dir(tmp_path):
+            _create_skill("my-skill", VALID_SKILL_CONTENT, category="devops")
+            assert _find_skill("mlops/my-skill") is None
+
+    def test_traversal_path_does_not_match(self, tmp_path):
+        with _skill_dir(tmp_path):
+            _create_skill("my-skill", VALID_SKILL_CONTENT, category="devops")
+            assert _find_skill("devops/../devops/my-skill") is None
+            assert _find_skill("../devops/my-skill") is None
+
+
 class TestEditSkill:
     def test_edit_existing_skill(self, tmp_path):
         with _skill_dir(tmp_path):

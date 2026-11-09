@@ -480,14 +480,23 @@ def _find_skill(name: str) -> Optional[Dict[str, Any]]:
     Searches the local skills dir (~/.daclaw/skills/) first, then any
     external dirs configured via skills.external_dirs.  Returns
     {"path": Path} or None.
+
+    ``name`` is either the bare skill name ("my-skill") or its path relative
+    to a skills dir ("devops/my-skill") -- the form skill_view also accepts,
+    so a name the model just used to view a skill works for editing it too.
+    The path form is compared against discovered skill dirs, never joined
+    onto the filesystem, so "../" segments cannot reach outside a skills dir.
     """
     from agent.skill_utils import get_all_skills_dirs
     for skills_dir in get_all_skills_dirs():
         if not skills_dir.exists():
             continue
         for skill_md in skills_dir.rglob("SKILL.md"):
-            if skill_md.parent.name == name:
-                return {"path": skill_md.parent}
+            skill_dir = skill_md.parent
+            if skill_dir.name == name:
+                return {"path": skill_dir}
+            if "/" in name and skill_dir.relative_to(skills_dir).as_posix() == name:
+                return {"path": skill_dir}
     return None
 
 
@@ -1020,7 +1029,8 @@ SKILL_MANAGE_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Skill name (lowercase, hyphens/underscores, max 64 chars). "
-                    "Must match an existing skill for patch/edit/delete/write_file/remove_file."
+                    "Must match an existing skill for patch/edit/delete/write_file/remove_file; "
+                    "for those actions its 'category/name' path (as accepted by skill_view) also works."
                 )
             },
             "content": {
