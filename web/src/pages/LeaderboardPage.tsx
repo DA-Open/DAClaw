@@ -36,16 +36,18 @@ const LEVEL_ICON: Record<string, typeof Database> = {
   L1: Database, L2: Boxes, L3: Sparkles, VIZ: BarChart3,
 };
 
-function ratioColor(score: number, ceiling: number): string {
-  const r = ceiling ? score / ceiling : 0;
+function ratioColor(score: number, ceiling: number, lowerBetter = false): string {
+  const raw = ceiling ? score / ceiling : 0;
+  const r = lowerBetter ? 1 - raw : raw;
   if (r >= 0.9) return "text-emerald-500";
   if (r >= 0.7) return "text-teal-500";
   if (r >= 0.5) return "text-amber-500";
   return "text-muted-foreground";
 }
-function heatBg(score: number | null | undefined, ceiling: number): string {
+function heatBg(score: number | null | undefined, ceiling: number, lowerBetter = false): string {
   if (score == null) return "transparent";
-  const r = Math.max(0, Math.min(1, ceiling ? score / ceiling : 0));
+  const raw = Math.max(0, Math.min(1, ceiling ? score / ceiling : 0));
+  const r = lowerBetter ? 1 - raw : raw;
   const alpha = 0.08 + r * 0.5;
   return `rgba(45, 212, 191, ${alpha.toFixed(3)})`;
 }
@@ -388,8 +390,12 @@ export default function LeaderboardPage() {
                           <div className="mt-2 flex items-end justify-between">
                             <div className="text-[10px] text-muted-foreground">{b.metric}</div>
                             <div className="text-right">
-                              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">{T.sotaCeiling}</div>
-                              <div className="text-sm font-black tabular-nums" style={{ color: lvl.color }}>{b.sota_ceiling}%</div>
+                              <div className="text-[9px] uppercase tracking-wide text-muted-foreground">
+                                {b.direction === "lower_better" ? "lower is better" : T.sotaCeiling}
+                              </div>
+                              <div className="text-sm font-black tabular-nums" style={{ color: lvl.color }}>
+                                {b.direction === "lower_better" ? "—" : `${b.sota_ceiling}%`}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -408,7 +414,9 @@ export default function LeaderboardPage() {
                     {benchmarks.map((b) => (
                       <th key={b.id} className="p-2 text-center align-bottom font-semibold">
                         <div className="text-[11px] leading-tight">{b.name}</div>
-                        <div className="text-[9px] font-normal text-muted-foreground">≤{b.sota_ceiling}%</div>
+                        <div className="text-[9px] font-normal text-muted-foreground">
+                          {b.direction === "lower_better" ? "failure rate ↓" : `≤${b.sota_ceiling}%`}
+                        </div>
                       </th>
                     ))}
                   </tr>
@@ -427,9 +435,21 @@ export default function LeaderboardPage() {
                         {benchmarks.map((b) => {
                           const v = matrix[h.id]?.[b.id];
                           return (
-                            <td key={b.id} className="p-1.5 text-center" style={{ background: heatBg(v, b.sota_ceiling) }}>
+                            <td
+                              key={b.id}
+                              className="p-1.5 text-center"
+                              style={{ background: heatBg(v, b.sota_ceiling, b.direction === "lower_better") }}
+                            >
                               {v != null ? (
-                                <span className={`text-xs font-bold tabular-nums ${ratioColor(v, b.sota_ceiling)}`}>{v}</span>
+                                <span
+                                  className={`text-xs font-bold tabular-nums ${ratioColor(
+                                    v,
+                                    b.sota_ceiling,
+                                    b.direction === "lower_better",
+                                  )}`}
+                                >
+                                  {v}
+                                </span>
                               ) : (
                                 <span className="text-muted-foreground">—</span>
                               )}

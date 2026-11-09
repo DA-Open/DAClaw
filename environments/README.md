@@ -189,8 +189,10 @@ environments/
     │   └── terminalbench2_env.py
     ├── tblite/                   # 100 calibrated tasks (fast TB2 proxy)
     │   └── tblite_env.py
-    └── yc_bench/                 # Long-horizon strategic benchmark
-        └── yc_bench_env.py
+    ├── yc_bench/                 # Long-horizon strategic benchmark
+    │   └── yc_bench_env.py
+    └── persistbench/             # Memory safety shelf item (see note below)
+        └── runner.py
 ```
 
 ## Concrete Environments
@@ -245,6 +247,25 @@ python environments/benchmarks/terminalbench_2/terminalbench2_env.py evaluate \
     --openai.model_name anthropic/claude-opus-4.6 \
     --env.skip_tasks heavy-task,slow-task
 ```
+
+### PersistBench (`benchmarks/persistbench/`) -- shelf item, not an env class
+
+PersistBench scores whether a model uses long-term memories appropriately. It is
+**chat-in / text-out and judge-scored**, so it needs no workspace, no tools and no
+sandbox -- running it through an Atropos environment would mean an env class that
+is 90% unused scaffolding. It therefore runs through its own `runner.py`, but it
+still registers in the leaderboard catalogue (`category=safety`,
+`direction=lower_better`, `ranked=False`).
+
+The protocol is ported from UK AISI's Inspect Evals implementation and the judge
+prompts under `prompts/` are copied verbatim from it.
+
+```bash
+bash environments/benchmarks/persistbench/run_eval.sh --limit 6
+```
+
+This is the precedent for future non-agentic benchmarks: a bench that only needs
+"prompt in, text out, judge" belongs here as a runner, not as an env subclass.
 
 ## Creating a New Environment
 
