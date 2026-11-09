@@ -1,0 +1,64 @@
+{
+ "dataset": {
+  "hf_repo": "meta-agents-research-environments/gaia2",
+  "hf_config": "mini",
+  "split": "validation",
+  "sample_size": 3,
+  "sample_seed": 20261103,
+  "scenario_ids": [
+   "scenario_universe_21_bdn1w8",
+   "scenario_universe_23_0wpjds",
+   "scenario_universe_28_dlqvas"
+  ]
+ },
+ "paths": {
+  "bench_root": "~/gaia2_bench",
+  "are_site": "~/gaia2_bench/are_site",
+  "demo_fs_path": "~/gaia2_bench/gaia2_filesystem/demo_filesystem",
+  "hf_home": "~/gaia2_bench/hf_cache",
+  "hf_endpoint": "https://hf-mirror.com",
+  "daclaw_env_file": "~/.daclaw/.env"
+ },
+ "agent": {
+  "base_url": "https://api.deepseek.com/v1",
+  "model": "deepseek-v4-pro",
+  "api_key_env": "DEEPSEEK_API_KEY",
+  "max_agent_turns": 80,
+  "agent_temperature": 1.0,
+  "max_token_length": null,
+  "extra_body": null,
+  "text_reply_nudges": 10,
+  "forward_text_reply": false
+ },
+ "judge": {
+  "model": "deepseek/deepseek-v4-pro",
+  "provider": "local",
+  "endpoint": "https://api.deepseek.com/v1",
+  "fix_case_bug": true
+ },
+ "run": {
+  "scenario_timeout": 3600,
+  "turn_wait_timeout": 900
+ },
+ "sampled": [
+  {
+   "index": 22,
+   "scenario_id": "scenario_universe_21_bdn1w8",
+   "category": "time"
+  },
+  {
+   "index": 36,
+   "scenario_id": "scenario_universe_23_0wpjds",
+   "category": "search"
+  },
+  {
+   "index": 41,
+   "scenario_id": "scenario_universe_28_dlqvas",
+   "category": "search"
+  }
+ ],
+ "run_name": "final_mini_seed20261103",
+ "created": "2026-11-04 03:21:45",
+ "notes": "Final interface run. scenario_universe_23_0wpjds and scenario_universe_28_dlqvas were run with this config (text_reply_nudges=10, ARE invalid-action error message, forward_text_reply=false). scenario_universe_21_bdn1w8 was run earlier the same day with text_reply_nudges=1, forward_text_reply=true and the previous reminder wording; neither was triggered in that scenario (0 reminders in both turns), so its behaviour is the same under this config. judge.fix_case_bug=true (the default) for all three; final_mini_seed20261103_rejudge re-judges the same trajectories with and without the fix.",
+ "created_first_scenario": "2026-11-04 02:36:02"
+}
