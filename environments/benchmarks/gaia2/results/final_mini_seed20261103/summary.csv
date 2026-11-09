@@ -1,4 +1,0 @@
-scenario_id,category,status,success,nb_turns,llm_calls,tool_calls,prompt_tokens,completion_tokens,elapsed_seconds,error,rationale
-scenario_universe_21_bdn1w8,time,ok,True,2,12,32,477436,8724,371.7,,None
-scenario_universe_23_0wpjds,search,ok,True,1,4,18,121614,16802,292.5,,None
-scenario_universe_28_dlqvas,search,ok,False,1,4,11,78564,11135,237.5,,"Failure: Agent did not perform the following oracle tool call: tool name: AgentUserInterface__send_message_to_user tool args: -content: colette.vandermeulen@gaia2mail.com  List of matching attempts: -Failure matching agent event (ID: Event-USER-dbd418bc-9613-44b4-8eb6-232768245e12) with oracle event (ID: OracleEvent-AGENT-7f59db02-1249-46b0-a850-5a453a43e9d1), reason: already matched -Failure matching agent event (ID: AGENT-AgentUserInterface.send_message_to_user-b44a5eac-88b2-4b70-86ab-47547215"
