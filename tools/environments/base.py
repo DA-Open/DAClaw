@@ -294,8 +294,13 @@ class BaseEnvironment(ABC):
         instead of running with ``bash -l``.
         """
         # Full capture: env vars, functions (filtered), aliases, shell options.
+        # Start from the requested cwd so the captured pwd reflects it -- on the
+        # local backend the login shell otherwise starts in the host process cwd
+        # and silently overwrites self.cwd via _update_cwd(). Container backends
+        # already start in their own cwd, where this cd is a no-op or fails soft.
         bootstrap = (
-            f"export -p > {self._snapshot_path}\n"
+            (f"cd {shlex.quote(self.cwd)} >/dev/null 2>&1 || true\n" if self.cwd else "")
+            + f"export -p > {self._snapshot_path}\n"
             f"declare -f | grep -vE '^_[^_]' >> {self._snapshot_path}\n"
             f"alias -p >> {self._snapshot_path}\n"
             f"echo 'shopt -s expand_aliases' >> {self._snapshot_path}\n"

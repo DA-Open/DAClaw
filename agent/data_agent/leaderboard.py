@@ -47,6 +47,7 @@ LEVELS = [
     {"id": "L2", "name": "L2 · Engineering", "desc": "Repo-level pipelines, debugging, data-to-insight", "color": "#6366F1"},
     {"id": "L3", "name": "L3 · Analysis", "desc": "Open-ended analytical reasoning & reporting", "color": "#F59E0B"},
     {"id": "VIZ", "name": "Text-to-Viz", "desc": "Chart / dashboard / visualization generation", "color": "#EC4899"},
+    {"id": "SAFETY", "name": "Safety · Memory", "desc": "Long-term memory leakage & memory-induced sycophancy (lower is better, not ranked)", "color": "#EF4444"},
 ]
 
 # Benchmarks span the full data lifecycle. Ceilings are calibrated to the real
@@ -138,7 +139,39 @@ BENCHMARKS = [
         "level": "VIZ", "splits": ["interact"],
         "metric": "intent-alignment %", "sota_ceiling": 50.0,
     },
+    # ---- SAFETY: long-term memory behaviour ------------------------------
+    # Failure rate, so its direction is inverted relative to everything above,
+    # and it is excluded from the overall ranking: averaging "can it do data
+    # work" with "does it leak private context" yields a meaningless number.
+    # Scores are never seeded -- only a real run may create an entry.
+    {
+        "id": "persistbench", "name": "PersistBench",
+        "paper": "Pulipaka, Chen, Sharma et al. 2026",
+        "level": "SAFETY",
+        "splits": ["cross_domain", "sycophancy", "beneficial"],
+        "metric": "Failure Rate %", "sota_ceiling": 100.0,
+        "category": "safety",
+        "direction": "lower_better",
+        "ranked": False,
+        "judge": "kimi-k2-thinking",
+        "requires": {"single_turn": True, "tools": False, "workspace": False},
+    },
 ]
+
+
+def is_ranked(benchmark_id: str) -> bool:
+    """False for safety-style benchmarks that must stay out of the overall rank."""
+    for _bm in BENCHMARKS:
+        if _bm["id"] == benchmark_id:
+            return bool(_bm.get("ranked", True))
+    return True
+
+
+def benchmark_meta(benchmark_id: str) -> Dict[str, Any]:
+    for _bm in BENCHMARKS:
+        if _bm["id"] == benchmark_id:
+            return _bm
+    return {}
 
 # Underlying LLMs. Curated to the *notable* flagship models people recognize
 # (both open-weights and proprietary) — one or two per major lab, not the long
@@ -229,6 +262,9 @@ def generate_seed() -> Dict[str, Any]:
     """Build the full seed leaderboard (every model × harness × benchmark×split)."""
     entries: List[Dict[str, Any]] = []
     for bm in BENCHMARKS:
+        # Never fabricate a safety score: those only exist after a real run.
+        if not bm.get("ranked", True):
+            continue
         for split in bm["splits"]:
             for m in MODELS:
                 mid = m["id"]
@@ -246,7 +282,7 @@ def generate_seed() -> Dict[str, Any]:
                         }
                     )
     return {
-        "version": 4,
+        "version": CURRENT_VERSION,
         "harnesses": HARNESSES,
         "benchmarks": BENCHMARKS,
         "levels": LEVELS,
@@ -255,7 +291,7 @@ def generate_seed() -> Dict[str, Any]:
     }
 
 
-CURRENT_VERSION = 4
+CURRENT_VERSION = 5
 
 
 def load_leaderboard(*, seed_if_missing: bool = True) -> Dict[str, Any]:
@@ -310,11 +346,12 @@ def harness_by_benchmark_matrix() -> Dict[str, Any]:
     for (harness, bm), scores in acc.items():
         matrix.setdefault(harness, {})[bm] = round(sum(scores) / len(scores), 1)
 
-    # overall = mean across benchmarks
+    # overall = mean across RANKED benchmarks only (safety rows are reported
+    # separately: their metric is a failure rate, i.e. lower is better)
     overall = []
     for h in data["harnesses"]:
         hid = h["id"]
-        vals = list(matrix.get(hid, {}).values())
+        vals = [v for bm_id, v in matrix.get(hid, {}).items() if is_ranked(bm_id)]
         overall.append(
             {"harness": hid, "name": h["name"], "vendor": h["vendor"],
              "overall": round(sum(vals) / len(vals), 1) if vals else 0.0}
@@ -336,6 +373,8 @@ def best_combos(top_n: int = 10) -> List[Dict[str, Any]]:
 
     acc: Dict[tuple, List[float]] = defaultdict(list)
     for e in data["entries"]:
+        if not is_ranked(e.get("benchmark", "")):
+            continue
         acc[(e["model"], e["harness"])].append(e["score"])
     combos = [
         {"model": m, "harness": h, "mean_score": round(sum(v) / len(v), 1), "n": len(v)}
@@ -359,6 +398,8 @@ def model_ranking() -> List[Dict[str, Any]]:
     # mean score per (model, harness) across all benchmarks
     acc: Dict[tuple, List[float]] = defaultdict(list)
     for e in data["entries"]:
+        if not is_ranked(e.get("benchmark", "")):
+            continue
         acc[(e["model"], e["harness"])].append(e["score"])
     best_by_model: Dict[str, float] = {}
     best_harness: Dict[str, str] = {}
