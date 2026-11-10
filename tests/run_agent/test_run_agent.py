@@ -1354,6 +1354,37 @@ class TestConcurrentToolExecution:
         assert "beta" in messages[1]["content"]
         assert "gamma" in messages[2]["content"]
 
+    def test_concurrent_tools_see_gateway_session_vars(self, agent):
+        """Worker threads must inherit the gateway's session contextvars.
+
+        Without it every tool read DACLAW_SESSION_PLATFORM / CHAT_ID as unset
+        (cronjob saved origin=None, chat-only behaviour never switched on).
+        """
+        from gateway.session_context import clear_session_vars, get_session_env, set_session_vars
+
+        tc1 = _mock_tool_call(name="web_search", arguments='{"q":"a"}', call_id="c1")
+        tc2 = _mock_tool_call(name="web_search", arguments='{"q":"b"}', call_id="c2")
+        mock_msg = _mock_assistant_msg(content="", tool_calls=[tc1, tc2])
+        messages = []
+
+        def fake_handle(name, args, task_id, **kwargs):
+            return json.dumps({
+                "platform": get_session_env("DACLAW_SESSION_PLATFORM"),
+                "chat": get_session_env("DACLAW_SESSION_CHAT_ID"),
+            })
+
+        tokens = set_session_vars(platform="feishu", chat_id="oc_test")
+        try:
+            with patch("run_agent.handle_function_call", side_effect=fake_handle):
+                agent._execute_tool_calls_concurrent(mock_msg, messages, "task-1")
+        finally:
+            clear_session_vars(tokens)
+
+        assert len(messages) == 2
+        for m in messages:
+            seen = json.loads(m["content"])
+            assert seen == {"platform": "feishu", "chat": "oc_test"}
+
     def test_concurrent_preserves_order_despite_timing(self, agent):
         """Even if tools finish in different order, messages should be in original order."""
         import time as _time

@@ -417,7 +417,7 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
             },
             "prompt": {
                 "type": "string",
-                "description": "For create: the full self-contained prompt. If skills are also provided, this becomes the task instruction paired with those skills."
+                "description": "For create: the full self-contained prompt. If skills are also provided, this becomes the task instruction paired with those skills. To stay quiet when there is nothing to report, tell the job to reply exactly [SILENT] — that is the only marker that suppresses delivery; any other text (e.g. NO_REPLY) is sent to the user."
             },
             "schedule": {
                 "type": "string",

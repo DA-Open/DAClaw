@@ -14,6 +14,7 @@ Usage:
 """
 
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -5716,7 +5717,11 @@ class GatewayRunner:
                 )
 
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, run_sync)
+            # copy_context: run_in_executor does not carry contextvars into the
+            # worker thread, so tools would not see the session platform/chat.
+            result = await loop.run_in_executor(
+                None, contextvars.copy_context().run, run_sync
+            )
 
             response = result.get("final_response", "") if result else ""
             if not response and result and result.get("error"):
@@ -9095,8 +9100,12 @@ class GatewayRunner:
             _agent_warning = _agent_warning_raw if _agent_warning_raw > 0 else None
             _warning_fired = False
             loop = asyncio.get_event_loop()
+            # copy_context: run_in_executor does not carry contextvars into the
+            # worker thread. Without it, tools read the session variables set by
+            # _set_session_env() as unset (cronjob lost its origin chat,
+            # data_visualize could not tell it was on a chat platform).
             _executor_task = asyncio.ensure_future(
-                loop.run_in_executor(None, run_sync)
+                loop.run_in_executor(None, contextvars.copy_context().run, run_sync)
             )
 
             _inactivity_timeout = False
