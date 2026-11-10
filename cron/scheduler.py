@@ -76,6 +76,28 @@ def _resolve_origin(job: dict) -> Optional[dict]:
     return None
 
 
+# Home-channel fallback order for deliver=origin jobs that lost their origin.
+# The original five come first (unchanged behaviour); every other chat
+# platform follows — Feishu, WeCom, QQ, ... were previously never tried, so
+# their jobs failed with "no delivery target resolved" despite /sethome.
+_HOME_FALLBACK_FIRST = ("matrix", "telegram", "discord", "slack", "bluebubbles")
+_NOT_CHAT_PLATFORMS = {"local", "api_server", "webhook"}
+
+
+def _home_fallback_platforms() -> list:
+    names = list(_HOME_FALLBACK_FIRST)
+    try:
+        from gateway.config import Platform
+
+        names += [
+            p.value for p in Platform
+            if p.value and p.value not in names and p.value not in _NOT_CHAT_PLATFORMS
+        ]
+    except Exception:
+        pass
+    return names
+
+
 def _resolve_delivery_target(job: dict) -> Optional[dict]:
     """Resolve the concrete auto-delivery target for a cron job, if any."""
     deliver = job.get("deliver", "local")
@@ -93,7 +115,7 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
             }
         # Origin missing (e.g. job created via API/script) — try each
         # platform's home channel as a fallback instead of silently dropping.
-        for platform_name in ("matrix", "telegram", "discord", "slack", "bluebubbles"):
+        for platform_name in _home_fallback_platforms():
             chat_id = os.getenv(f"{platform_name.upper()}_HOME_CHANNEL", "")
             if chat_id:
                 logger.info(

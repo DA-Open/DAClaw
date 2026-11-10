@@ -175,6 +175,28 @@ class TestResolveDeliveryTarget:
             "thread_id": None,
         }
 
+    def test_missing_origin_falls_back_to_feishu_home_channel(self, monkeypatch):
+        """Platforms outside the original five (e.g. Feishu after /sethome)
+        must also be tried when a deliver=origin job has no origin."""
+        for name in ("MATRIX", "TELEGRAM", "DISCORD", "SLACK", "BLUEBUBBLES"):
+            monkeypatch.delenv(f"{name}_HOME_CHANNEL", raising=False)
+        monkeypatch.setenv("FEISHU_HOME_CHANNEL", "oc_home")
+        job = {"deliver": "origin", "origin": None}
+
+        assert _resolve_delivery_target(job) == {
+            "platform": "feishu",
+            "chat_id": "oc_home",
+            "thread_id": None,
+        }
+
+    def test_missing_origin_prefers_original_platform_order(self, monkeypatch):
+        monkeypatch.setenv("FEISHU_HOME_CHANNEL", "oc_home")
+        monkeypatch.setenv("TELEGRAM_HOME_CHANNEL", "-2002")
+        monkeypatch.delenv("MATRIX_HOME_CHANNEL", raising=False)
+        job = {"deliver": "origin", "origin": None}
+
+        assert _resolve_delivery_target(job)["platform"] == "telegram"
+
     def test_explicit_discord_topic_target_with_thread_id(self):
         """deliver: 'discord:chat_id:thread_id' parses correctly."""
         job = {
