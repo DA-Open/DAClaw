@@ -66,6 +66,9 @@ def _output_dir() -> Path:
 # browser). Anything else — Feishu, WeChat, Telegram, cron delivery — only
 # receives files, so charts are also exported as PNG for them.
 _HTML_CAPABLE_PLATFORMS = {"", "cli", "local", "web"}
+# Chat channels whose adapters cannot upload files: a PNG would only reach the
+# user as a server path, so don't render one unless export_png asks for it.
+_NO_FILE_PLATFORMS = {"dingtalk", "sms", "homeassistant"}
 
 
 def _maybe_export_png(args: Dict[str, Any], html_path: Path) -> Dict[str, Any]:
@@ -85,7 +88,8 @@ def _maybe_export_png(args: Dict[str, Any], html_path: Path) -> Dict[str, Any]:
             platform = get_session_env("DACLAW_SESSION_PLATFORM", "")
         except Exception:
             platform = ""
-        want = (platform or "").strip().lower() not in _HTML_CAPABLE_PLATFORMS
+        platform = (platform or "").strip().lower()
+        want = platform not in _HTML_CAPABLE_PLATFORMS and platform not in _NO_FILE_PLATFORMS
     if not want:
         return {}
 
