@@ -74,6 +74,13 @@ _PLAN_SYSTEM = (
     "FROM without source(); never FROM a model without ref().\n"
     "- model names are snake_case, unique, and equal the produced table name.\n"
     "- No cycles.\n"
+    "- COLUMN VALUES: under each raw table the brief lists the real values of its "
+    "low-cardinality text columns (with row counts) and sample values of the "
+    "others. Whenever SQL compares or maps literal values (WHERE x = '...', "
+    "CASE WHEN x IN (...)), use exactly those values with exact spelling/case. "
+    "Never invent values that are not listed. If a column is an ordinal scale "
+    "(e.g. 'Very high' ... 'Low'), keep or explicitly map its real levels instead "
+    "of forcing it into yes/no.\n"
     "- Aim for a rich pipeline (typically 6-14 models) with real branching; "
     "always end with marts model(s) that directly answer the goal.\n\n"
     "Return ONLY a JSON object:\n"
@@ -92,7 +99,56 @@ _PLAN_SYSTEM = (
 )
 
 
-def _schema_brief(engine: DataEngine) -> str:
+# Value profiling for the planner: without real values the LLM guesses the
+# literals it filters/maps on (e.g. 'yes'/'no' for a 4-level 'Very high'..
+# 'Relatively low' scale) and the pipeline "succeeds" with empty results.
+_PROFILE_MAX_DISTINCT = 12   # list every value of a text column up to this many
+_PROFILE_SAMPLES = 3         # otherwise show this many example values
+_PROFILE_VALUE_CHARS = 40
+_BRIEF_MAX_CHARS = 16000
+
+
+def _quote_col(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _is_text_type(ctype: str) -> bool:
+    t = (ctype or "").upper()
+    return any(k in t for k in ("VARCHAR", "CHAR", "TEXT", "STRING"))
+
+
+def _fmt_value(v: Any) -> str:
+    s = str(v)
+    if len(s) > _PROFILE_VALUE_CHARS:
+        s = s[: _PROFILE_VALUE_CHARS - 3] + "..."
+    return "'" + s.replace("'", "''") + "'"
+
+
+def _column_profile(engine: DataEngine, table: str, col: str) -> Optional[str]:
+    """One line describing the real values of a text column, or None."""
+    q = _quote_col(col)
+    t = _safe_ident(table)
+    try:
+        n_distinct = engine.run_query(f"SELECT COUNT(DISTINCT {q}) FROM {t}").rows[0][0]
+        if not n_distinct:
+            return f"{col}: always NULL"
+        if n_distinct <= _PROFILE_MAX_DISTINCT:
+            rows = engine.run_query(
+                f"SELECT {q}, COUNT(*) FROM {t} WHERE {q} IS NOT NULL "
+                f"GROUP BY 1 ORDER BY 2 DESC, 1"
+            ).rows
+            vals = ", ".join(f"{_fmt_value(v)} ({n})" for v, n in rows)
+            return f"{col}: {vals}"
+        rows = engine.run_query(
+            f"SELECT DISTINCT {q} FROM {t} WHERE {q} IS NOT NULL LIMIT {_PROFILE_SAMPLES}"
+        ).rows
+        samples = ", ".join(_fmt_value(r[0]) for r in rows)
+        return f"{col}: {n_distinct} distinct, e.g. {samples}"
+    except Exception:
+        return None
+
+
+def _schema_brief(engine: DataEngine, *, with_values: bool = True) -> str:
     lines: List[str] = []
     for t in engine.list_tables():
         try:
@@ -101,7 +157,74 @@ def _schema_brief(engine: DataEngine) -> str:
             continue
         col_str = ", ".join(f"{c['name']} {c['type']}" for c in cols)
         lines.append(f"- {t}({col_str})")
-    return "\n".join(lines) if lines else "(no tables connected)"
+        # profile raw tables only; models from an earlier dbt run are derived
+        if not with_values or engine._table_source.get(t) == "__dbt__":
+            continue
+        for c in cols:
+            if _is_text_type(c["type"]):
+                prof = _column_profile(engine, t, c["name"])
+                if prof:
+                    lines.append(f"    {prof}")
+    brief = "\n".join(lines) if lines else "(no tables connected)"
+    if len(brief) > _BRIEF_MAX_CHARS:
+        brief = brief[:_BRIEF_MAX_CHARS] + "\n    ... (value listing truncated)"
+    return brief
+
+
+# ---- post-run quality checks ------------------------------------------------
+# A model can execute fine and still be useless (every metric NULL, every
+# label 'unknown'). These checks surface that instead of reporting "ok".
+_PLACEHOLDER_VALUES = {"unknown", "other", "others", "n/a", "na", "none", "null", "", "未知", "其他"}
+_NUMERIC_HINTS = ("INT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC", "REAL", "HUGEINT")
+
+
+def _check_model(engine: DataEngine, name: str, row_count: int) -> List[Tuple[str, str]]:
+    """Return [(severity, message)]. 'error' = the column carries no
+    information (all NULL / all a placeholder label) and triggers a repair;
+    'warning' = all zero, which is often legitimate (e.g. a missing-date count)
+    so it is only reported."""
+    if row_count < 2:
+        return []
+    try:
+        cols = engine.table_schema(name)[:60]
+    except Exception:
+        return []
+    if not cols:
+        return []
+    parts: List[str] = []
+    for c in cols:
+        q = _quote_col(c["name"])
+        parts += [f"COUNT({q})", f"COUNT(DISTINCT {q})", f"MIN({q})", f"MAX({q})"]
+    try:
+        row = engine.run_query(f"SELECT {', '.join(parts)} FROM {_safe_ident(name)}").rows[0]
+    except Exception:
+        return []
+    issues: List[Tuple[str, str]] = []
+    for i, c in enumerate(cols):
+        non_null, n_distinct, lo, hi = row[4 * i: 4 * i + 4]
+        col, ctype = c["name"], c["type"].upper()
+        if non_null == 0:
+            issues.append(("error", f"column '{col}' is NULL in all {row_count} rows"))
+        elif n_distinct == 1 and str(lo).strip().lower() in _PLACEHOLDER_VALUES:
+            issues.append(("error", f"column '{col}' is {_fmt_value(lo)} in all {row_count} rows"))
+        elif any(h in ctype for h in _NUMERIC_HINTS) and lo == 0 and hi == 0:
+            issues.append(("warning", f"column '{col}' is 0 in all {row_count} rows"))
+    return issues
+
+
+def _quality_issues(engine: DataEngine, executed: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Check intermediate and marts models (staging only passes raw columns
+    through, so an all-NULL raw column is not the pipeline's fault)."""
+    found: List[Dict[str, str]] = []
+    for rec in executed:
+        rec.pop("warnings", None)
+        if rec.get("status") != "ok" or rec.get("layer") == "staging":
+            continue
+        issues = _check_model(engine, rec["name"], int(rec.get("row_count") or 0))
+        if issues:
+            rec["warnings"] = [msg for _, msg in issues]
+            found += [{"model": rec["name"], "severity": sev, "issue": msg} for sev, msg in issues]
+    return found
 
 
 def _validate_model_sql(sql: str) -> None:
@@ -127,10 +250,16 @@ def _sources_of(sql: str) -> List[str]:
     return out
 
 
-def plan_project(engine: DataEngine, goal: str, *, config: Optional[Any] = None) -> Dict[str, Any]:
+def plan_project(
+    engine: DataEngine,
+    goal: str,
+    *,
+    config: Optional[Any] = None,
+    schema_brief: Optional[str] = None,
+) -> Dict[str, Any]:
     """Ask the LLM to design the dbt project (models not yet executed)."""
     llm = get_llm(config)
-    schema = _schema_brief(engine)
+    schema = schema_brief if schema_brief is not None else _schema_brief(engine)
     user = (
         f"RAW TABLES (already loaded in DuckDB):\n{schema}\n\n"
         f"BUSINESS GOAL:\n{goal}\n\n"
@@ -212,14 +341,146 @@ def run_dbt(
     *,
     config: Optional[Any] = None,
     preview_rows: int = 8,
+    repair: bool = True,
 ) -> Dict[str, Any]:
-    """Plan + execute a dbt-style pipeline. Returns models + lineage DAG."""
-    plan = plan_project(engine, goal, config=config)
+    """Plan + execute a dbt-style pipeline. Returns models + lineage DAG.
+
+    After executing, every intermediate/marts model is checked for degenerate
+    output. If any check fails with severity 'error', the LLM gets the issues
+    plus the real column values and may rewrite models once (``repair``);
+    the pipeline is then re-executed and re-checked.
+    """
+    raw_tables = set(engine.list_tables())
+    brief = _schema_brief(engine)
+    plan = plan_project(engine, goal, config=config, schema_brief=brief)
     models = plan["models"]
+
+    executed, order, nodes, edges = _execute(engine, models, raw_tables, preview_rows)
+    issues = _quality_issues(engine, executed)
+
+    repair_info: Dict[str, Any] = {"attempted": False}
+    if repair and any(i["severity"] == "error" for i in issues):
+        repair_info = {"attempted": True, "issues_before": issues}
+        try:
+            changed, why = _repair_models(engine, goal, models, issues, brief, config=config)
+            repair_info.update({"changed": sorted(changed), "explanation": why})
+            if changed:
+                by_name = {m["name"]: m for m in models}
+                for m in changed.values():
+                    by_name[m["name"]].update({"sql": m["sql"], "repaired": True})
+                executed, order, nodes, edges = _execute(engine, models, raw_tables, preview_rows)
+                issues = _quality_issues(engine, executed)
+        except Exception as exc:  # noqa: BLE001 — repair is best effort
+            repair_info["error"] = str(exc)
+        repair_info["issues_after"] = issues
+
+    by_name = {m["name"]: m for m in models}
+    n_ok = sum(1 for r in executed if r["status"] == "ok")
+    marts = [r["name"] for r in executed if r["layer"] == "marts" and r["status"] == "ok"]
+    final = marts[-1] if marts else (order[-1] if order else None)
+    final_result = None
+    if final and by_name.get(final) and any(r["name"] == final and r["status"] == "ok" for r in executed):
+        try:
+            frt = engine.run_query(f"SELECT * FROM {final} LIMIT 200")
+            final_result = {
+                "table": final, "columns": frt.column_names,
+                "rows": frt.rows, "row_count": frt.row_count,
+            }
+        except Exception:
+            final_result = None
+
+    return {
+        "project": plan.get("project", "dbt_project"),
+        "goal": goal,
+        "explanation": plan.get("explanation", ""),
+        "models": executed,
+        "dag": {"nodes": nodes, "edges": edges},
+        "layers": list(LAYERS),
+        "final": final,
+        "final_result": final_result,
+        "n_models": len(models),
+        "n_ok": n_ok,
+        "quality_issues": issues,
+        "repair": repair_info,
+    }
+
+
+_REPAIR_SYSTEM = (
+    "You are a senior analytics engineer reviewing a dbt pipeline that ran "
+    "without SQL errors but produced degenerate output (columns that are NULL "
+    "or a placeholder like 'unknown' in every row). The usual cause is SQL that "
+    "filters or maps on literal values that do not exist in the data. You get "
+    "the raw tables with their REAL column values, the business goal, every "
+    "model's SQL, and the detected issues.\n\n"
+    "Fix the root cause, which may be in an upstream model rather than the one "
+    "where the symptom shows. Use only the real values listed. Keep model names, "
+    "ref()/source() conventions and output columns the downstream models rely "
+    "on; each model stays ONE read-only SELECT (DuckDB). Change only models that "
+    "need it. If an issue is legitimate (the data really is empty there), leave "
+    "it and say so.\n\n"
+    "Return ONLY a JSON object:\n"
+    '{"explanation": "what was wrong and what you changed", '
+    '"models": [{"name": "existing_model_name", "sql": "SELECT ..."}]}'
+)
+
+
+def _repair_models(
+    engine: DataEngine,
+    goal: str,
+    models: List[Dict[str, Any]],
+    issues: List[Dict[str, str]],
+    brief: str,
+    *,
+    config: Optional[Any] = None,
+) -> Tuple[Dict[str, Dict[str, Any]], str]:
+    """One LLM pass that rewrites models behind 'error' issues.
+
+    Returns ({name: {name, sql}} for valid changed models, explanation).
+    Unknown names and SQL that fails validation are dropped.
+    """
+    llm = get_llm(config)
+    model_txt = "\n\n".join(
+        f"-- {m['name']} ({m['layer']})\n{m['sql']}" for m in models
+    )
+    issue_txt = "\n".join(f"- [{i['severity']}] {i['model']}: {i['issue']}" for i in issues)
+    user = (
+        f"RAW TABLES (with real values):\n{brief}\n\n"
+        f"BUSINESS GOAL:\n{goal}\n\n"
+        f"CURRENT MODELS:\n{model_txt}\n\n"
+        f"DETECTED ISSUES:\n{issue_txt}\n\n"
+        "Return only the JSON object."
+    )
+    out = llm.chat_json(
+        [{"role": "system", "content": _REPAIR_SYSTEM}, {"role": "user", "content": user}],
+        max_output_tokens=16000,
+    )
+    names = {m["name"] for m in models}
+    changed: Dict[str, Dict[str, Any]] = {}
+    for m in out.get("models") or []:
+        name = _safe_ident(str(m.get("name", "")))
+        sql = m.get("sql") or ""
+        if name not in names or not sql:
+            continue
+        try:
+            _validate_model_sql(sql)
+        except DbtError:
+            continue
+        changed[name] = {"name": name, "sql": sql}
+    return changed, str(out.get("explanation", ""))
+
+
+def _execute(
+    engine: DataEngine,
+    models: List[Dict[str, Any]],
+    raw_tables: Set[str],
+    preview_rows: int,
+) -> Tuple[List[Dict[str, Any]], List[str], List[Dict[str, Any]], List[Dict[str, str]]]:
+    """Build the lineage DAG and materialize every model in topological order.
+
+    Returns (executed records, order, dag nodes, dag edges).
+    """
     by_name = {m["name"]: m for m in models}
     model_names = set(by_name)
-
-    raw_tables = set(engine.list_tables())
     order, deps = _topo_order(models)
 
     # ---- lineage DAG (nodes coloured by layer; edges = ref + source) --------
@@ -276,34 +537,11 @@ def run_dbt(
         except Exception as exc:  # noqa: BLE001
             rec.update({"status": "error", "error": str(exc)})
             failed.add(name)
+        if m.get("repaired"):
+            rec["repaired"] = True
         executed.append(rec)
 
-    n_ok = sum(1 for r in executed if r["status"] == "ok")
-    marts = [r["name"] for r in executed if r["layer"] == "marts" and r["status"] == "ok"]
-    final = marts[-1] if marts else (order[-1] if order else None)
-    final_result = None
-    if final and by_name.get(final) and any(r["name"] == final and r["status"] == "ok" for r in executed):
-        try:
-            frt = engine.run_query(f"SELECT * FROM {final} LIMIT 200")
-            final_result = {
-                "table": final, "columns": frt.column_names,
-                "rows": frt.rows, "row_count": frt.row_count,
-            }
-        except Exception:
-            final_result = None
-
-    return {
-        "project": plan.get("project", "dbt_project"),
-        "goal": goal,
-        "explanation": plan.get("explanation", ""),
-        "models": executed,
-        "dag": {"nodes": nodes, "edges": edges},
-        "layers": list(LAYERS),
-        "final": final,
-        "final_result": final_result,
-        "n_models": len(models),
-        "n_ok": n_ok,
-    }
+    return executed, order, nodes, edges
 
 
 def export_project(result: Dict[str, Any], out_dir: str) -> Dict[str, Any]:
