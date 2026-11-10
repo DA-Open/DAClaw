@@ -631,3 +631,65 @@ def render_dashboard_html(
   {kpi_html}
   {grid}
 </div>{script_block}</body></html>"""
+
+
+# ---------------------------------------------------------------------------
+# PNG export — for channels that cannot open HTML (Feishu, WeChat, ...)
+# ---------------------------------------------------------------------------
+
+# Wait until every ECharts instance on the page has finished drawing, with
+# animation off so the screenshot never catches a half-drawn frame.
+_WAIT_CHARTS_JS = """async () => {
+  if (!window.echarts) return {instances: 0, timedOut: 0};
+  const doms = [...document.querySelectorAll('[_echarts_instance_]')];
+  const insts = doms.map(d => echarts.getInstanceByDom(d)).filter(Boolean);
+  let timedOut = 0;
+  await Promise.all(insts.map(i => new Promise(res => {
+    const t = setTimeout(() => { timedOut += 1; res(); }, 5000);
+    i.on('finished', () => { clearTimeout(t); res(); });
+    i.setOption({animation: false});
+    i.resize();
+  })));
+  return {instances: insts.length, timedOut};
+}"""
+
+
+def export_chart_png(html_path: str, png_path: str) -> Dict[str, Any]:
+    """Screenshot a chart/dashboard HTML file to PNG. Never raises.
+
+    Returns ``{"ok": True, "path": ...}`` or ``{"ok": False, "reason": ...}``.
+    The provenance SQL block is hidden: it is useful in the web UI but is
+    noise in an image sent to a chat.
+    """
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except Exception as exc:
+        return {"ok": False, "reason": f"playwright not installed: {exc}"}
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                page = browser.new_page(
+                    viewport={"width": 1100, "height": 700}, device_scale_factor=2
+                )
+                page.goto(Path(html_path).resolve().as_uri(), wait_until="load", timeout=30000)
+                page.add_style_tag(content=".sql-block{display:none !important}")
+                state = page.evaluate(_WAIT_CHARTS_JS)
+                target = page.query_selector(".wrap")
+                if target:
+                    target.screenshot(path=png_path)
+                else:
+                    page.screenshot(path=png_path, full_page=True)
+            finally:
+                browser.close()
+    except Exception as exc:
+        return {"ok": False, "reason": f"png export failed: {exc}"}
+
+    out = Path(png_path)
+    if not out.is_file() or out.stat().st_size < 2000:
+        return {"ok": False, "reason": "png export produced no usable image"}
+    result: Dict[str, Any] = {"ok": True, "path": str(out)}
+    if state.get("timedOut"):
+        result["warning"] = f"{state['timedOut']} chart(s) did not report finished rendering"
+    return result
