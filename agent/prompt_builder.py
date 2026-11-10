@@ -378,6 +378,17 @@ PLATFORM_HINTS = {
         "downloaded and sent as native photos. Do NOT tell the user you lack file-sending "
         "capability — use MEDIA: syntax whenever a file delivery is appropriate."
     ),
+    "feishu": (
+        "You are on Feishu (飞书 / Lark). Markdown is rendered as a Feishu rich-text post, "
+        "so keep formatting simple: headings, bold, lists and links work best. You CAN "
+        "send files natively: to deliver a file, put MEDIA:/absolute/path/to/file on its "
+        "own line in your response. Images (.png, .jpg) arrive as photos; other files "
+        "(.pdf, .docx, .xlsx, .html, ...) arrive as downloadable attachments. The user "
+        "cannot open paths on this server, so never reply with a bare local path or a "
+        "markdown link to one — send the file with MEDIA: instead. When a chart tool "
+        "returns 'deliver_with', copy that line into your reply. Do NOT tell the user "
+        "you lack file-sending capability."
+    ),
     "qqbot": (
         "You are on QQ, a popular Chinese messaging platform. QQ supports markdown formatting "
         "and emoji. You can send media files natively: include MEDIA:/absolute/path/to/file in "

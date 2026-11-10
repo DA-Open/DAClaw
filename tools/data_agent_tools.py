@@ -62,6 +62,54 @@ def _output_dir() -> Path:
         return out
 
 
+# Channels that can show the HTML chart itself (web UI preview, a local
+# browser). Anything else — Feishu, WeChat, Telegram, cron delivery — only
+# receives files, so charts are also exported as PNG for them.
+_HTML_CAPABLE_PLATFORMS = {"", "cli", "local", "web"}
+
+
+def _maybe_export_png(args: Dict[str, Any], html_path: Path) -> Dict[str, Any]:
+    """Export a PNG next to ``html_path`` when the current channel needs one.
+
+    ``export_png`` in ``args`` forces it on or off; otherwise it is decided by
+    the session platform the gateway sets. Failure never breaks the tool —
+    the HTML stays the primary artifact and the reason is reported.
+    """
+    want = args.get("export_png")
+    if isinstance(want, str):
+        want = want.strip().lower() in {"1", "true", "yes"}
+    if want is None:
+        try:
+            from gateway.session_context import get_session_env
+
+            platform = get_session_env("DACLAW_SESSION_PLATFORM", "")
+        except Exception:
+            platform = ""
+        want = (platform or "").strip().lower() not in _HTML_CAPABLE_PLATFORMS
+    if not want:
+        return {}
+
+    from agent.data_agent import viz
+
+    res = viz.export_chart_png(str(html_path), str(html_path.with_suffix(".png")))
+    if not res.get("ok"):
+        return {"png_error": res.get("reason", "png export failed")}
+    out: Dict[str, Any] = {
+        "png_path": res["path"],
+        "deliver_with": f"MEDIA:{res['path']}",
+    }
+    if res.get("warning"):
+        out["png_warning"] = res["warning"]
+    return out
+
+
+_PNG_DELIVERY_NOTE = (
+    "This chat cannot open HTML files. To show the chart, put the "
+    "'deliver_with' line on its own line in your reply; do not link the "
+    "local .html path."
+)
+
+
 def _check_engine() -> bool:
     try:
         from agent.data_agent.engine import engine_available
@@ -381,6 +429,10 @@ DATA_VISUALIZE_SCHEMA: Dict[str, Any] = {
                 "description": "Optional: line, bar, bar_horizontal, pie, scatter, heatmap, area, table. Omit to auto-select.",
             },
             "subtitle": {"type": "string", "description": "Optional subtitle."},
+            "export_png": {
+                "type": "boolean",
+                "description": "Also save a PNG of the chart. Omit to decide automatically: on by default in chat apps that cannot open HTML.",
+            },
         },
         "required": ["sql", "title"],
     },
@@ -408,17 +460,20 @@ def _handle_data_visualize(args, **_kwargs):
         # also drop into the workspace so it appears in the UI
         out = _output_dir() / Path(chart_rec["rel"]).name
         out.write_text(html, encoding="utf-8")
-        return tool_result(
-            {
-                "artifact_id": chart_rec["artifact_id"],
-                "chart_type": args.get("chart_type") or viz.select_chart_type(rt),
-                "row_count": rt.row_count,
-                "html_path": str(out),
-                "workspace_file": out.name,
-                "render_check": check,
-                "note": "Chart HTML saved. It previews in the workspace UI and opens standalone.",
-            }
-        )
+        payload = {
+            "artifact_id": chart_rec["artifact_id"],
+            "chart_type": args.get("chart_type") or viz.select_chart_type(rt),
+            "row_count": rt.row_count,
+            "html_path": str(out),
+            "workspace_file": out.name,
+            "render_check": check,
+            "note": "Chart HTML saved. It previews in the workspace UI and opens standalone.",
+        }
+        png = _maybe_export_png(args, out)
+        payload.update(png)
+        if png.get("png_path"):
+            payload["note"] = _PNG_DELIVERY_NOTE
+        return tool_result(payload)
     except DataEngineError as exc:
         return tool_error(str(exc))
     except Exception as exc:  # pragma: no cover
@@ -459,6 +514,10 @@ DATA_DASHBOARD_SCHEMA: Dict[str, Any] = {
                     },
                     "required": ["title", "sql"],
                 },
+            },
+            "export_png": {
+                "type": "boolean",
+                "description": "Also save a PNG of the dashboard. Omit to decide automatically: on by default in chat apps that cannot open HTML.",
             },
         },
         "required": ["title"],
@@ -504,16 +563,19 @@ def _handle_data_dashboard(args, **_kwargs):
         out = _output_dir() / f"dashboard_{Path(rec['rel']).name}"
         out.write_text(html, encoding="utf-8")
         chart_panels = [p for p in panels if not p.get("kpi")]
-        return tool_result(
-            {
-                "artifact_id": rec["artifact_id"],
-                "panels": len(panels),
-                "charts": len(chart_panels),
-                "html_path": str(out),
-                "workspace_file": out.name,
-                "render_check": check,
-            }
-        )
+        payload = {
+            "artifact_id": rec["artifact_id"],
+            "panels": len(panels),
+            "charts": len(chart_panels),
+            "html_path": str(out),
+            "workspace_file": out.name,
+            "render_check": check,
+        }
+        png = _maybe_export_png(args, out)
+        payload.update(png)
+        if png.get("png_path"):
+            payload["note"] = _PNG_DELIVERY_NOTE
+        return tool_result(payload)
     except DataEngineError as exc:
         return tool_error(str(exc))
     except Exception as exc:  # pragma: no cover
