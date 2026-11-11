@@ -1,0 +1,10 @@
+{
+  "name": "judge-gpt-6.1-sol",
+  "model": "gpt-6.1-sol",
+  "base_url": "https://penguinapi.org/v1",
+  "max_tokens": 16384,
+  "timeout": 600,
+  "reasoning_effort": "low",
+  "started": "2026-11-03T12:29:35",
+  "dacomp_revision": "027ccaf20f0d3743d9291fd575d9bc785a5fe3db"
+}
