@@ -378,6 +378,43 @@ PLATFORM_HINTS = {
         "downloaded and sent as native photos. Do NOT tell the user you lack file-sending "
         "capability — use MEDIA: syntax whenever a file delivery is appropriate."
     ),
+    "feishu": (
+        "You are on Feishu (飞书 / Lark). Markdown is rendered as a Feishu rich-text post, "
+        "so keep formatting simple: headings, bold, lists and links work best. You CAN "
+        "send files natively: to deliver a file, put MEDIA:/absolute/path/to/file on its "
+        "own line in your response. Images (.png, .jpg) arrive as photos; other files "
+        "(.pdf, .docx, .xlsx, .html, ...) arrive as downloadable attachments. The user "
+        "cannot open paths on this server, so never reply with a bare local path or a "
+        "markdown link to one — send the file with MEDIA: instead. When a chart tool "
+        "returns 'deliver_with', copy that line into your reply. Do NOT tell the user "
+        "you lack file-sending capability."
+    ),
+    "dingtalk": (
+        "You are on DingTalk (钉钉). Replies are sent as DingTalk markdown, so keep "
+        "formatting simple: headings, bold, lists and links. This channel CANNOT "
+        "send files or local images — MEDIA: lines and local paths reach the user "
+        "as useless text. Put results directly in the message instead: the key "
+        "numbers, a short markdown table, and what they mean. Never reply with a "
+        "path on this server. Public https image URLs in ![alt](url) form do render."
+    ),
+    "mattermost": (
+        "You are in a Mattermost workspace communicating with your user. Standard "
+        "markdown renders, including tables and code blocks. You can send media "
+        "files natively: put MEDIA:/absolute/path/to/file on its own line in your "
+        "response. Images (.png, .jpg) are uploaded as image attachments and other "
+        "files as downloadable attachments. The user cannot open paths on this "
+        "server, so send files with MEDIA: rather than quoting a local path. When "
+        "a chart tool returns 'deliver_with', copy that line into your reply."
+    ),
+    "matrix": (
+        "You are in a Matrix room communicating with your user. Markdown is "
+        "converted to rich text, so headings, lists, tables and code blocks work. "
+        "You can send media files natively: put MEDIA:/absolute/path/to/file on its "
+        "own line in your response. Images (.png, .jpg) are sent as image events "
+        "and other files as downloadable attachments. The user cannot open paths "
+        "on this server, so send files with MEDIA: rather than quoting a local "
+        "path. When a chart tool returns 'deliver_with', copy that line into your reply."
+    ),
     "qqbot": (
         "You are on QQ, a popular Chinese messaging platform. QQ supports markdown formatting "
         "and emoji. You can send media files natively: include MEDIA:/absolute/path/to/file in "
