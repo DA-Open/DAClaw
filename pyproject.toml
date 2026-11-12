@@ -80,6 +80,9 @@ termux = [
 dingtalk = ["dingtalk-stream>=0.1.0,<1"]
 feishu = ["lark-oapi>=1.5.3,<2"]
 web = ["fastapi>=0.104.0,<1", "uvicorn[standard]>=0.24.0,<1", "python-multipart>=0.0.9,<1"]
+# DaraOS harness runtime (src/harness): HTTP API and the PostgreSQL task queue.
+# Kept out of [all] until the runtime is usable, so the Docker image is unchanged.
+harness = ["fastapi>=0.104.0,<1", "uvicorn[standard]>=0.24.0,<1", "asyncpg>=0.29,<1"]
 data = [
   # DataAgent: DuckDB is the unified SQL engine; pandas/openpyxl bridge Excel &
   # SQLite; pyarrow enables Parquet. Charts inline vendored ECharts (no dep).
@@ -147,10 +150,15 @@ daclaw_cli = ["web_dist/**/*"]
 "agent.data_agent" = ["assets/*.js"]
 
 [tool.setuptools.packages.find]
-include = ["agent", "agent.*", "tools", "tools.*", "daclaw_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*"]
+# "src" holds the DaraOS harness runtime (package `harness`); everything else
+# stays at the repository root.
+where = [".", "src"]
+include = ["agent", "agent.*", "tools", "tools.*", "daclaw_cli", "gateway", "gateway.*", "cron", "acp_adapter", "plugins", "plugins.*", "harness", "harness.*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Lets tests import `harness` from src/ without reinstalling the package.
+pythonpath = ["src"]
 markers = [
     "integration: marks tests requiring external services (API keys, Modal, etc.)",
 ]
