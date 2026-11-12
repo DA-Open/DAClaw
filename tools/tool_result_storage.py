@@ -93,6 +93,7 @@ def _build_persisted_message(
     has_more: bool,
     original_size: int,
     file_path: str,
+    read_tool: str = "read_file",
 ) -> str:
     """Build the <persisted-output> replacement block."""
     size_kb = original_size / 1024
@@ -104,7 +105,10 @@ def _build_persisted_message(
     msg = f"{PERSISTED_OUTPUT_TAG}\n"
     msg += f"This tool result was too large ({original_size:,} characters, {size_str}).\n"
     msg += f"Full output saved to: {file_path}\n"
-    msg += "Use the read_file tool with offset and limit to access specific sections of this output.\n\n"
+    msg += (
+        f"Use the {read_tool} tool with offset and limit to access specific "
+        "sections of this output.\n\n"
+    )
     msg += f"Preview (first {len(preview)} chars):\n"
     msg += preview
     if has_more:
@@ -120,6 +124,7 @@ def maybe_persist_tool_result(
     env=None,
     config: BudgetConfig = DEFAULT_BUDGET,
     threshold: int | float | None = None,
+    read_tool: str = "read_file",
 ) -> str:
     """Layer 2: persist oversized result into the sandbox, return preview + path.
 
@@ -134,6 +139,8 @@ def maybe_persist_tool_result(
         env: The active BaseEnvironment instance, or None.
         config: BudgetConfig controlling thresholds and preview size.
         threshold: Explicit override; takes precedence over config resolution.
+        read_tool: Tool the model should use to read the saved file back. Callers
+            pass "data_result_read" when the active toolset has no read_file.
 
     Returns:
         Original content if small, or <persisted-output> replacement.
@@ -157,7 +164,9 @@ def maybe_persist_tool_result(
                     "Persisted large tool result: %s (%s, %d chars -> %s)",
                     tool_name, tool_use_id, len(content), remote_path,
                 )
-                return _build_persisted_message(preview, has_more, len(content), remote_path)
+                return _build_persisted_message(
+                    preview, has_more, len(content), remote_path, read_tool=read_tool
+                )
         except Exception as exc:
             logger.warning("Sandbox write failed for %s: %s", tool_use_id, exc)
 
