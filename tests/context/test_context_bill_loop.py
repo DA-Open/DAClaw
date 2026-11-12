@@ -107,3 +107,26 @@ def test_recording_does_not_change_model_input(tmp_path):
         messages_off = _run_turn(off_agent)
 
     assert messages_on == messages_off
+
+def test_plugin_context_is_recorded_and_reaches_the_model(tmp_path):
+    """A pre_llm_call injection must be billed and must still reach the model."""
+    store = SessionDB(tmp_path / "state.db")
+    agent = _new_agent()
+    agent.client.chat.completions.create.return_value = _resp()
+
+    with (
+        patch.object(ctx_events, "default_db", return_value=store),
+        patch("daclaw_cli.plugins.invoke_hook", return_value=[{"context": "PLUGIN_CTX_MARKER"}]),
+        patch.object(agent, "_persist_session"),
+        patch.object(agent, "_save_trajectory"),
+        patch.object(agent, "_cleanup_task_resources"),
+    ):
+        agent.run_conversation("hello")
+
+    rows = [r for r in store.injection_bill(agent.session_id) if r["kind"] == "plugin_context"]
+    assert rows, "plugin injection was not recorded"
+    assert rows[0]["chars"] == len("PLUGIN_CTX_MARKER")
+    assert rows[0]["est_tokens"] == int(len("PLUGIN_CTX_MARKER") / ctx_events.CHARS_PER_TOKEN)
+
+    sent = agent.client.chat.completions.create.call_args.kwargs["messages"]
+    assert "PLUGIN_CTX_MARKER" in str(sent)
