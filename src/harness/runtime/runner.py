@@ -433,8 +433,9 @@ class AgentRunner:
                 "result did not pass verification: " + ("; ".join(problems) or "failed"),
                 verification_ref=verification.id,
             )
-        # inconclusive: never succeeded; the user decides (spec 6.3 "待确认").
-        # result_ref stays unset: the spec writes it only when checks pass.
+        # inconclusive -> waiting / input (decided): never succeeded; the user
+        # confirms (spec 6.3 "待确认结果"). result_ref stays unset: the spec
+        # writes it only when checks pass.
         # The candidate's artifacts are in artifact_refs.
         return self._outcome(
             run,

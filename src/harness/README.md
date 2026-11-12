@@ -128,7 +128,8 @@ tables do not change later; most come from review comments on the spec.
   across attempts, counted from earlier `model_call` events. Replaying a
   step from a checkpoint with its original number is P1.
 - `inconclusive` verification ends in `waiting` / `input` without
-  `result_ref`; `failed` ends the task (no repair rounds, spec 6.3).
+  `result_ref` (decided 2026-11-12: spec 6.3 "待确认结果" means the user
+  confirms); `failed` ends the task (no repair rounds, spec 6.3).
 - A model call that got an HTTP error is released; one that got no answer
   (timeout) is charged at the reserved amount. Retryable failures are tried
   again up to `model_retries` times in a row, inside the same budget.
