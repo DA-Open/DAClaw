@@ -360,6 +360,21 @@ class RemainingBudget(_Model):
             fraction=fraction,
         )
 
+    @classmethod
+    def for_task(cls, task: Task, now: datetime) -> RemainingBudget:
+        """Remaining budget of a task at ``now``, from its settled usage.
+
+        Time counts from the first claim: ``deadline`` is set then and kept
+        for every later attempt. Before the first claim the whole timeout is
+        left. Open reservations are not subtracted here; one that does not fit
+        is refused by ``UsageRepository.reserve``.
+        """
+        if task.deadline is None:
+            elapsed = 0.0
+        else:
+            elapsed = task.limits.timeout_sec - (task.deadline - now).total_seconds()
+        return cls.compute(task.limits, task.usage, max(elapsed, 0.0))
+
 
 class UsageReservation(_Model):
     """One reserved-then-settled charge, keyed by call_id (spec 6.2).
@@ -569,6 +584,24 @@ class Task(_Model):
         )
 
 
+class TaskRef(_Model):
+    """Short task handle: the POST /tasks 202 body, ProactiveController output."""
+
+    task_id: str
+    agent_role: AgentRole
+    run_lane: RunLane
+    status: TaskStatus
+
+    @classmethod
+    def of(cls, task: Task) -> TaskRef:
+        return cls(
+            task_id=task.id,
+            agent_role=task.agent_role,
+            run_lane=task.run_lane,
+            status=task.status,
+        )
+
+
 class Attempt(_Model):
     id: str
     task_id: str
@@ -735,6 +768,70 @@ class Action(_Model):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class ActionRef(_Model):
+    """What Connector.reconcile needs to look up one earlier call."""
+
+    action_id: str
+    task_id: str
+    logical_key: str
+    tool: str
+    request_hash: str
+    receipt_ref: str | None = None
+
+
+class AuthorizedCall(_Model):
+    """A call ToolGateway has checked and registered, handed to a Connector.
+
+    It carries a credential reference, never the secret: the connector
+    resolves the reference when it calls the service (spec 3.2, 6.2 step 4).
+    """
+
+    action_id: str
+    task_id: str
+    attempt_id: str
+    scope_id: str
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+    logical_key: str
+    credential_ref: str | None = None
+    deadline: datetime | None = None
+
+
+_CONNECTOR_STATUSES = frozenset({ToolStatus.SUCCEEDED, ToolStatus.FAILED, ToolStatus.UNKNOWN})
+
+
+class ToolResult(_Model):
+    """What a Connector returns; ToolGateway turns it into a ToolOutcome.
+
+    Only succeeded, failed or unknown: denied and needs_approval are decided
+    by the gateway before any connector runs.
+    """
+
+    status: ToolStatus
+    summary: str = ""
+    # Small structured output only; full content goes to ArtifactStore.
+    data: dict[str, Any] | None = None
+    artifact_refs: list[str] = Field(default_factory=list)
+    receipt_ref: str | None = None
+    error: TaskError | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> ToolResult:
+        if self.status not in _CONNECTOR_STATUSES:
+            raise ValueError(f"a connector cannot return {self.status}")
+        if self.status is ToolStatus.FAILED and self.error is None:
+            raise ValueError("failed needs an error")
+        return self
+
+
+class ReconcileResult(_Model):
+    """Answer to "did this earlier call happen?" (spec 4.4, 7 step 3)."""
+
+    status: Literal["succeeded", "failed", "unknown", "unsupported"]
+    receipt_ref: str | None = None
+    detail: str = ""
+
+
 # ---------------------------------------------------------------------------
 # artifacts and verification (spec 3, 6.3)
 # ---------------------------------------------------------------------------
@@ -761,6 +858,41 @@ class Artifact(_Model):
     size_bytes: int = Field(ge=0)
     source_refs: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utcnow)
+
+
+class ArtifactRef(_Model):
+    """Returned by ArtifactStore.put. ``id`` is the value that ``result_ref``
+    and ``artifact_refs`` hold elsewhere."""
+
+    id: str
+    scope_id: str
+    name: str | None = None
+    media_type: str
+    content_hash: str
+    size_bytes: int = Field(ge=0)
+
+    @classmethod
+    def of(cls, artifact: Artifact) -> ArtifactRef:
+        return cls(
+            id=artifact.id,
+            scope_id=artifact.scope_id,
+            name=artifact.name,
+            media_type=artifact.media_type,
+            content_hash=artifact.content_hash,
+            size_bytes=artifact.size_bytes,
+        )
+
+
+class ArtifactContent(_Model):
+    """Content read back from ArtifactStore, possibly one byte range of it."""
+
+    ref: ArtifactRef
+    content: bytes
+    offset: int = Field(0, ge=0)
+
+    @property
+    def complete(self) -> bool:
+        return self.offset == 0 and len(self.content) == self.ref.size_bytes
 
 
 class CheckResult(_Model):

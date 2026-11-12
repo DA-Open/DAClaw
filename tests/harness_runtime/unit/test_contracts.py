@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -6,6 +6,9 @@ from pydantic import ValidationError
 from harness.contracts import (
     TASK_TRANSITIONS,
     Acceptance,
+    Artifact,
+    ArtifactContent,
+    ArtifactRef,
     Actor,
     AgentProfile,
     AgentRole,
@@ -25,10 +28,13 @@ from harness.contracts import (
     TaskError,
     TaskOrigin,
     TaskOutcome,
+    TaskRef,
     TaskRequest,
     TaskStatus,
     ToolCall,
+    ToolResult,
     ToolSpec,
+    ToolStatus,
     TriggerType,
     Usage,
     VerificationResult,
@@ -324,4 +330,51 @@ def test_error_response_shape():
         "message": "request_key reused",
         "retryable": False,
         "request_id": "req_1",
+    }
+
+
+# -- additions for module interfaces ---------------------------------------------
+
+
+def test_remaining_budget_for_task_counts_from_deadline():
+    task = Task.new(
+        request(limits=Limits(timeout_sec=100, max_model_calls=10)),
+        Actor(actor_id="u", scope_id="s"),
+        main_origin(),
+    )
+    now = datetime(2026, 11, 13, tzinfo=timezone.utc)
+    assert RemainingBudget.for_task(task, now).seconds == 100
+    started = task.model_copy(update={"deadline": now + timedelta(seconds=100), "usage": Usage(model_calls=5)})
+    later = RemainingBudget.for_task(started, now + timedelta(seconds=30))
+    assert later.seconds == 70 and later.model_calls == 5
+    assert later.fraction == pytest.approx(0.5)
+    assert RemainingBudget.for_task(started, now + timedelta(seconds=500)).seconds == 0
+
+
+def test_connector_result_statuses():
+    assert ToolResult(status=ToolStatus.UNKNOWN).status is ToolStatus.UNKNOWN
+    for status in (ToolStatus.DENIED, ToolStatus.NEEDS_APPROVAL):
+        with pytest.raises(ValidationError):
+            ToolResult(status=status)
+    with pytest.raises(ValidationError):
+        ToolResult(status=ToolStatus.FAILED)
+
+
+def test_artifact_ref_and_content():
+    art = Artifact(
+        scope_id="s", name="draft", uri="file:///x", media_type="text/markdown", content_hash="sha256:x", size_bytes=5
+    )
+    ref = ArtifactRef.of(art)
+    assert ref.id == art.id and ref.name == "draft"
+    assert ArtifactContent(ref=ref, content=b"hello").complete
+    assert not ArtifactContent(ref=ref, content=b"he").complete
+
+
+def test_task_ref_of():
+    task = Task.new(request(), Actor(actor_id="u", scope_id="s"), main_origin())
+    assert TaskRef.of(task).model_dump(mode="json") == {
+        "task_id": task.id,
+        "agent_role": "main",
+        "run_lane": "foreground",
+        "status": "queued",
     }

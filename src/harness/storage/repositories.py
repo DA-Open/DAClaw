@@ -17,6 +17,9 @@ Rules every implementation follows:
 * ``Task.version`` goes up on status changes and cancel requests only.
   Heartbeats and usage settlement do not change it.
 * Returned objects are copies; changing them changes nothing stored.
+
+Not here yet: putting tasks whose lease expired back in the queue. That is
+the Scheduler's job in P1; until then such a task stays ``running``.
 """
 
 from __future__ import annotations
@@ -86,6 +89,9 @@ class TaskRepository(Protocol):
 
         Atomically: status -> running, ``lease_epoch`` + 1, new attempt row,
         status event. Two concurrent claims never return the same task.
+
+        The first claim sets ``deadline`` to ``now + limits.timeout_sec``;
+        later claims keep it, so time counts over the whole task.
         """
 
     async def heartbeat(self, lease: AttemptLease, lease_ttl_sec: int, now: datetime) -> Task:
@@ -93,6 +99,12 @@ class TaskRepository(Protocol):
 
         Raise ``StaleLease`` if the lease is no longer the task's current one
         or has expired.
+        """
+
+    async def checkpoint(self, lease: AttemptLease, checkpoint_ref: str, now: datetime) -> Task:
+        """Point the task at a checkpoint already stored in ArtifactStore.
+
+        Raise ``StaleLease`` for an old lease. ``version`` does not change.
         """
 
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:

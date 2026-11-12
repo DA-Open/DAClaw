@@ -23,6 +23,7 @@ from harness.contracts import (
     InvalidTransition,
     Limits,
     NotFound,
+    RemainingBudget,
     ReservationStatus,
     RunLane,
     StaleLease,
@@ -443,3 +444,28 @@ async def test_artifacts_are_scoped(repos):
         await repos.artifacts.get("s2", art.id)
     assert [a.id for a in await repos.artifacts.list_for_task("s1", task.id)] == [art.id]
     assert await repos.artifacts.list_for_task("s2", task.id) == []
+
+
+# -- deadline and checkpoint ---------------------------------------------------------
+
+
+async def test_first_claim_sets_deadline_and_retries_keep_it(repos):
+    task, lease = await claimed(repos, limits=Limits(timeout_sec=600))
+    assert lease.deadline == T0 + timedelta(seconds=600)
+    assert (await repos.tasks.get("s1", task.id)).deadline == lease.deadline
+    await repos.tasks.commit(lease, TaskOutcome(status=TaskStatus.QUEUED), T0)
+    later = T0 + timedelta(seconds=120)
+    lease2 = await repos.tasks.claim("w2", [RunLane.FOREGROUND], TTL, later)
+    assert lease2.deadline == lease.deadline
+    stored = await repos.tasks.get("s1", task.id)
+    assert RemainingBudget.for_task(stored, later).seconds == 480
+
+
+async def test_checkpoint_needs_current_lease(repos):
+    task, lease = await claimed(repos)
+    stored = await repos.tasks.checkpoint(lease, "art_ckpt", T0)
+    assert stored.checkpoint_ref == "art_ckpt" and stored.version == 2
+    await repos.tasks.commit(lease, TaskOutcome(status=TaskStatus.QUEUED), T0)
+    assert (await repos.tasks.get("s1", task.id)).checkpoint_ref == "art_ckpt"
+    with pytest.raises(StaleLease):
+        await repos.tasks.checkpoint(lease, "art_late", T0)

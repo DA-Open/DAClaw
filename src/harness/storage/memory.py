@@ -234,6 +234,7 @@ class InMemoryTaskRepository:
             assert_transition(task.status, TaskStatus.RUNNING)
             epoch = task.lease_epoch + 1
             expires = now + timedelta(seconds=lease_ttl_sec)
+            deadline = task.deadline or now + timedelta(seconds=task.limits.timeout_sec)
             attempt = Attempt(
                 id=new_id("att"),
                 task_id=task.id,
@@ -251,6 +252,7 @@ class InMemoryTaskRepository:
                 status=TaskStatus.RUNNING,
                 lease_epoch=epoch,
                 current_attempt_id=attempt.id,
+                deadline=deadline,
                 version=task.version + 1,
                 updated_at=now,
             )
@@ -263,7 +265,7 @@ class InMemoryTaskRepository:
                 worker_id=worker_id,
                 lease_epoch=epoch,
                 lease_expires_at=expires,
-                deadline=task.deadline,
+                deadline=deadline,
             )
 
     async def heartbeat(self, lease: AttemptLease, lease_ttl_sec: int, now: datetime) -> Task:
@@ -275,6 +277,13 @@ class InMemoryTaskRepository:
                 lease_expires_at=now + timedelta(seconds=lease_ttl_sec),
             )
             return _copy(task)
+
+    async def checkpoint(self, lease: AttemptLease, checkpoint_ref: str, now: datetime) -> Task:
+        async with self._s.lock:
+            task, _ = self._s.check_lease(lease, now)
+            updated = _replace(task, checkpoint_ref=checkpoint_ref, updated_at=now)
+            self._s.tasks[task.id] = updated
+            return _copy(updated)
 
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
         async with self._s.lock:
