@@ -32,6 +32,7 @@ from ..contracts import (
     Action,
     ActionStatus,
     Artifact,
+    Attempt,
     AttemptLease,
     Event,
     ReservationResult,
@@ -106,6 +107,25 @@ class TaskRepository(Protocol):
 
         Raise ``StaleLease`` for an old lease. ``version`` does not change.
         """
+
+    async def record_run(
+        self,
+        lease: AttemptLease,
+        now: datetime,
+        *,
+        model_version: str | None = None,
+        context_ref: str | None = None,
+    ) -> Attempt:
+        """Write the Runner's run record on the current attempt (spec 3:
+        "TaskService 管生命周期；Runner 提交运行记录").
+
+        Only the given fields change; ``None`` leaves a field as it is. Raise
+        ``StaleLease`` for an old lease. The task row and its ``version`` do
+        not change.
+        """
+
+    async def get_attempt(self, scope_id: str, attempt_id: str) -> Attempt:
+        """Raise ``NotFound`` when absent or the task is in another scope."""
 
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
         """End the attempt and move the task to ``outcome.status``.

@@ -33,6 +33,8 @@ Each row has exactly one owner. A module that is not the owner does not do it.
 | Responsibility | Owner | Not |
 |---|---|---|
 | Change task status | `TaskService` via `TaskRepository` | Runner, Gateway, API |
+| Attempt lifecycle (`worker_id`, lease, profile/capability versions, `ended_at`, `exit_reason`) | `TaskRepository.claim` / `commit` | Runner |
+| Attempt run record (`model_version`, `context_ref`) | Runner, via `TaskRepository.record_run` (spec 3: "Runner 提交运行记录") | TaskService, ModelAdapter |
 | Choose `agent_role`, `run_lane`, trigger | Trusted entry (API, ProactiveController) via `TaskOrigin` | `TaskRequest`, the model |
 | Set `deadline` | `TaskRepository.claim`, on the first claim; later claims keep it | Runner, API |
 | Assemble the model input | `ContextBuilder` | Runner |

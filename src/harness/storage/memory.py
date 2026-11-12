@@ -285,6 +285,33 @@ class InMemoryTaskRepository:
             self._s.tasks[task.id] = updated
             return _copy(updated)
 
+    async def record_run(
+        self,
+        lease: AttemptLease,
+        now: datetime,
+        *,
+        model_version: str | None = None,
+        context_ref: str | None = None,
+    ) -> Attempt:
+        async with self._s.lock:
+            _, attempt = self._s.check_lease(lease, now)
+            updates = {
+                k: v
+                for k, v in (("model_version", model_version), ("context_ref", context_ref))
+                if v is not None
+            }
+            updated = _replace(attempt, **updates)
+            self._s.attempts[attempt.id] = updated
+            return _copy(updated)
+
+    async def get_attempt(self, scope_id: str, attempt_id: str) -> Attempt:
+        async with self._s.lock:
+            attempt = self._s.attempts.get(attempt_id)
+            task = self._s.tasks.get(attempt.task_id) if attempt else None
+            if attempt is None or task is None or task.scope_id != scope_id:
+                raise NotFound(f"attempt {attempt_id} not found")
+            return _copy(attempt)
+
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
         async with self._s.lock:
             task, attempt = self._s.check_lease(lease, now)

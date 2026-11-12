@@ -469,3 +469,42 @@ async def test_checkpoint_needs_current_lease(repos):
     assert (await repos.tasks.get("s1", task.id)).checkpoint_ref == "art_ckpt"
     with pytest.raises(StaleLease):
         await repos.tasks.checkpoint(lease, "art_late", T0)
+
+
+# -- attempt run record ------------------------------------------------------------
+
+
+async def test_claim_records_profile_and_capability_versions(repos):
+    task, lease = await claimed(repos)
+    attempt = await repos.tasks.get_attempt("s1", lease.attempt_id)
+    assert attempt.task_id == task.id and attempt.worker_id == "w1"
+    assert attempt.agent_profile_version == "main@1"
+    assert attempt.capability_version == "document_draft@1"
+    assert attempt.model_version is None and attempt.context_ref is None
+
+
+async def test_record_run_sets_given_fields_only(repos):
+    task, lease = await claimed(repos)
+    first = await repos.tasks.record_run(lease, T0, model_version="deepseek-chat", context_ref="art_ctx1")
+    assert first.model_version == "deepseek-chat" and first.context_ref == "art_ctx1"
+    second = await repos.tasks.record_run(lease, T0, model_version="deepseek-chat-0301")
+    assert second.model_version == "deepseek-chat-0301" and second.context_ref == "art_ctx1"
+    assert (await repos.tasks.get("s1", task.id)).version == 2  # task row untouched
+
+
+async def test_record_run_needs_current_lease(repos):
+    task, lease = await claimed(repos)
+    await repos.tasks.commit(lease, TaskOutcome(status=TaskStatus.QUEUED), T0)
+    with pytest.raises(StaleLease):
+        await repos.tasks.record_run(lease, T0, model_version="m")
+    # The record of an ended attempt is still readable, with its exit reason.
+    attempt = await repos.tasks.get_attempt("s1", lease.attempt_id)
+    assert attempt.ended_at is not None and attempt.exit_reason == "queued"
+
+
+async def test_get_attempt_checks_scope(repos):
+    _, lease = await claimed(repos)
+    with pytest.raises(NotFound):
+        await repos.tasks.get_attempt("s2", lease.attempt_id)
+    with pytest.raises(NotFound):
+        await repos.tasks.get_attempt("s1", "att_missing")
