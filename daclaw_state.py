@@ -31,7 +31,7 @@ T = TypeVar("T")
 
 DEFAULT_DB_PATH = get_daclaw_home() / "state.db"
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -109,6 +109,27 @@ CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, content) VALUES('delete', old.id, old.content);
     INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
 END;
+
+-- Harness injections (system prompt layers, memory prefetch, plugin context).
+-- Observation only: recording an event must never change model behaviour.
+CREATE TABLE IF NOT EXISTS injection_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    turn INTEGER NOT NULL DEFAULT 0,
+    iteration INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    chars INTEGER NOT NULL DEFAULT 0,
+    est_tokens INTEGER NOT NULL DEFAULT 0,
+    sha1 TEXT NOT NULL DEFAULT '',
+    preview TEXT NOT NULL DEFAULT '',
+    meta_json TEXT NOT NULL DEFAULT '{}',
+    full_text TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_injection_events_session
+    ON injection_events(session_id, turn, iteration);
 """
 
 
@@ -329,6 +350,28 @@ class SessionDB:
                     except sqlite3.OperationalError:
                         pass  # Column already exists
                 cursor.execute("UPDATE schema_version SET version = 6")
+            if current_version < 7:
+                # v7: record harness injections (context bill); observation only
+                cursor.executescript(
+                    "CREATE TABLE IF NOT EXISTS injection_events ("
+                    " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    " session_id TEXT NOT NULL,"
+                    " turn INTEGER NOT NULL DEFAULT 0,"
+                    " iteration INTEGER NOT NULL DEFAULT 0,"
+                    " kind TEXT NOT NULL,"
+                    " source TEXT NOT NULL DEFAULT '',"
+                    " chars INTEGER NOT NULL DEFAULT 0,"
+                    " est_tokens INTEGER NOT NULL DEFAULT 0,"
+                    " sha1 TEXT NOT NULL DEFAULT '',"
+                    " preview TEXT NOT NULL DEFAULT '',"
+                    " meta_json TEXT NOT NULL DEFAULT '{}',"
+                    " full_text TEXT NOT NULL DEFAULT '',"
+                    " created_at REAL NOT NULL"
+                    ");"
+                    "CREATE INDEX IF NOT EXISTS idx_injection_events_session"
+                    " ON injection_events(session_id, turn, iteration);"
+                )
+                cursor.execute("UPDATE schema_version SET version = 7")
 
         # Unique title index — always ensure it exists (safe to run after migrations
         # since the title column is guaranteed to exist at this point)
@@ -347,6 +390,69 @@ class SessionDB:
             cursor.executescript(FTS_SQL)
 
         self._conn.commit()
+
+    # ── Harness injections (context bill) ─────────────────────────────────
+
+    def add_injection_events(self, session_id: str, rows: List[Dict[str, Any]]) -> int:
+        """Append injection events for a session.
+
+        Callers must treat this as best-effort telemetry: agent.context.events
+        wraps it in try/except so a failure here can never break a turn.
+        """
+        if not session_id or not rows:
+            return 0
+        now = time.time()
+        payload = []
+        for row in rows:
+            payload.append(
+                (
+                    session_id,
+                    int(row.get("turn") or 0),
+                    int(row.get("iteration") or 0),
+                    str(row.get("kind") or "unknown"),
+                    str(row.get("source") or ""),
+                    int(row.get("chars") or 0),
+                    int(row.get("est_tokens") or 0),
+                    str(row.get("sha1") or ""),
+                    str(row.get("preview") or ""),
+                    str(row.get("meta_json") or "{}"),
+                    str(row.get("full_text") or ""),
+                    now,
+                )
+            )
+
+        def _fn(conn):
+            conn.executemany(
+                "INSERT INTO injection_events (session_id, turn, iteration, kind,"
+                " source, chars, est_tokens, sha1, preview, meta_json, full_text,"
+                " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                payload,
+            )
+            return len(payload)
+
+        return self._execute_write(_fn)
+
+    def injection_bill(self, session_id: str) -> List[Dict[str, Any]]:
+        """Aggregate injections per (kind, source), largest token spend first."""
+        rows = self._conn.execute(
+            "SELECT kind, source, COUNT(*) AS events, SUM(chars) AS chars,"
+            " SUM(est_tokens) AS est_tokens FROM injection_events"
+            " WHERE session_id = ? GROUP BY kind, source"
+            " ORDER BY est_tokens DESC, events DESC",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def injection_bill_by_turn(self, session_id: str) -> List[Dict[str, Any]]:
+        """Same bill, but broken down per (turn, iteration)."""
+        rows = self._conn.execute(
+            "SELECT turn, iteration, kind, SUM(est_tokens) AS est_tokens,"
+            " GROUP_CONCAT(DISTINCT source) AS sources, COUNT(*) AS events"
+            " FROM injection_events WHERE session_id = ?"
+            " GROUP BY turn, iteration, kind ORDER BY turn, iteration",
+            (session_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     # =========================================================================
     # Session lifecycle
