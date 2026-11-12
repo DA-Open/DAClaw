@@ -113,10 +113,10 @@ tables do not change later; most come from review comments on the spec.
 |---|---|---|
 | Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
 | `TaskService.checkpoint` implementation | Interface and repository method exist; nothing calls it yet | P1 |
-| `grants` / `approvals` tables | P0 checks permissions against the profile policy only | P1 |
+| `grants` / `approvals` tables | P0 has no tables. ToolGateway checks two whitelists from config and allows only their intersection: a **role whitelist** (tools Main / Proactive may call; the floor) and a **user whitelist** (per `scope_id` and role, which resources; covers several users on one deployment). A user entry can only narrow its role list. The tables replace the user whitelist later | PR-E; tables P1 |
 | ProactiveController, DeliveryService, subscriptions, outbox | Not started; their types come with them | P2 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
-| PostgreSQL driver and migrations | `asyncpg`, numbered SQL files, no alembic for now | PR-B |
+| PostgreSQL driver and migrations | `asyncpg` driver, SQLAlchemy 2.0 Core (async) for queries, tables defined once in `storage/schema.py`, Alembic (async template) for migrations; tests start a `postgres:16` container. SQLAlchemy stays on 2.0.x | PR-B |
 
 ## Tests
 
