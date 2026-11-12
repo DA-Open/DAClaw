@@ -43,7 +43,7 @@ Each row has exactly one owner. A module that is not the owner does not do it.
 | Generate `logical_key` | Runner, from the durable step number (`step-<n>.<call>`, counted over the whole task, never the attempt ID) | the model, Gateway |
 | Check grants and approvals | ToolGateway (`tools/policy.py`) | Runner, Connector |
 | Call external services | Connector, only from an `AuthorizedCall` | anything else |
-| Write `model_call` and `budget_reminder` events | Runner | ModelAdapter |
+| Write `model_call`, `context_built` and `budget_reminder` events | Runner | ModelAdapter |
 | Write `tool_action` events, update `actions` | ToolGateway | Runner |
 | Write `task_created` / `task_status_changed` events | `TaskRepository`, in the same transaction as the status change | anyone else |
 | Decide passed / failed / inconclusive | Verifier | the model, Runner |
@@ -94,6 +94,7 @@ tables do not change later; most come from review comments on the spec.
 | `Action.read_only` | The Verifier can replay read-only calls to check numbers in a conclusion |
 | `EventType.MODEL_CALL` + `ModelCallRecord` | Exact model input/output per call, for trajectory export and training data |
 | `EventType.BUDGET_REMINDER` + `BudgetReminderRecord` | Reminders before the budget runs out are part of the trajectory |
+| `EventType.CONTEXT_BUILT` + `ContextBuiltRecord` | Size of each part of every model input (system, task brief, history, tool results, reminders, tool specs), so a costly call can be explained from events alone |
 | `ContextBundle.injected_materials` + `InjectedMaterial` | Short (~100 token) pointers to background results for Main (P2) |
 | `AdmissionDecision` | Proactive admission decisions with policy version, input snapshot and later label (P2) |
 | `UsageReservation` (`usage_records` table) | The spec asks for idempotent accounting per call ID but names no table |

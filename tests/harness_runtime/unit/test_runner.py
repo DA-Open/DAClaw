@@ -403,3 +403,77 @@ async def test_reminders_can_be_switched_off():
     await h.run()
     tiers = [e.payload["tier"] for e in await h.events(EventType.BUDGET_REMINDER)]
     assert tiers == ["wrap_up"]
+
+
+# -- context sizes (context_built events) ----------------------------------------
+
+
+async def test_every_model_call_has_a_context_built_event():
+    h = Harness([])
+    h.model._script = [tool_step(("files.read", {"path": "notes.md"})), write_draft(), submit_draft(h)]
+    await h.run()
+    built = await h.events(EventType.CONTEXT_BUILT)
+    calls = await h.events(EventType.MODEL_CALL)
+    assert len(built) == len(calls) == 3
+    assert [b.payload["call_id"] for b in built] == [c.payload["call_id"] for c in calls]
+    # Each context_built event comes right before its model call.
+    assert all(b.seq < c.seq for b, c in zip(built, calls))
+
+
+async def test_context_sections_grow_with_the_conversation():
+    h = Harness([])
+    h.model._script = [tool_step(("files.read", {"path": "notes.md"})), write_draft(), submit_draft(h)]
+    await h.run()
+    built = [e.payload["sizes"] for e in await h.events(EventType.CONTEXT_BUILT)]
+    names = [[s["name"] for s in b["sections"]] for b in built]
+    assert names[0] == ["system", "task_brief", "tool_specs"]
+    assert names[1] == ["system", "task_brief", "history", "tool_results", "tool_specs"]
+    by_name = [{s["name"]: s for s in b["sections"]} for b in built]
+    assert by_name[2]["tool_results"]["items"] == 2
+    assert by_name[0]["system"]["chars"] == by_name[2]["system"]["chars"]
+    assert built[0]["est_tokens"] < built[1]["est_tokens"] < built[2]["est_tokens"]
+
+
+async def test_context_sizes_match_the_reservation_estimate():
+    from harness.runtime.models.base import estimate_tokens
+
+    h = Harness([])
+    h.model._script = [write_draft(), submit_draft(h)]
+    await h.run()
+    built = await h.events(EventType.CONTEXT_BUILT)
+    for event, sent in zip(built, h.model.calls):
+        sizes = event.payload["sizes"]
+        assert sizes["est_tokens"] == estimate_tokens(sent.messages, sent.tool_specs)
+        assert sum(s["chars"] for s in sizes["sections"]) <= sizes["total_chars"]
+
+
+async def test_unexpected_adapter_error_closes_its_reservation():
+    """Review of #14: a non-ModelError must not leave the reservation open."""
+    h = Harness([ValueError("bad AssistantStep")], limits=Limits(max_model_calls=5))
+    outcome = await h.run()
+    assert outcome.status is TaskStatus.FAILED
+    assert outcome.error.code is ErrorCode.MODEL_ERROR
+    assert "ValueError" in outcome.error.message
+    assert await h.repos.usage.open_reservations(h.task.id) == []
+    # The call may have run, so it is charged at the reserved amount.
+    assert (await h.usage()).model_calls == 1
+    calls = await h.events(EventType.MODEL_CALL)
+    assert len(calls) == 1 and "ValueError" in calls[0].payload["error"]
+
+
+async def test_stale_lease_from_adapter_closes_its_reservation():
+    h = Harness([StaleLease("lease gone")])
+    with pytest.raises(StaleLease):
+        await h.run()
+    assert await h.repos.usage.open_reservations(h.task.id) == []
+
+
+async def test_reminders_and_wrap_up_show_in_context_sizes():
+    h = Harness([], limits=Limits(max_model_calls=4))
+    h.model._script = [write_draft()] * 3 + [submit_draft(h)]
+    await h.run()
+    built = [e.payload for e in await h.events(EventType.CONTEXT_BUILT)]
+    last = {s["name"]: s for s in built[-1]["sizes"]["sections"]}
+    assert built[-1]["wrap_up"] is True
+    assert last["budget_reminders"]["items"] >= 1
+    assert last["tool_specs"]["items"] == 1  # only submit_result in the wrap-up turn

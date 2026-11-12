@@ -43,6 +43,7 @@ from ..contracts import (
     BudgetReminderRecord,
     CandidateResult,
     Checkpoint,
+    ContextBuiltRecord,
     ContextBundle,
     ErrorCode,
     Event,
@@ -71,9 +72,10 @@ from ..contracts import (
 )
 from ..interfaces import ArtifactStore, ToolGateway, Verifier
 from ..storage.repositories import Repositories
+from . import context_sizes
 from . import messages as msg
 from .budget import BudgetReminders, ModelBudget, ModelReservation, ReminderState
-from .models.base import ModelAdapter, ModelError, estimate_tokens
+from .models.base import ModelAdapter, ModelError
 
 log = logging.getLogger(__name__)
 
@@ -249,7 +251,8 @@ class AgentRunner:
             update={"messages": list(run.messages), "tool_specs": tools, "remaining_budget": remaining}
         )
         step_id = _step_id(task.id, run.steps + 1)
-        input_tokens = estimate_tokens(context.messages, tools)
+        sizes = context_sizes.measure(context.messages, tools)
+        input_tokens = sizes.est_tokens
         reservation = await self._budget.reserve(
             task,
             run.lease.attempt_id,
@@ -265,6 +268,8 @@ class AgentRunner:
                 f"no budget for another model call ({', '.join(reservation.exceeded)})",
             )
         run.steps += 1
+        built = ContextBuiltRecord(call_id=reservation.call_id, wrap_up=wrap_up, sizes=sizes)
+        await self._event(task, run, EventType.CONTEXT_BUILT, built.model_dump(mode="json"))
         input_ref = await self._store_json(
             task,
             "model_input",
@@ -278,6 +283,17 @@ class AgentRunner:
                 step = await self._model.next_step(context)
         except ModelError as exc:
             return await self._model_failed(task, run, reservation, input_ref, exc, started)
+        except StaleLease:
+            await self._budget.settle(reservation.call_id, reservation.reserved, self._clock())
+            raise
+        except Exception as exc:  # noqa: BLE001 - adapter bug or unexpected SDK error
+            log.exception("model adapter raised %s on call %s", type(exc).__name__, reservation.call_id)
+            wrapped = ModelError(
+                f"model adapter error: {type(exc).__name__}: {exc}",
+                retryable=False,
+                responded=False,
+            )
+            return await self._model_failed(task, run, reservation, input_ref, wrapped, started)
         latency = int((time.monotonic() - started) * 1000)
         await self._budget.settle(reservation.call_id, step.usage, self._clock())
         run.usage_refs.append(reservation.call_id)
