@@ -80,3 +80,7 @@ packaging/defaults/.env
 result
 website/static/api/skills-index.json
 tasks/
+
+# Build output (uv build / python -m build). A stale wheel here was picked up
+# by the Nix install phase and replaced the fresh build.
+/dist/

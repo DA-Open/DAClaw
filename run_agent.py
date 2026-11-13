@@ -3376,6 +3376,14 @@ class AIAgent:
         #   6. Current date & time (frozen at build time)
         #   7. Platform-specific formatting hint
 
+        # Context-bill bookkeeping (observation only; see agent/context/events.py)
+        _layer_identity = ""
+        _layer_memory = ""
+        _layer_user = ""
+        _layer_ext_memory = ""
+        _layer_skills = ""
+        _layer_context_files = ""
+
         # Try SOUL.md as primary identity (unless context files are skipped)
         _soul_loaded = False
         if not self.skip_context_files:
@@ -3387,6 +3395,7 @@ class AIAgent:
         if not _soul_loaded:
             # Fallback to hardcoded identity
             prompt_parts = [DEFAULT_AGENT_IDENTITY]
+        _layer_identity = prompt_parts[0]
 
         # Tool-aware behavioral guidance: only inject when the tools are loaded
         tool_guidance = []
@@ -3447,11 +3456,13 @@ class AIAgent:
                 mem_block = self._memory_store.format_for_system_prompt("memory")
                 if mem_block:
                     prompt_parts.append(mem_block)
+                    _layer_memory = mem_block
             # USER.md is always included when enabled.
             if self._user_profile_enabled:
                 user_block = self._memory_store.format_for_system_prompt("user")
                 if user_block:
                     prompt_parts.append(user_block)
+                    _layer_user = user_block
 
         # External memory provider system prompt block (additive to built-in)
         if self._memory_manager:
@@ -3459,6 +3470,7 @@ class AIAgent:
                 _ext_mem_block = self._memory_manager.build_system_prompt()
                 if _ext_mem_block:
                     prompt_parts.append(_ext_mem_block)
+                    _layer_ext_memory = _ext_mem_block
             except Exception:
                 pass
 
@@ -3479,6 +3491,7 @@ class AIAgent:
             skills_prompt = ""
         if skills_prompt:
             prompt_parts.append(skills_prompt)
+            _layer_skills = skills_prompt
 
         if not self.skip_context_files:
             # Use TERMINAL_CWD for context file discovery when set (gateway
@@ -3490,6 +3503,7 @@ class AIAgent:
                 cwd=_context_cwd, skip_soul=_soul_loaded)
             if context_files_prompt:
                 prompt_parts.append(context_files_prompt)
+                _layer_context_files = context_files_prompt
 
         from daclaw_time import now as _daclaw_now
         now = _daclaw_now()
@@ -3524,7 +3538,30 @@ class AIAgent:
         if platform_key in PLATFORM_HINTS:
             prompt_parts.append(PLATFORM_HINTS[platform_key])
 
-        return "\n\n".join(p.strip() for p in prompt_parts if p.strip())
+        _final_prompt = "\n\n".join(p.strip() for p in prompt_parts if p.strip())
+
+        # Context bill: record what this prompt is made of. Observation only --
+        # the returned prompt is byte-identical whether or not recording works.
+        try:
+            from agent.context import events as _ctx_events
+
+            _ctx_events.record_system_prompt_layers(
+                getattr(self, "session_id", None),
+                [
+                    ("identity", _layer_identity),
+                    ("memory", _layer_memory),
+                    ("user_profile", _layer_user),
+                    ("external_memory", _layer_ext_memory),
+                    ("skills_index", _layer_skills),
+                    ("context_files", _layer_context_files),
+                ],
+                len(_final_prompt),
+                db=getattr(self, "_session_db", None),
+            )
+        except Exception:
+            pass
+
+        return _final_prompt
 
     def _should_run_analysis_audit(self, user_message: str, messages: List[Dict[str, Any]]) -> bool:
         """Return True when the task looks like a data-analysis submission."""
@@ -8701,6 +8738,7 @@ class AIAgent:
                 # never mutated, so nothing leaks into session persistence.
                 if idx == current_turn_user_idx and msg.get("role") == "user":
                     _injections = []
+                    _fenced = ""
                     if _ext_prefetch_cache:
                         _fenced = build_memory_context_block(_ext_prefetch_cache)
                         if _fenced:
@@ -8711,6 +8749,39 @@ class AIAgent:
                         _base = api_msg.get("content", "")
                         if isinstance(_base, str):
                             api_msg["content"] = _base + "\n\n" + "\n\n".join(_injections)
+                        # Context bill: injections are API-call-time only, which is
+                        # exactly why they used to be invisible after the fact.
+                        try:
+                            from agent.context import events as _ctx_events
+
+                            _evts = []
+                            if _fenced:
+                                _evts.append(
+                                    _ctx_events.InjectionEvent(
+                                        kind="memory_prefetch",
+                                        source="external_memory",
+                                        text=_fenced,
+                                        turn=self._user_turn_count,
+                                        iteration=api_call_count,
+                                    )
+                                )
+                            if _plugin_user_context:
+                                _evts.append(
+                                    _ctx_events.InjectionEvent(
+                                        kind="plugin_context",
+                                        source="pre_llm_call",
+                                        text=_plugin_user_context,
+                                        turn=self._user_turn_count,
+                                        iteration=api_call_count,
+                                    )
+                                )
+                            _ctx_events.record(
+                                self.session_id,
+                                _evts,
+                                db=getattr(self, "_session_db", None),
+                            )
+                        except Exception:
+                            pass
 
                 # For ALL assistant messages, pass reasoning back to the API
                 # This ensures multi-turn reasoning context is preserved

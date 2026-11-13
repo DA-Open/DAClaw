@@ -935,7 +935,7 @@ class TestSchemaInit:
     def test_schema_version(self, db):
         cursor = db._conn.execute("SELECT version FROM schema_version")
         version = cursor.fetchone()[0]
-        assert version == 6
+        assert version == 7
 
     def test_title_column_exists(self, db):
         """Verify the title column was created in the sessions table."""
@@ -991,12 +991,18 @@ class TestSchemaInit:
         conn.commit()
         conn.close()
 
-        # Open with SessionDB — should migrate to v6
+        # Open with SessionDB — should migrate all the way to the current version
         migrated_db = SessionDB(db_path=db_path)
 
         # Verify migration
         cursor = migrated_db._conn.execute("SELECT version FROM schema_version")
-        assert cursor.fetchone()[0] == 6
+        assert cursor.fetchone()[0] == 7
+
+        # v7 adds the context-bill table; a v2 database must gain it too
+        row = migrated_db._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='injection_events'"
+        ).fetchone()
+        assert row is not None
 
         # Verify title column exists and is NULL for existing sessions
         session = migrated_db.get_session("existing")
@@ -1375,3 +1381,35 @@ class TestConcurrentWriteSafety:
         assert "30" in src, (
             "SQLite timeout should be at least 30s to handle CLI/gateway lock contention"
         )
+
+class TestDefaultPathResolution:
+    """SessionDB() without a path must follow the current DACLAW_HOME.
+
+    The module-level DEFAULT_DB_PATH is fixed at import; reusing it made tests
+    (and profile switches) that change DACLAW_HOME afterwards write to the
+    original database instead of the redirected one.
+    """
+
+    def test_default_path_follows_daclaw_home(self, tmp_path, monkeypatch):
+        first = tmp_path / "home_a"
+        second = tmp_path / "home_b"
+        first.mkdir()
+        second.mkdir()
+
+        monkeypatch.setenv("DACLAW_HOME", str(first))
+        one = SessionDB()
+        assert one.db_path == first / "state.db"
+
+        monkeypatch.setenv("DACLAW_HOME", str(second))
+        two = SessionDB()
+        assert two.db_path == second / "state.db"
+
+        one.close()
+        two.close()
+
+    def test_explicit_path_still_wins(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DACLAW_HOME", str(tmp_path / "home"))
+        explicit = tmp_path / "explicit.db"
+        store = SessionDB(explicit)
+        assert store.db_path == explicit
+        store.close()

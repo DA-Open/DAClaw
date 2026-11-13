@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import threading
@@ -22,6 +23,10 @@ import traceback
 from pathlib import Path
 
 sys.path.insert(0, "/opt/daclaw")
+
+# The context bill is a development aid; a scored run should not pay for it.
+# The recorder reads this per call, so setting it here is enough.
+os.environ.setdefault("DACLAW_NO_INJECTION_LOG", "1")
 
 PROMPT_VERSION = "v1"
 TOOLSET = "data-agent-chat"
