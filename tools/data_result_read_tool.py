@@ -48,26 +48,66 @@ def _candidate_roots() -> List[Path]:
     return roots
 
 
+def _analysis_runs_root() -> Optional[Path]:
+    try:
+        from daclaw_constants import get_daclaw_home
+
+        return get_daclaw_home() / "analysis_runs"
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _candidate_paths(path_text: str) -> List[Path]:
+    """Where a given path might be, in the order worth trying.
+
+    Analysis artifacts hand the model full_result_path relative to the run
+    directory (e.g. results/<artifact_id>.json), so a bare relative path has to
+    be anchored somewhere before it can be opened.
+    """
+    candidate = Path(path_text).expanduser()
+    if candidate.is_absolute():
+        return [candidate]
+
+    tries = [Path.cwd() / candidate]
+    root = _analysis_runs_root()
+    if root is not None:
+        tries.append(root / candidate)
+        try:
+            for run_dir in sorted(root.iterdir()):
+                if run_dir.is_dir():
+                    tries.append(run_dir / candidate)
+        except OSError:
+            pass
+    return tries
+
+
 def _resolve_allowed(path_text: str) -> Optional[Path]:
     """Resolve path_text and return it only if it sits inside a known root."""
     if not path_text or not isinstance(path_text, str):
         return None
-    candidate = Path(path_text).expanduser()
-    if not candidate.is_absolute():
-        candidate = Path.cwd() / candidate
-    try:
-        resolved = candidate.resolve()
-    except OSError:
-        return None
 
+    roots = []
     for root in _candidate_roots():
         try:
-            root_resolved = root.resolve()
+            roots.append(root.resolve())
         except OSError:
             continue
-        if resolved == root_resolved or root_resolved in resolved.parents:
-            return resolved
-    return None
+
+    contained = []
+    for candidate in _candidate_paths(path_text):
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        for root_resolved in roots:
+            if resolved == root_resolved or root_resolved in resolved.parents:
+                if resolved.is_file():
+                    return resolved
+                contained.append(resolved)
+                break
+    # Nothing existed, but the path was inside a root: report it as missing
+    # rather than as a permission problem.
+    return contained[0] if contained else None
 
 
 def data_result_read_tool(

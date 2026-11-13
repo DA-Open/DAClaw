@@ -26,6 +26,7 @@ import logging
 import os
 import shlex
 import uuid
+from pathlib import Path
 
 from tools.budget_config import (
     DEFAULT_PREVIEW_SIZE_CHARS,
@@ -117,6 +118,36 @@ def _build_persisted_message(
     return msg
 
 
+def _host_spill_path(tool_use_id: str) -> str:
+    """Where to spill a result when there is no sandbox to write into.
+
+    The data-agent toolset has no terminal, so no environment is ever created
+    for it and env.execute() is unavailable. Writing under DACLAW_HOME keeps the
+    output on the host where data_result_read can reach it, instead of dropping
+    it. Lives next to the analysis artifacts it belongs with.
+    """
+    try:
+        from daclaw_constants import get_daclaw_home
+
+        safe_id = "".join(ch for ch in str(tool_use_id) if ch.isalnum() or ch in "-_")[:80]
+        if not safe_id:
+            return ""
+        return str(get_daclaw_home() / "analysis_runs" / "_spill" / (safe_id + ".txt"))
+    except Exception:  # pragma: no cover - defensive
+        return ""
+
+
+def _write_host_file(content: str, path: str) -> bool:
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return True
+    except OSError as exc:
+        logger.warning("Host spill failed for %s: %s", path, exc)
+        return False
+
+
 def maybe_persist_tool_result(
     content: str,
     tool_name: str,
@@ -169,6 +200,17 @@ def maybe_persist_tool_result(
                 )
         except Exception as exc:
             logger.warning("Sandbox write failed for %s: %s", tool_use_id, exc)
+
+    if env is None:
+        host_path = _host_spill_path(tool_use_id)
+        if host_path and _write_host_file(content, host_path):
+            logger.info(
+                "Persisted large tool result to host: %s (%d chars -> %s)",
+                tool_name, len(content), host_path,
+            )
+            return _build_persisted_message(
+                preview, has_more, len(content), host_path, read_tool=read_tool
+            )
 
     logger.info(
         "Inline-truncating large tool result: %s (%d chars, no sandbox write)",
