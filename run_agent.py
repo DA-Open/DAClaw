@@ -3556,6 +3556,7 @@ class AIAgent:
                     ("context_files", _layer_context_files),
                 ],
                 len(_final_prompt),
+                db=getattr(self, "_session_db", None),
             )
         except Exception:
             pass
@@ -8774,7 +8775,11 @@ class AIAgent:
                                         iteration=api_call_count,
                                     )
                                 )
-                            _ctx_events.record(self.session_id, _evts)
+                            _ctx_events.record(
+                                self.session_id,
+                                _evts,
+                                db=getattr(self, "_session_db", None),
+                            )
                         except Exception:
                             pass
 

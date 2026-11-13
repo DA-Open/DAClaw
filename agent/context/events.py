@@ -30,12 +30,25 @@ logger = logging.getLogger(__name__)
 CHARS_PER_TOKEN = 2.75
 PREVIEW_CHARS = 400
 
-# Disable entirely, e.g. in benchmarks where any extra write is unwanted.
-_NO_LOG = os.getenv("DACLAW_NO_INJECTION_LOG", "").lower() in ("1", "true", "yes", "on")
-_STORE_FULL = os.getenv("DACLAW_INJECTION_LOG_FULL", "").lower() in ("1", "true", "yes", "on")
+_TRUE = ("1", "true", "yes", "on")
+
+
+def _no_log() -> bool:
+    """DACLAW_NO_INJECTION_LOG=1 disables recording entirely (e.g. benchmarks).
+
+    Read at call time, not import time: callers such as benchmark entry points
+    set the variable after this module has already been imported.
+    """
+    return os.getenv("DACLAW_NO_INJECTION_LOG", "").lower() in _TRUE
+
+
+def _store_full() -> bool:
+    """DACLAW_INJECTION_LOG_FULL=1 also stores the injected text verbatim."""
+    return os.getenv("DACLAW_INJECTION_LOG_FULL", "").lower() in _TRUE
+
 
 _shared_db = None
-_shared_db_failed = False
+_shared_db_path = None
 
 
 def est_tokens(text: Optional[str]) -> int:
@@ -69,14 +82,19 @@ class InjectionEvent:
     turn: int = 0
     iteration: int = 0
     meta: Dict[str, Any] = field(default_factory=dict)
+    # For entries whose size is known but whose text is not worth keeping
+    # (e.g. the system-prompt remainder). Overrides len(text).
+    declared_chars: Optional[int] = None
 
     @property
     def chars(self) -> int:
+        if self.declared_chars is not None:
+            return max(0, int(self.declared_chars))
         return len(self.text or "")
 
     @property
     def tokens(self) -> int:
-        return est_tokens(self.text)
+        return int(self.chars / CHARS_PER_TOKEN)
 
     def to_row(self) -> Dict[str, Any]:
         text = self.text or ""
@@ -94,29 +112,39 @@ class InjectionEvent:
             "meta_json": meta_json,
             "turn": int(self.turn or 0),
             "iteration": int(self.iteration or 0),
-            "full_text": text if _STORE_FULL else "",
+            "full_text": text if _store_full() else "",
         }
 
 
 def default_db():
-    """Lazily open the shared state DB. Returns None when unavailable.
+    """Lazily open the state DB under the current DACLAW_HOME.
+
+    The path is resolved per call, not at import time: daclaw_state fixes
+    DEFAULT_DB_PATH when it is first imported, so a process that changes
+    DACLAW_HOME afterwards (tests, benchmark harnesses, profiles) would
+    otherwise keep writing to the original database.
 
     Opening a second connection is fine here: the DB is WAL with a short busy
     timeout and application-level retry, and events are append-only.
     """
-    global _shared_db, _shared_db_failed
-    if _shared_db is not None:
-        return _shared_db
-    if _shared_db_failed:
+    global _shared_db, _shared_db_path
+    try:
+        from daclaw_constants import get_daclaw_home
+
+        path = get_daclaw_home() / "state.db"
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("injection logging disabled: %s", exc)
         return None
+    if _shared_db is not None and _shared_db_path == path:
+        return _shared_db
     try:
         from daclaw_state import SessionDB  # local import: avoid a cycle
 
-        _shared_db = SessionDB()
+        _shared_db = SessionDB(path)
     except Exception as exc:  # pragma: no cover - defensive
-        _shared_db_failed = True
         logger.debug("injection logging disabled: %s", exc)
         return None
+    _shared_db_path = path
     return _shared_db
 
 
@@ -126,7 +154,7 @@ def record(
     db=None,
 ) -> int:
     """Persist events. Never raises: telemetry must not break the agent loop."""
-    if _NO_LOG or not session_id:
+    if _no_log() or not session_id:
         return 0
     rows = [e.to_row() for e in events if e is not None and (e.text or e.meta)]
     if not rows:
@@ -160,14 +188,16 @@ def record_system_prompt_layers(
         events.append(
             InjectionEvent(kind="system_prompt", source=name, text=text, turn=0)
         )
-    if total_chars > known:
+    remainder = max(0, total_chars - known)
+    if remainder:
         events.append(
             InjectionEvent(
                 kind="system_prompt",
                 source="other_layers",
-                text=" " * (total_chars - known),
+                text="",
                 turn=0,
-                meta={"synthetic": True},
+                declared_chars=remainder,
+                meta={"synthetic": True, "chars": remainder},
             )
         )
     return record(session_id, events, db=db)

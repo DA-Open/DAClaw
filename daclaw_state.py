@@ -157,7 +157,11 @@ class SessionDB:
     _CHECKPOINT_EVERY_N_WRITES = 50
 
     def __init__(self, db_path: Path = None):
-        self.db_path = db_path or DEFAULT_DB_PATH
+        # Resolved per instance, not via the module-level DEFAULT_DB_PATH: that
+        # constant freezes DACLAW_HOME at import time, so tests and profile
+        # switches that change the variable afterwards would keep writing to the
+        # original database.
+        self.db_path = db_path or (get_daclaw_home() / "state.db")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self._lock = threading.Lock()

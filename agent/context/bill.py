@@ -14,7 +14,7 @@ import argparse
 import sys
 from typing import Any, Dict, List
 
-from daclaw_state import SessionDB
+from agent.context.events import default_db
 
 
 def _fmt_row(row: Dict[str, Any]) -> str:
@@ -33,7 +33,10 @@ def main(argv: List[str] = None) -> int:
     parser.add_argument("--by-turn", action="store_true", help="break the bill down per turn")
     args = parser.parse_args(argv)
 
-    db = SessionDB()
+    db = default_db()
+    if db is None:
+        print("cannot open the state database", file=sys.stderr)
+        return 1
 
     session_ids: List[str] = []
     if args.session_id:

@@ -130,3 +130,25 @@ def test_plugin_context_is_recorded_and_reaches_the_model(tmp_path):
 
     sent = agent.client.chat.completions.create.call_args.kwargs["messages"]
     assert "PLUGIN_CTX_MARKER" in str(sent)
+
+def test_records_go_to_the_agents_own_session_db(tmp_path):
+    """Injection rows follow the agent's session_db, not the process default.
+
+    When a caller hands AIAgent a non-default database, the bill must land in
+    the same file as the session it belongs to.
+    """
+    own = SessionDB(tmp_path / "own.db")
+    other = SessionDB(tmp_path / "other.db")
+    agent = _new_agent()
+    agent._session_db = own
+
+    with (
+        patch.object(ctx_events, "default_db", return_value=other),
+        patch.object(agent, "_persist_session"),
+        patch.object(agent, "_save_trajectory"),
+        patch.object(agent, "_cleanup_task_resources"),
+    ):
+        _run_turn(agent)
+
+    assert own.injection_bill(agent.session_id), "no rows in the agent's own db"
+    assert other.injection_bill(agent.session_id) == []

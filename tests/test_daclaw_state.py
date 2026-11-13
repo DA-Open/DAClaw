@@ -1381,3 +1381,35 @@ class TestConcurrentWriteSafety:
         assert "30" in src, (
             "SQLite timeout should be at least 30s to handle CLI/gateway lock contention"
         )
+
+class TestDefaultPathResolution:
+    """SessionDB() without a path must follow the current DACLAW_HOME.
+
+    The module-level DEFAULT_DB_PATH is fixed at import; reusing it made tests
+    (and profile switches) that change DACLAW_HOME afterwards write to the
+    original database instead of the redirected one.
+    """
+
+    def test_default_path_follows_daclaw_home(self, tmp_path, monkeypatch):
+        first = tmp_path / "home_a"
+        second = tmp_path / "home_b"
+        first.mkdir()
+        second.mkdir()
+
+        monkeypatch.setenv("DACLAW_HOME", str(first))
+        one = SessionDB()
+        assert one.db_path == first / "state.db"
+
+        monkeypatch.setenv("DACLAW_HOME", str(second))
+        two = SessionDB()
+        assert two.db_path == second / "state.db"
+
+        one.close()
+        two.close()
+
+    def test_explicit_path_still_wins(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("DACLAW_HOME", str(tmp_path / "home"))
+        explicit = tmp_path / "explicit.db"
+        store = SessionDB(explicit)
+        assert store.db_path == explicit
+        store.close()
