@@ -26,6 +26,7 @@ import logging
 import os
 import shlex
 import uuid
+from pathlib import Path
 
 from tools.budget_config import (
     DEFAULT_PREVIEW_SIZE_CHARS,
@@ -93,6 +94,7 @@ def _build_persisted_message(
     has_more: bool,
     original_size: int,
     file_path: str,
+    read_tool: str = "read_file",
 ) -> str:
     """Build the <persisted-output> replacement block."""
     size_kb = original_size / 1024
@@ -104,13 +106,46 @@ def _build_persisted_message(
     msg = f"{PERSISTED_OUTPUT_TAG}\n"
     msg += f"This tool result was too large ({original_size:,} characters, {size_str}).\n"
     msg += f"Full output saved to: {file_path}\n"
-    msg += "Use the read_file tool with offset and limit to access specific sections of this output.\n\n"
+    msg += (
+        f"Use the {read_tool} tool with offset and limit to access specific "
+        "sections of this output.\n\n"
+    )
     msg += f"Preview (first {len(preview)} chars):\n"
     msg += preview
     if has_more:
         msg += "\n..."
     msg += f"\n{PERSISTED_OUTPUT_CLOSING_TAG}"
     return msg
+
+
+def _host_spill_path(tool_use_id: str) -> str:
+    """Where to spill a result when there is no sandbox to write into.
+
+    The data-agent toolset has no terminal, so no environment is ever created
+    for it and env.execute() is unavailable. Writing under DACLAW_HOME keeps the
+    output on the host where data_result_read can reach it, instead of dropping
+    it. Lives next to the analysis artifacts it belongs with.
+    """
+    try:
+        from daclaw_constants import get_daclaw_home
+
+        safe_id = "".join(ch for ch in str(tool_use_id) if ch.isalnum() or ch in "-_")[:80]
+        if not safe_id:
+            return ""
+        return str(get_daclaw_home() / "analysis_runs" / "_spill" / (safe_id + ".txt"))
+    except Exception:  # pragma: no cover - defensive
+        return ""
+
+
+def _write_host_file(content: str, path: str) -> bool:
+    try:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return True
+    except OSError as exc:
+        logger.warning("Host spill failed for %s: %s", path, exc)
+        return False
 
 
 def maybe_persist_tool_result(
@@ -120,6 +155,7 @@ def maybe_persist_tool_result(
     env=None,
     config: BudgetConfig = DEFAULT_BUDGET,
     threshold: int | float | None = None,
+    read_tool: str = "read_file",
 ) -> str:
     """Layer 2: persist oversized result into the sandbox, return preview + path.
 
@@ -134,6 +170,8 @@ def maybe_persist_tool_result(
         env: The active BaseEnvironment instance, or None.
         config: BudgetConfig controlling thresholds and preview size.
         threshold: Explicit override; takes precedence over config resolution.
+        read_tool: Tool the model should use to read the saved file back. Callers
+            pass "data_result_read" when the active toolset has no read_file.
 
     Returns:
         Original content if small, or <persisted-output> replacement.
@@ -157,9 +195,22 @@ def maybe_persist_tool_result(
                     "Persisted large tool result: %s (%s, %d chars -> %s)",
                     tool_name, tool_use_id, len(content), remote_path,
                 )
-                return _build_persisted_message(preview, has_more, len(content), remote_path)
+                return _build_persisted_message(
+                    preview, has_more, len(content), remote_path, read_tool=read_tool
+                )
         except Exception as exc:
             logger.warning("Sandbox write failed for %s: %s", tool_use_id, exc)
+
+    if env is None:
+        host_path = _host_spill_path(tool_use_id)
+        if host_path and _write_host_file(content, host_path):
+            logger.info(
+                "Persisted large tool result to host: %s (%d chars -> %s)",
+                tool_name, len(content), host_path,
+            )
+            return _build_persisted_message(
+                preview, has_more, len(content), host_path, read_tool=read_tool
+            )
 
     logger.info(
         "Inline-truncating large tool result: %s (%d chars, no sandbox write)",

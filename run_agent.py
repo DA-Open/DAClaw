@@ -3563,6 +3563,20 @@ class AIAgent:
 
         return _final_prompt
 
+    def _persisted_read_tool(self) -> str:
+        """Tool a persisted-output message should point at.
+
+        read_file is the general answer, but data toolsets deliberately exclude
+        generic file tools; there data_result_read is the only way back to the
+        saved output.
+        """
+        names = self.valid_tool_names or set()
+        if "read_file" in names:
+            return "read_file"
+        if "data_result_read" in names:
+            return "data_result_read"
+        return "read_file"
+
     def _should_run_analysis_audit(self, user_message: str, messages: List[Dict[str, Any]]) -> bool:
         """Return True when the task looks like a data-analysis submission."""
         if getattr(self, "_disable_analysis_audit", False):
@@ -7709,6 +7723,7 @@ class AIAgent:
                 tool_name=name,
                 tool_use_id=tc.id,
                 env=get_active_env(effective_task_id),
+                read_tool=self._persisted_read_tool(),
             )
 
             subdir_hints = self._subdirectory_hints.check_tool_call(name, args)
@@ -8064,6 +8079,7 @@ class AIAgent:
                 tool_name=function_name,
                 tool_use_id=tool_call.id,
                 env=get_active_env(effective_task_id),
+                read_tool=self._persisted_read_tool(),
             )
 
             # Discover subdirectory context files from tool arguments
