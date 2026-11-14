@@ -158,6 +158,7 @@ class EventType(StrEnum):
     # DaraOS additions, see ModelCallRecord and BudgetReminderRecord
     MODEL_CALL = "model_call"
     BUDGET_REMINDER = "budget_reminder"
+    CONTEXT_BUILT = "context_built"
 
 
 class ErrorCode(StrEnum):
@@ -690,6 +691,38 @@ class ModelCallRecord(_Model):
     usage: Usage
     step_kind: StepKind | None = None
     latency_ms: int | None = None
+
+
+class ContextSection(_Model):
+    """Size of one part of a model input (see runtime/context_sizes.py)."""
+
+    name: str
+    items: int = Field(ge=0)
+    chars: int = Field(ge=0)
+    est_tokens: int = Field(ge=0)
+
+
+class ContextSizes(_Model):
+    """A model input broken down by section. ``est_tokens`` is the same
+    estimate the budget reservation uses, so it can be compared with the
+    real usage in the matching ``model_call`` event."""
+
+    sections: list[ContextSection] = Field(default_factory=list)
+    total_chars: int = Field(0, ge=0)
+    est_tokens: int = Field(0, ge=0)
+
+
+class ContextBuiltRecord(_Model):
+    """Payload of a `context_built` event: what one model call was sent.
+
+    DaraOS addition (review of #12): with per-section sizes in the events,
+    "why did this call cost so much" is answered without loading the stored
+    input. One event per model call, written just before it.
+    """
+
+    call_id: str
+    wrap_up: bool = False
+    sizes: ContextSizes
 
 
 class BudgetReminderRecord(_Model):
