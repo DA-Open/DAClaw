@@ -22,6 +22,7 @@ registration return no ``action_id``.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Iterable
@@ -236,10 +237,37 @@ class ToolGateway:
             credential_ref=None,
             deadline=task.deadline,
         )
+        # Spec 4.4: "ToolGateway 在实际调用前重查" -- a cancel request that
+        # arrived after step 2 must still stop the call. Nothing has run, so
+        # the reservation is released and the action marked failed.
+        latest = await self._repos.tasks.get(lease.scope_id, lease.task_id)
+        if latest.status is TaskStatus.CANCELLING or latest.cancel_requested_at is not None:
+            now = self._clock()
+            if registration.created and registration.budget is not None:
+                await self._repos.usage.release(action.id, now)
+            await self._repos.actions.update(action.id, ActionStatus.FAILED, now=now)
+            return _refused(ToolStatus.DENIED, ErrorCode.CANCELLED, "the task is being cancelled", action.id)
+
+        timeout = None
+        if task.deadline is not None:
+            timeout = (task.deadline - self._clock()).total_seconds()
         try:
-            result = await connector.execute(authorized)
+            if timeout is not None and timeout <= 0:
+                raise asyncio.TimeoutError
+            if timeout is None:
+                result = await connector.execute(authorized)
+            else:
+                result = await asyncio.wait_for(connector.execute(authorized), timeout)
         except StaleLease:
             raise
+        except asyncio.TimeoutError:
+            # The call may still have done its work (spec 4.4: 接口超时也不代表"没有执行").
+            message = f"{call.tool} did not finish before the task deadline"
+            log.warning("connector %s timed out on action %s", call.tool, action.id)
+            result = ToolResult(
+                status=ToolStatus.FAILED if connector.spec.read_only else ToolStatus.UNKNOWN,
+                error=TaskError(code=ErrorCode.DEADLINE_EXCEEDED, message=message),
+            )
         except Exception as exc:  # noqa: BLE001 - connector bug or unexpected error
             log.exception("connector %s raised on action %s", call.tool, action.id)
             if connector.spec.read_only:

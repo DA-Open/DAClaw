@@ -215,6 +215,36 @@ def _result_schema(pack: CapabilityPack, candidate: CandidateResult) -> CheckRes
     return _result("result_schema", PASSED, f"matches {pack.ref} result schema")
 
 
+async def _evidence(task: Task, candidate: CandidateResult, repos: Repositories) -> CheckResult | None:
+    """Every evidence reference the result cites must be real and reachable.
+
+    Spec 5.2: CandidateResult carries "事实依据引用". A reference counts only if
+    it is an artifact this task's scope can read, or an action of this task
+    that succeeded. Checking that the cited source actually supports each
+    number (review comment 7, replaying read-only actions) needs the data
+    connectors and comes after P0; this check stops made-up references.
+    """
+    refs = list(candidate.evidence_refs) + list(candidate.required_action_receipts)
+    if not refs:
+        return None
+    actions = {a.id: a for a in await repos.actions.list_for_task(task.id)}
+    receipts = {a.receipt_ref: a for a in actions.values() if a.receipt_ref}
+    bad = []
+    for ref in refs:
+        action = actions.get(ref) or receipts.get(ref)
+        if action is not None:
+            if str(action.status) != "succeeded":
+                bad.append(f"{ref} (action {action.status})")
+            continue
+        try:
+            await repos.artifacts.get(task.scope_id, ref)
+        except NotFound:
+            bad.append(f"{ref} (not found)")
+    if bad:
+        return _result("evidence_refs", FAILED, "unknown or unusable evidence: " + ", ".join(bad))
+    return _result("evidence_refs", PASSED, f"{len(refs)} reference(s) found", refs)
+
+
 def _required_actions(task: Task, candidate: CandidateResult) -> CheckResult | None:
     """P0 packs have no outside actions; a task asking for any cannot be
     confirmed until receipts can be checked (spec 6.3: 发送或修改远端对象检查实际回执)."""
@@ -266,6 +296,7 @@ class CapabilityVerifier:
         for built_in in (
             _required_artifacts(task, result),
             _result_schema(pack, result) if pack else None,
+            await _evidence(task, result, self._repos),
             _required_actions(task, result),
         ):
             if built_in is not None:

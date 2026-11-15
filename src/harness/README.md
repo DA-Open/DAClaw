@@ -149,8 +149,11 @@ tables do not change later; most come from review comments on the spec.
    Refusals here return `denied` (or `failed` for bad arguments) with no
    `action_id` and charge nothing.
 3. **Register and reserve** one tool call in one step.
-4. **Run the connector** with an `AuthorizedCall`. A crash in a read-only
-   connector is `failed`; in any other connector it is `unknown`.
+4. **Run the connector** with an `AuthorizedCall`. Just before running, the
+   task is read again: a cancel that arrived after step 2 still stops the call
+   (spec 4.4), releasing the reservation. The call is bounded by the task
+   deadline. A crash or timeout in a read-only connector is `failed`; in any
+   other connector it is `unknown` (a timeout does not mean it did not run).
 5. **Settle and record**: usage is settled (an `unknown` keeps its
    reservation), the action gets its status, `args_ref` / `result_ref`, and a
    `tool_action` event is written.
@@ -210,6 +213,7 @@ comes from the task, never from the model:
 |---|---|---|
 | `required_artifacts` | `acceptance.required_artifacts` (always) | a named artifact is missing from the result |
 | `result_schema` | the pack (always, if it has one) | the result does not match the schema |
+| `evidence_refs` | the result's `evidence_refs` and `required_action_receipts` (always, if any) | a reference is not a readable artifact of this scope or a succeeded action / receipt of this task |
 | `required_actions` | `acceptance.required_actions` | never fails in P0; it is `inconclusive` (receipts cannot be checked yet) |
 | `artifact_readable` | `acceptance.checks` | an artifact is missing, in another scope, not text, empty, or its file changed |
 | `required_sections` | `acceptance.checks` with `sections` | a section is not a Markdown heading of the draft |

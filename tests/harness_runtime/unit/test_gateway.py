@@ -395,3 +395,80 @@ async def test_paging_reports_more(tmp_path):
 async def test_connector_results_never_claim_denied():
     with pytest.raises(ValueError):
         ToolResult(status=ToolStatus.DENIED)
+
+
+# -- spec 4.4 / 7.4: cancel just before running, and timeouts --------------------------
+
+
+class _Slow:
+    def __init__(self, spec, *, seconds=5.0, on_start=None):
+        self.spec = spec
+        self.seconds = seconds
+        self.on_start = on_start
+        self.ran = False
+
+    async def execute(self, call):
+        import asyncio
+
+        self.ran = True
+        if self.on_start:
+            await self.on_start()
+        await asyncio.sleep(self.seconds)
+        return ToolResult(status=ToolStatus.SUCCEEDED, summary="slow done")
+
+    async def reconcile(self, action):
+        return ReconcileResult(status="unsupported")
+
+
+def slow_setup(tmp_path, spec, connector, *, limits=None):
+    policy = WhitelistPolicy(roles={"main_tools@1": {spec.name}}, users={ACTOR.scope_id: {AgentRole.MAIN: UserGrant()}})
+    return Setup(tmp_path, policy=policy, connectors=[connector], limits=limits)
+
+
+async def test_cancel_after_registration_stops_the_call(tmp_path):
+    spec = ToolSpec(name="slow.read", description="", read_only=True, side_effects=False)
+    conn = _Slow(spec, seconds=0)
+    s = await slow_setup(tmp_path, spec, conn).start()
+    # A cancel that lands between registering and running: patch the
+    # repository so the request arrives right after the action is registered.
+    original = s.repos.actions.update
+
+    async def update_then_cancel(action_id, status, **kw):
+        out = await original(action_id, status, **kw)
+        if status is ActionStatus.RUNNING:
+            await s.repos.tasks.request_cancel("s1", s.task.id, "user", T0)
+        return out
+
+    s.repos.actions.update = update_then_cancel
+    outcome = await s.call("slow.read")
+    assert outcome.status is ToolStatus.DENIED and outcome.error.code is ErrorCode.CANCELLED
+    assert not conn.ran
+    (action,) = await s.actions()
+    assert action.status is ActionStatus.FAILED
+    assert await s.repos.usage.open_reservations(s.task.id) == []
+    assert (await s.usage()).tool_calls == 0
+
+
+async def test_read_only_call_past_the_deadline_is_failed(tmp_path):
+    import datetime as dt
+
+    spec = ToolSpec(name="slow.read", description="", read_only=True, side_effects=False)
+    s = await slow_setup(tmp_path, spec, _Slow(spec, seconds=5), limits=Limits(timeout_sec=60)).start()
+    # Leave 0.05 s before the deadline.
+    s.clock.now = s.task.deadline - dt.timedelta(seconds=0.05)
+    outcome = await s.call("slow.read")
+    assert outcome.status is ToolStatus.FAILED and outcome.error.code is ErrorCode.DEADLINE_EXCEEDED
+    assert await s.repos.usage.open_reservations(s.task.id) == []
+
+
+async def test_writing_call_past_the_deadline_is_unknown_and_keeps_its_reservation(tmp_path):
+    import datetime as dt
+
+    spec = ToolSpec(name="slow.write", description="", read_only=False, side_effects=False)
+    s = await slow_setup(tmp_path, spec, _Slow(spec, seconds=5), limits=Limits(timeout_sec=60)).start()
+    s.clock.now = s.task.deadline - dt.timedelta(seconds=0.05)
+    outcome = await s.call("slow.write")
+    assert outcome.status is ToolStatus.UNKNOWN and outcome.error.code is ErrorCode.DEADLINE_EXCEEDED
+    (action,) = await s.actions()
+    assert action.status is ActionStatus.UNKNOWN
+    assert len(await s.repos.usage.open_reservations(s.task.id)) == 1

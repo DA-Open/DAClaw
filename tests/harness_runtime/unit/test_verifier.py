@@ -358,3 +358,49 @@ async def test_package_instructions_load_and_refuse_escapes():
         await load("../../pyproject.toml")
     with pytest.raises(KeyError):
         await load("prompts/missing.md")
+
+
+# -- evidence references (spec 5.2 CandidateResult: 事实依据引用) -------------------------
+
+
+@pytest.mark.asyncio
+async def test_real_evidence_passes_and_made_up_evidence_fails(tmp_path):
+    w = World(tmp_path)
+    await w.task()
+    draft = await w.put(GOOD)
+    source = await w.put("原始材料", name="source", media_type="text/plain")
+    ok = await w.verifier.verify(CandidateResult(summary="s", artifact_refs={"draft": draft}, evidence_refs=[source]), w.t)
+    assert ok.status is P and w.by_id(ok)["evidence_refs"].status is P
+    bad = await w.verifier.verify(
+        CandidateResult(summary="s", artifact_refs={"draft": draft}, evidence_refs=["art_made_up"]), w.t
+    )
+    assert bad.status is F and "art_made_up" in w.by_id(bad)["evidence_refs"].detail
+
+
+@pytest.mark.asyncio
+async def test_evidence_from_another_scope_fails(tmp_path):
+    w = World(tmp_path)
+    await w.task()
+    draft = await w.put(GOOD)
+    foreign = await w.put("别人的材料", name="x", scope="someone-else")
+    v = await w.verifier.verify(CandidateResult(summary="s", artifact_refs={"draft": draft}, evidence_refs=[foreign]), w.t)
+    assert v.status is F
+
+
+@pytest.mark.asyncio
+async def test_evidence_can_cite_a_succeeded_action_but_not_a_failed_one(tmp_path):
+    from harness.contracts import Action, ActionStatus
+
+    w = World(tmp_path)
+    await w.task()
+    draft = await w.put(GOOD)
+    good = (await w.repos.actions.register(Action(task_id=w.t.id, attempt_id=w.execution.lease.attempt_id,
+             logical_key="step-1.0", tool="files.read", request_hash="h1", read_only=True))).action
+    await w.repos.actions.update(good.id, ActionStatus.SUCCEEDED, now=T0)
+    bad = (await w.repos.actions.register(Action(task_id=w.t.id, attempt_id=w.execution.lease.attempt_id,
+            logical_key="step-2.0", tool="files.read", request_hash="h2", read_only=True))).action
+    await w.repos.actions.update(bad.id, ActionStatus.FAILED, now=T0)
+    ok = await w.verifier.verify(CandidateResult(summary="s", artifact_refs={"draft": draft}, evidence_refs=[good.id]), w.t)
+    assert ok.status is P
+    no = await w.verifier.verify(CandidateResult(summary="s", artifact_refs={"draft": draft}, evidence_refs=[bad.id]), w.t)
+    assert no.status is F and "failed" in w.by_id(no)["evidence_refs"].detail
