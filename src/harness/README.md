@@ -16,7 +16,9 @@ rule here and the code disagree, fix one of them in the same PR.
 | `config.py` (env `DARAOS_HARNESS_*`) | — | done | PR-A |
 | `interfaces.py` module Protocols (spec 5.2) | done | — | PR-A |
 | `storage/` repositories | done | in-memory done; PostgreSQL + migrations next | PR-A / PR-B |
-| `tasks/` TaskService + worker | done | not started | PR-C |
+| `tasks/` TaskService + worker | done | done (in-memory store until PostgreSQL lands; `python -m harness.worker`) | PR-C |
+| `app.py` wiring, permissions file | — | done (`build_system`, `DARAOS_HARNESS_POLICY_FILE`) | PR-C |
+| `trace.py` task timeline | — | done (`--trace`) | PR-C |
 | `runtime/` AgentRunner, ModelAdapter, budget | done | done | PR-D |
 | `context/` ContextBuilder | done | minimal (no memory, no token cut) | PR-D |
 | `tools/` ToolGateway, Policy, connectors | done | done (P0: `files.read`, `artifacts.read`, `artifacts.write`) | PR-E |
@@ -166,6 +168,7 @@ whitelists from config stand in for the grants table:
 | Role whitelist | `AgentProfile.tool_policy_ref` | which tools this kind of agent may call (the floor) |
 | User whitelist | `scope_id` → role → `UserGrant` | which of those tools this user allows, and which directories `files.read` may read |
 | Capability | `Task.capability_ref` | which tools the pack needs (narrows only) |
+| Deployment | `disabled_tools` in the permissions file | tools the operator turned off for everyone (spec 7, the fourth layer) |
 
 A call is allowed only by the intersection; a user entry can only narrow its
 role list, and a scope without an entry gets nothing. Files the task names in
@@ -234,18 +237,69 @@ Every result is stored and a `verification_recorded` event is written;
 `instructions_ref` paths relative to `src/harness` (refusing anything outside
 it). Prompts live in `prompts/`; YAML, schema and prompts ship as package data.
 
-Wiring a worker (all real modules, see
-`tests/harness_runtime/scenarios/test_document_draft_end_to_end.py`):
+Wiring: `app.build_system(config, model)` puts all real modules together
+(repositories, `FileArtifactStore`, registries, `WhitelistPolicy`,
+`ToolGateway`, `CapabilityVerifier`, `SimpleContextBuilder`, `AgentRunner`,
+`TaskService`). The worker CLI, the API and the tests all use it, so there
+is one place to change the wiring.
 
-```python
-packs = CapabilityRegistry.builtin(); agents = AgentRegistry.builtin()
-store = FileArtifactStore(config.artifact_root, repos.artifacts)
-policy = WhitelistPolicy(roles=main_role_whitelist(), users=..., capabilities=packs.tool_map())
-gateway = ToolGateway(repos, store, policy, p0_connectors(store), profiles=agents.tool_policies())
-builder = SimpleContextBuilder(repos, instructions=PackageInstructions(),
-                               tools=PolicyToolCatalog(policy, gateway.specs), capabilities=packs)
-runner = AgentRunner(repos, model, gateway, CapabilityVerifier(repos, store, packs), store)
+## Tasks and the worker
+
+`TaskService` (`tasks/service.py`) is the only writer of task status. On
+`create` it checks the limits against the deployment caps, that the
+capability pack and the agent profile exist, and that every
+`acceptance.checks[].id` is a verifier of that pack (`UnknownCheck`
+otherwise, so a typo fails at submit time, not after the run). `checkpoint`
+stores the checkpoint as a JSON artifact and points the task at it.
+
+`Worker` (`tasks/worker.py`) runs one attempt per claim:
+
+1. `claim` a queued task in its lanes (lease TTL `lease_ttl_sec`);
+2. a background heartbeat every `heartbeat_interval_sec` extends the lease
+   and notices a cancel request;
+3. resolve the profile, build `ExecutionContext` and the context bundle,
+   run `AgentRunner` with `lease_lost` wired to the heartbeat;
+4. `commit` the outcome. If the lease was lost (`StaleLease` from a
+   heartbeat or from the Runner) it commits nothing and reports
+   `lease_lost`; the task stays `running` until the Scheduler (P1) requeues
+   it. A missing profile or a context-build error is committed as `failed`
+   (`internal`) so the task does not hang.
+
+```bash
+python -m harness.worker --once --submit task.json --model-config model.yaml --print-result
+python -m harness.worker --once --submit task.json --scripted script.json   # no network
 ```
+
+Until the PostgreSQL repositories land, the store is in memory, so
+`--submit` creates the task in the same process (as the API would, role
+`main`, trusted origin). `model.yaml` holds `ModelConfig` fields; the key
+comes from the environment variable named by `api_key_env`. The command
+prints one JSON line and exits 0 when the attempt was committed.
+
+`--trace` prints the task's timeline to stderr (`--trace FILE.json` writes
+it as JSON): each status change, context size, model call (tokens, latency,
+stored input), tool action, refused tool call, verification and budget
+reminder, then usage against the limits. It is built by `trace.py` from the
+records already written and calls no model. Refused calls have no action by
+design; the trace takes them from the tool message the model saw next, and
+copies only the status and error line. With the in-memory store it covers
+the current process only; with PostgreSQL the same `build_trace` works for
+any past task.
+
+**Permissions file** (`DARAOS_HARNESS_POLICY_FILE`, read by
+`app.load_policy_file`; unknown keys or roles are refused at start):
+
+```yaml
+disabled_tools: []            # deployment policy: off for everyone
+users:                        # user whitelist, per scope_id
+  s1:
+    main:
+      paths: [/data/s1]       # directories files.read may read
+      tools: [files.read, artifacts.read, artifacts.write]   # optional, narrows the role list
+      ref: grant:s1:main      # optional, recorded on each action
+```
+
+With no file, no scope has any tool.
 
 ## Model adapters
 
@@ -286,7 +340,7 @@ runs one real model through the Runner with fake tools, for a manual check.
 | Item | Decided | When |
 |---|---|---|
 | Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
-| `TaskService.checkpoint` implementation | Interface and repository method exist; nothing calls it yet | P1 |
+| Who calls `TaskService.checkpoint` | Implemented (JSON artifact + `checkpoint_ref`); the Runner does not write checkpoints yet, and resume reads none | P1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
 | ProactiveController, DeliveryService, subscriptions, outbox | Not started; their types come with them | P2 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |

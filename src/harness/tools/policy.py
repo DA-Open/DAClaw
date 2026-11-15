@@ -63,15 +63,20 @@ class WhitelistPolicy:
     ``capabilities`` maps ``Task.capability_ref`` to the tools that pack needs
     (spec 7: "能力包里的 tools 是需要使用哪些工具，不是授权"); a capability with
     no entry does not narrow anything.
+    ``disabled_tools`` is the deployment policy (spec 7: the fourth layer of
+    the intersection): tools an operator turned off for the whole deployment,
+    whatever any role, user or pack says.
     """
 
     roles: Mapping[str, Iterable[str]]
     users: Mapping[str, Mapping[AgentRole | str, UserGrant]] = field(default_factory=dict)
     capabilities: Mapping[str, Iterable[str]] = field(default_factory=dict)
+    disabled_tools: Iterable[str] = field(default_factory=frozenset)
 
     def __post_init__(self) -> None:
         self.roles = {k: frozenset(v) for k, v in self.roles.items()}
         self.capabilities = {k: frozenset(v) for k, v in self.capabilities.items()}
+        self.disabled_tools = frozenset(self.disabled_tools)
         self.users = {
             scope: {str(role): grant for role, grant in by_role.items()}
             for scope, by_role in self.users.items()
@@ -96,7 +101,7 @@ class WhitelistPolicy:
             tools &= grant.tools
         if capability_ref is not None and capability_ref in self.capabilities:
             tools &= self.capabilities[capability_ref]
-        return tools
+        return tools - self.disabled_tools
 
     def check_tool(
         self,
@@ -107,6 +112,8 @@ class WhitelistPolicy:
         tool_policy_ref: str,
         capability_ref: str | None,
     ) -> Decision:
+        if tool in self.disabled_tools:
+            return _deny(f"tool {tool!r} is disabled in this deployment")
         if tool not in self.role_tools(tool_policy_ref):
             return _deny(f"tool {tool!r} is not allowed for this agent role")
         grant = self.user_grant(scope_id, role)
