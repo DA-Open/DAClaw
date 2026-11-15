@@ -20,8 +20,8 @@ rule here and the code disagree, fix one of them in the same PR.
 | `runtime/` AgentRunner, ModelAdapter, budget | done | done | PR-D |
 | `context/` ContextBuilder | done | minimal (no memory, no token cut) | PR-D |
 | `tools/` ToolGateway, Policy, connectors | done | done (P0: `files.read`, `artifacts.read`, `artifacts.write`) | PR-E |
-| `results/` ArtifactStore, Verifier | done | ArtifactStore done (`FileArtifactStore`, local directory); Verifier not started | PR-E / PR-F |
-| `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | not started | PR-F |
+| `results/` ArtifactStore, Verifier | done | done (`FileArtifactStore`, `CapabilityVerifier` with `artifact_readable`, `required_sections`) | PR-E / PR-F |
+| `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
 | `api/` POST/GET/cancel tasks | — | not started | PR-G |
 | P0 acceptance scenarios | — | not started | PR-H |
 | `delivery/`, ProactiveController, subscriptions (P2) | not yet | not started | — |
@@ -191,6 +191,57 @@ object storage can replace it behind the same interface. Tool arguments and
 results are stored as trajectory artifacts (`task_id` empty, name
 `<task_id>/tool_args/<key>` and `<task_id>/tool_result/<key>`), like the
 Runner's model inputs.
+
+## Verification, capability packs, profiles
+
+**Capability packs** (`capabilities/`). One YAML file per pack, fixed per task
+by `capability_ref` (`document_draft@1`); `resolve` returns that exact
+version. A pack lists the tools it needs (fed to
+`WhitelistPolicy.capabilities` via `CapabilityRegistry.tool_map()`; it can
+only narrow), the checkers it offers, an optional `result_schema` for the
+`CandidateResult`, the name of its deliverable artifact (`result_artifact`),
+and instructions that ContextBuilder adds to the system prompt. Adding a
+scenario means adding a pack and, if needed, connectors (spec 7).
+
+**Verifier** (`results/verifier.py`, `CapabilityVerifier`). Which checks run
+comes from the task, never from the model:
+
+| Check | Source | Fails when |
+|---|---|---|
+| `required_artifacts` | `acceptance.required_artifacts` (always) | a named artifact is missing from the result |
+| `result_schema` | the pack (always, if it has one) | the result does not match the schema |
+| `required_actions` | `acceptance.required_actions` | never fails in P0; it is `inconclusive` (receipts cannot be checked yet) |
+| `artifact_readable` | `acceptance.checks` | an artifact is missing, in another scope, not text, empty, or its file changed |
+| `required_sections` | `acceptance.checks` with `sections` | a section is not a Markdown heading of the draft |
+
+Overall status: any `failed` → `failed`; otherwise any `inconclusive`, an
+unverified item, or a task with no acceptance conditions at all →
+`inconclusive`; otherwise `passed`. A check the pack does not offer, a
+checker that is missing or crashes, and an unknown pack are all
+`inconclusive`, never `passed`. `required_sections` matches headings
+outside code fences, ignoring leading numbering ("1.", "一、"), emphasis,
+spaces and case; the heading must be the section name, not just contain it.
+Every result is stored and a `verification_recorded` event is written;
+`result_ref` is the pack's deliverable.
+
+**Profiles** (`agents/`). `AgentRegistry` resolves `main@1` exactly;
+`tool_policies()` feeds `ToolGateway(profiles=...)` and
+`main_role_whitelist()` the role whitelist. `PackageInstructions` loads
+`instructions_ref` paths relative to `src/harness` (refusing anything outside
+it). Prompts live in `prompts/`; YAML, schema and prompts ship as package data.
+
+Wiring a worker (all real modules, see
+`tests/harness_runtime/scenarios/test_document_draft_end_to_end.py`):
+
+```python
+packs = CapabilityRegistry.builtin(); agents = AgentRegistry.builtin()
+store = FileArtifactStore(config.artifact_root, repos.artifacts)
+policy = WhitelistPolicy(roles=main_role_whitelist(), users=..., capabilities=packs.tool_map())
+gateway = ToolGateway(repos, store, policy, p0_connectors(store), profiles=agents.tool_policies())
+builder = SimpleContextBuilder(repos, instructions=PackageInstructions(),
+                               tools=PolicyToolCatalog(policy, gateway.specs), capabilities=packs)
+runner = AgentRunner(repos, model, gateway, CapabilityVerifier(repos, store, packs), store)
+```
 
 ## Model adapters
 

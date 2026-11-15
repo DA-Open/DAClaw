@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "document_draft result",
+  "type": "object",
+  "properties": {
+    "summary": {"type": "string", "minLength": 1},
+    "artifact_refs": {
+      "type": "object",
+      "properties": {"draft": {"type": "string", "minLength": 1}},
+      "required": ["draft"]
+    },
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "required_action_receipts": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["summary", "artifact_refs"]
+}

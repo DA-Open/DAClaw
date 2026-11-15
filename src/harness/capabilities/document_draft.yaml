@@ -1,0 +1,17 @@
+# Capability pack: draft a document from given material, without publishing.
+# The example pack of spec section 7. Fixed per task by capability_ref
+# "document_draft@1"; a change to this file needs a new version.
+id: document_draft
+version: "1"
+description: Read the given material and write a Markdown draft. Nothing is sent or published.
+instructions_ref: ../prompts/document_draft.md
+tools:
+  - files.read
+  - artifacts.read
+  - artifacts.write
+result_schema: schemas/document_result.json
+result_artifact: draft
+verifiers:
+  - artifact_readable
+  - required_sections
+default_mode: draft_only
