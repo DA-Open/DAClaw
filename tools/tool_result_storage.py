@@ -25,6 +25,7 @@ Defense against context-window overflow operates at three levels:
 import logging
 import os
 import shlex
+import time
 import uuid
 from pathlib import Path
 
@@ -137,11 +138,26 @@ def _host_spill_path(tool_use_id: str) -> str:
         return ""
 
 
+SPILL_MAX_AGE_SECONDS = 7 * 24 * 3600
+
+
+def _prune_spill_dir(directory: Path) -> None:
+    """Drop spill files older than a week; nothing prunes them otherwise."""
+    try:
+        cutoff = time.time() - SPILL_MAX_AGE_SECONDS
+        for entry in directory.iterdir():
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink(missing_ok=True)
+    except OSError as exc:
+        logger.debug("Spill cleanup skipped for %s: %s", directory, exc)
+
+
 def _write_host_file(content: str, path: str) -> bool:
     try:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+        _prune_spill_dir(target.parent)
         return True
     except OSError as exc:
         logger.warning("Host spill failed for %s: %s", path, exc)

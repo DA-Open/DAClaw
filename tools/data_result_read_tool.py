@@ -18,7 +18,7 @@ through a crafted argument.
 from __future__ import annotations
 
 import logging
-import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -34,17 +34,15 @@ MAX_LIMIT = 2000
 
 def _candidate_roots() -> List[Path]:
     """Directories this tool is allowed to read from."""
-    roots: List[Path] = [Path("/tmp/daclaw-results")]
-    for env_name in ("TMPDIR", "TMP"):
-        value = os.environ.get(env_name)
-        if value:
-            roots.append(Path(value) / "daclaw-results")
-    try:
-        from daclaw_constants import get_daclaw_home
+    from tools.tool_result_storage import STORAGE_DIR
 
-        roots.append(get_daclaw_home() / "analysis_runs")
-    except Exception:  # pragma: no cover - defensive
-        pass
+    roots: List[Path] = [Path(STORAGE_DIR)]
+    temp_root = Path(tempfile.gettempdir()) / "daclaw-results"
+    if temp_root not in roots:
+        roots.append(temp_root)
+    analysis_root = _analysis_runs_root()
+    if analysis_root is not None:
+        roots.append(analysis_root)
     return roots
 
 
@@ -68,16 +66,20 @@ def _candidate_paths(path_text: str) -> List[Path]:
     if candidate.is_absolute():
         return [candidate]
 
-    tries = [Path.cwd() / candidate]
+    tries: List[Path] = []
     root = _analysis_runs_root()
     if root is not None:
         tries.append(root / candidate)
+        # Newest run first: the same SQL in two runs yields the same artifact
+        # id, so an unanchored "results/<id>.json" must resolve to the latest.
         try:
-            for run_dir in sorted(root.iterdir()):
-                if run_dir.is_dir():
-                    tries.append(run_dir / candidate)
+            run_dirs = sorted(
+                (d for d in root.iterdir() if d.is_dir() and not d.name.startswith("_")),
+                reverse=True,
+            )
         except OSError:
-            pass
+            run_dirs = []
+        tries.extend(d / candidate for d in run_dirs)
     return tries
 
 
@@ -170,11 +172,15 @@ DATA_RESULT_READ_SCHEMA: Dict[str, Any] = {
 }
 
 
-def _handle_data_result_read(args, **_kwargs) -> str:
+def _handle_data_result_read(args, **kwargs) -> str:
+    # task_id drives read_file's per-task de-duplication tracker; dropping it
+    # makes every session share one tracker and see "File unchanged" for files
+    # another session already read.
     return data_result_read_tool(
         path=args.get("path", ""),
         offset=args.get("offset", 1),
         limit=args.get("limit", DEFAULT_LIMIT),
+        task_id=kwargs.get("task_id") or "default",
     )
 
 

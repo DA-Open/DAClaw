@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 
 import pytest
 
@@ -16,6 +17,8 @@ def results_dir(tmp_path, monkeypatch):
     root = tmp_path / "daclaw-results"
     root.mkdir()
     monkeypatch.setenv("TMPDIR", str(tmp_path))
+    # tempfile caches its answer on first use, so the env var alone is not enough.
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path), raising=False)
     return root
 
 
@@ -157,3 +160,80 @@ def test_oversized_result_is_spilled_to_the_host_when_there_is_no_env(tmp_path, 
     payload = json.loads(data_result_read_tool(str(spill), offset=5900, limit=10))
     assert payload.get("error") is None
     assert "line 05901" in payload["content"]
+
+def test_handler_forwards_task_id_to_read_file(results_dir, monkeypatch):
+    """read_file's de-dup tracker is per task; dropping task_id merges sessions."""
+    import tools.data_result_read_tool as mod
+
+    target = results_dir / "r.txt"
+    target.write_text("hello", encoding="utf-8")
+
+    seen = {}
+
+    def fake_read_file(path, offset=1, limit=500, task_id="default"):
+        seen["task_id"] = task_id
+        return json.dumps({"content": "ok"})
+
+    monkeypatch.setattr(mod, "read_file_tool", fake_read_file)
+    mod._handle_data_result_read({"path": str(target)}, task_id="task-42")
+    assert seen["task_id"] == "task-42"
+
+    mod._handle_data_result_read({"path": str(target)})
+    assert seen["task_id"] == "default"
+
+
+def test_relative_path_prefers_the_newest_run(tmp_path, monkeypatch):
+    """Same SQL in two runs -> same file name; the newest run must win."""
+    home = tmp_path / "home"
+    runs = home / "analysis_runs"
+    old = runs / "run-20260101-aaaa"
+    new = runs / "run-20260202-bbbb"
+    for d, payload in ((old, '{"rows": ["old"]}'), (new, '{"rows": ["new"]}')):
+        (d / "results").mkdir(parents=True)
+        (d / "results" / "res_abc.json").write_text(payload, encoding="utf-8")
+    monkeypatch.setenv("DACLAW_HOME", str(home))
+
+    payload = json.loads(data_result_read_tool("results/res_abc.json"))
+    assert payload.get("error") is None
+    assert '"new"' in payload["content"] or "new" in payload["content"]
+
+
+def test_spill_dir_is_not_treated_as_a_run_dir(tmp_path, monkeypatch):
+    """_spill lives beside the run dirs and must not be scanned as one."""
+    home = tmp_path / "home"
+    spill = home / "analysis_runs" / "_spill"
+    spill.mkdir(parents=True)
+    (spill / "results").mkdir()
+    (spill / "results" / "res_abc.json").write_text("from spill", encoding="utf-8")
+    monkeypatch.setenv("DACLAW_HOME", str(home))
+
+    payload = json.loads(data_result_read_tool("results/res_abc.json"))
+    assert "Access denied" in payload["error"] or "No such result file" in payload["error"]
+
+def test_artifact_path_is_anchored_at_its_run(tmp_path, monkeypatch):
+    """full_result_path must say which run it belongs to.
+
+    Two runs of the same SQL produce the same artifact id, so a bare
+    "results/<id>.json" cannot be resolved without guessing a run.
+    """
+    from agent.data_agent.artifacts import AnalysisRun, ResultTable
+
+    monkeypatch.setenv("DACLAW_HOME", str(tmp_path))
+    run_dir = tmp_path / "analysis_runs" / "run-20261113-abc123"
+    run_dir.mkdir(parents=True)
+    run = AnalysisRun(run_dir, {"run_id": "run-20261113-abc123"})
+    result = ResultTable(
+        artifact_id="res_deadbeef",
+        kind="sql_result",
+        columns=[{"name": "a", "type": "INTEGER"}],
+        rows=[[1]],
+        row_count=1,
+    )
+
+    run.save_query("SELECT 1", result)
+
+    assert result.full_result_path == "run-20261113-abc123/results/res_deadbeef.json"
+    # And the tool can open exactly that string.
+    payload = json.loads(data_result_read_tool(result.full_result_path))
+    assert payload.get("error") is None
+    assert '"a"' in payload["content"] or "a" in payload["content"]
