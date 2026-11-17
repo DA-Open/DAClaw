@@ -412,7 +412,9 @@ def test_main_profile_registry():
     with pytest.raises(NotFound):
         reg.resolve(AgentRole.PROACTIVE, "1")
     assert main_role_whitelist() == {
-        "main_tools@1": {"files.read", "artifacts.read", "artifacts.write", "data.connect", "data.query"}
+        "main_tools@1": {
+            "files.read", "artifacts.read", "artifacts.write", "data.list", "data.connect", "data.query"
+        }
     }
 
 

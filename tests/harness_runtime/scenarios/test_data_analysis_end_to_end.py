@@ -196,6 +196,7 @@ async def test_connect_query_report_and_verify(tmp_path):
         "files.read",
         "artifacts.read",
         "artifacts.write",
+        "data.list",
         "data.connect",
         "data.query",
     }

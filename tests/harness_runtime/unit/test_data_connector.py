@@ -31,7 +31,7 @@ def session(tmp_path, text=CSV, name="sales.csv"):
     path = tmp_path / name
     path.write_text(text, encoding="utf-8")
     store = MemoryArtifactStore(InMemoryRepositories())
-    connect, query = data_connectors(store)
+    connect, query, _list = data_connectors(store)
     return path, store, connect, query
 
 
@@ -130,9 +130,75 @@ async def test_parquet_round_trip(tmp_path):
     con.execute("COPY (SELECT * FROM (VALUES (1,'a'),(2,'b')) t(id, label)) TO ? (FORMAT PARQUET)", [str(path)])
     con.close()
     store = MemoryArtifactStore(InMemoryRepositories())
-    connect, query = data_connectors(store)
+    connect, query, _list = data_connectors(store)
     connected = await connect.execute(call("data.connect", path=str(path)))
     assert connected.status is ToolStatus.SUCCEEDED, connected.error
     out = await query.execute(call("data.query", sql="select count(*) as n from numbers"))
     assert out.data["row_count"] == 1
     assert "2" in out.summary
+
+
+# -- data.list -----------------------------------------------------------------
+
+
+def listing(paths=(), **args):
+    return AuthorizedCall(
+        action_id="act_l",
+        task_id="task_1",
+        attempt_id="att_1",
+        scope_id="s1",
+        tool="data.list",
+        args=args,
+        logical_key="step-0.0",
+        allowed_paths=[str(p) for p in paths],
+    )
+
+
+async def test_list_finds_data_files_under_the_allowed_dirs(tmp_path):
+    root = tmp_path / "root"
+    (root / "nested").mkdir(parents=True)
+    (root / "a.csv").write_text("x\n1\n", encoding="utf-8")
+    (root / "nested" / "b.parquet").write_bytes(b"")
+    (root / "notes.txt").write_text("hi", encoding="utf-8")
+    (root / ".hidden").mkdir()
+    (root / ".hidden" / "c.csv").write_text("x\n", encoding="utf-8")
+    store = MemoryArtifactStore(InMemoryRepositories())
+    _connect, _query, lister = data_connectors(store)
+    out = await lister.execute(listing([root]))
+    assert out.status is ToolStatus.SUCCEEDED
+    names = [f.rsplit("/", 1)[-1] for f in out.data["files"]]
+    assert names == ["a.csv", "b.parquet"]
+    assert out.data["truncated"] is False
+    assert "a.csv" in out.summary and "Pass one of these paths" in out.summary
+
+
+async def test_list_filters_by_pattern_and_limit(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    for name in ("sales_2025.csv", "sales_2026.csv", "costs.csv"):
+        (root / name).write_text("x\n", encoding="utf-8")
+    store = MemoryArtifactStore(InMemoryRepositories())
+    _connect, _query, lister = data_connectors(store)
+    only = await lister.execute(listing([root], pattern="sales"))
+    assert [f.rsplit("/", 1)[-1] for f in only.data["files"]] == ["sales_2025.csv", "sales_2026.csv"]
+    capped = await lister.execute(listing([root], limit=1))
+    assert len(capped.data["files"]) == 1 and capped.data["truncated"] is True
+
+
+async def test_list_without_allowed_dirs_says_so(tmp_path):
+    store = MemoryArtifactStore(InMemoryRepositories())
+    _connect, _query, lister = data_connectors(store)
+    out = await lister.execute(listing([]))
+    assert out.status is ToolStatus.SUCCEEDED
+    assert out.data["files"] == [] and "Ask the user" in out.summary
+
+
+async def test_list_with_no_data_files_says_so(tmp_path):
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "readme.md").write_text("x", encoding="utf-8")
+    store = MemoryArtifactStore(InMemoryRepositories())
+    _connect, _query, lister = data_connectors(store)
+    out = await lister.execute(listing([root]))
+    assert out.data["files"] == [] and "No CSV" in out.summary
+

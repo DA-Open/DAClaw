@@ -8,6 +8,7 @@ description: Connect a local table, query it with read-only SQL, and report the 
 instructions_ref: ../prompts/data_analysis.md
 tools:
   - files.read
+  - data.list
   - data.connect
   - data.query
   - artifacts.read
