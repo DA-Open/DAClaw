@@ -173,8 +173,8 @@ class Worker:
         report.committed = True
         report.status = committed.status
         report.result_ref = committed.result_ref
-        if outcome.error is not None:
-            report.error = f"{outcome.error.code}: {outcome.error.message}"
+        if committed.error is not None:
+            report.error = f"{committed.error.code}: {committed.error.message}"
         return report
 
     async def _attempt(self, task: Task, lease: AttemptLease, watch: _LeaseWatch) -> TaskOutcome:
