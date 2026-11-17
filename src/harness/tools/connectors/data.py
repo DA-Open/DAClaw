@@ -61,6 +61,14 @@ MAX_ROWS = 10_000
 INLINE_CHARS = 6_000
 MAX_SQL_CHARS = 20_000
 MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB, a sanity bound only
+# data.list: how deep to walk a user directory and how many entries to look at.
+LIST_DEPTH = 3
+LIST_LIMIT = 50
+LIST_MAX_SCAN = 5000
+# data.list: how deep to walk a user directory and how many entries to look at.
+LIST_DEPTH = 3
+LIST_LIMIT = 50
+LIST_MAX_SCAN = 5000
 
 _SUFFIXES = {".csv": "csv", ".tsv": "tsv", ".parquet": "parquet", ".duckdb": "duckdb", ".ddb": "duckdb"}
 # Keywords that parse as SELECT in DuckDB but are not reads (PRAGMA can change
@@ -116,6 +124,35 @@ class _Session:
 
     connection: duckdb.DuckDBPyConnection
     views: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+
+DATA_LIST = ToolSpec(
+    name="data.list",
+    description=(
+        "List the data files you are allowed to connect (CSV, TSV, Parquet, DuckDB), with their "
+        "size. Use this when the task does not name a path, then pass one of the returned paths "
+        "to data.connect."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "pattern": {
+                "type": "string",
+                "description": "Only return paths containing this text (case-insensitive).",
+            },
+            "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200,
+                "description": "How many paths to return (default 50).",
+            },
+        },
+        "additionalProperties": False,
+    },
+    read_only=True,
+    side_effects=False,
+    idempotent=True,
+)
 
 
 DATA_CONNECT = ToolSpec(
@@ -356,10 +393,62 @@ class DataQueryConnector(DataConnector):
         self._artifacts = connect._artifacts
 
 
+class DataListConnector(DataConnector):
+    """@@data.list@@: the data files this user's directories contain."""
+
+    spec = DATA_LIST
+
+    def __init__(self, connect: DataConnector) -> None:
+        self._sessions = connect._sessions
+        self._artifacts = connect._artifacts
+
+    async def execute(self, call: AuthorizedCall) -> ToolResult:
+        try:
+            limit = _int_arg(call.args, "limit", LIST_LIMIT, 1, 200)
+        except ValueError as exc:
+            return _failed(ErrorCode.INVALID_REQUEST, str(exc))
+        pattern = str(call.args.get("pattern") or "").strip().lower()
+        roots = [Path(root) for root in (call.allowed_paths or [])]
+        if not roots:
+            return ToolResult(
+                status=ToolStatus.SUCCEEDED,
+                summary=(
+                    "No directories are allowed for this user, so there is nothing to list. "
+                    "Ask the user to add one to their permissions."
+                ),
+                data={"files": [], "roots": [], "truncated": False},
+            )
+        found, truncated = _scan(roots, pattern, limit)
+        if not found:
+            where = ", ".join(str(root) for root in roots)
+            suffix = f" matching {pattern!r}" if pattern else ""
+            return ToolResult(
+                status=ToolStatus.SUCCEEDED,
+                summary=f"No CSV, TSV, Parquet or DuckDB files{suffix} under: {where}",
+                data={"files": [], "roots": [str(r) for r in roots], "truncated": False},
+            )
+        lines = [f"{len(found)} data file(s)" + (" (list truncated; raise limit or add pattern)" if truncated else "") + ":", ""]
+        lines.append("| path | size | modified |")
+        lines.append("|---|---|---|")
+        for path, size, modified in found:
+            lines.append(f"| {path} | {_size(size)} | {modified} |")
+        lines.append("")
+        lines.append("Pass one of these paths to data.connect.")
+        return ToolResult(
+            status=ToolStatus.SUCCEEDED,
+            summary="\n".join(lines),
+            data={
+                "files": [str(path) for path, _, _ in found],
+                "roots": [str(root) for root in roots],
+                "truncated": truncated,
+            },
+        )
+
+
 def data_connectors(artifacts: ArtifactStore) -> list:
     """The data tools, sharing one session registry."""
     connect = DataConnector(artifacts)
-    return [connect, DataQueryConnector(connect)]
+    return [connect, DataQueryConnector(connect), DataListConnector(connect)]
 
 
 # -- helpers -------------------------------------------------------------------
@@ -465,9 +554,70 @@ def _connected(name: str, meta: dict[str, Any], *, reused: bool) -> ToolResult:
     )
 
 
+def _scan(roots: list[Path], pattern: str, limit: int) -> tuple[list[tuple[Path, int, str]], bool]:
+    """Data files under `roots`, sorted by path, at most `limit` of them."""
+    found: list[tuple[Path, int, str]] = []
+    scanned = 0
+    for root in roots:
+        candidates: list[Path] = []
+        if root.is_file():
+            candidates = [root] if root.suffix.lower() in _SUFFIXES else []
+        else:
+            try:
+                stack = [(root, 0)]
+                while stack and scanned < LIST_MAX_SCAN:
+                    current, depth = stack.pop()
+                    for entry in sorted(current.iterdir(), key=lambda e: e.name):
+                        if entry.name.startswith("."):
+                            continue
+                        scanned += 1
+                        if entry.is_dir():
+                            if depth + 1 <= LIST_DEPTH:
+                                stack.append((entry, depth + 1))
+                        elif entry.suffix.lower() in _SUFFIXES:
+                            candidates.append(entry)
+                        if scanned >= LIST_MAX_SCAN:
+                            break
+            except OSError:
+                continue
+        for path in candidates:
+            if pattern and pattern not in str(path).lower():
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            found.append((path, stat.st_size, _mtime(stat.st_mtime)))
+    found.sort(key=lambda item: str(item[0]))
+    return found[:limit], len(found) > limit
+
+
+def _mtime(ts: float) -> str:
+    from datetime import datetime
+
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def _size(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{value:.1f} GB"
+
+
 def _short(text: str, limit: int = 400) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 1] + "..."
 
 
-__all__ = ["DATA_CONNECT", "DATA_QUERY", "DataConnector", "DataQueryConnector", "data_connectors"]
+__all__ = [
+    "DATA_CONNECT",
+    "DATA_LIST",
+    "DATA_QUERY",
+    "DataConnector",
+    "DataListConnector",
+    "DataQueryConnector",
+    "data_connectors",
+]

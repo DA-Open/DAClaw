@@ -102,7 +102,7 @@ async def test_real_query_output_verifies(tmp_path):
     repos = InMemoryRepositories()
     store = MemoryArtifactStore(repos)
     task, _execution = await claimed_task(repos)
-    connect, query = data_connectors(store)
+    connect, query, _list = data_connectors(store)
     from harness.contracts import AuthorizedCall
 
     def call(tool, **args):

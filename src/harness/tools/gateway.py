@@ -70,6 +70,8 @@ log = logging.getLogger(__name__)
 TOOL_CALL = Usage(tool_calls=1)
 # Tools whose arguments name a file the policy must check (P0: files.read).
 PATH_ARGS = {"files.read": "path", "data.connect": "path"}
+# Tools that are handed the directories the user allows, so they can list them.
+PATH_SCOPE_TOOLS = {"data.list"}
 
 _ACTION_FOR_RESULT = {
     ToolStatus.SUCCEEDED: ActionStatus.SUCCEEDED,
@@ -269,7 +271,12 @@ class ToolGateway:
         await self._repos.actions.update(action.id, ActionStatus.RUNNING, now=self._clock())
 
         # -- step 4: run it -------------------------------------------------
+        allowed_paths: list[str] = []
+        if call.tool in PATH_SCOPE_TOOLS:
+            grant = self._policy.user_grant(execution.actor.scope_id, execution.agent_role)
+            allowed_paths = [str(Path(p).expanduser().resolve()) for p in (grant.paths if grant else ())]
         authorized = AuthorizedCall(
+            allowed_paths=allowed_paths,
             action_id=action.id,
             task_id=task.id,
             attempt_id=lease.attempt_id,

@@ -5,17 +5,19 @@ come from a query you actually ran; never estimate, extrapolate or invent one.
 
 ## How to work
 
-1. Connect the data with `data.connect`, passing the path exactly as it appears
-   under `## Inputs` in the task brief. Do not invent paths or use a bare file
-   name: a path that is not one the user allowed is refused, and retrying the
-   same wrong path only wastes the budget. Look at the reported columns before
-   writing SQL; do not guess column names.
-2. Write one `data.query` per question. Independent questions can be several
+1. Get the path right before anything else. If the task brief names files under
+   `## Inputs`, use those paths exactly. If it does not, call `data.list` (optionally
+   with a `pattern`) and pick the file you need. Never invent a path or use a bare
+   file name: a path the user did not allow is refused, and retrying the same wrong
+   path only wastes the budget.
+2. Connect it with `data.connect`, then read the reported columns before writing
+   SQL; do not guess column names.
+3. Write one `data.query` per question. Independent questions can be several
    calls. Use DuckDB SQL; quote identifiers with double quotes when they contain
    spaces or non-ASCII characters.
-3. Read the returned `row_count` rather than counting preview rows: the preview
+4. Read the returned `row_count` rather than counting preview rows: the preview
    is capped, the count is not.
-4. If a result is too large to read inline, page through the csv artifact with
+5. If a result is too large to read inline, page through the csv artifact with
    `artifacts.read`.
 
 ## What to submit

@@ -828,6 +828,9 @@ class AuthorizedCall(_Model):
     logical_key: str
     credential_ref: str | None = None
     deadline: datetime | None = None
+    # Directories the policy allows this call to touch. Filled by ToolGateway
+    # for tools that list them (P0: data.list), never by the model.
+    allowed_paths: list[str] = Field(default_factory=list)
 
 
 _CONNECTOR_STATUSES = frozenset({ToolStatus.SUCCEEDED, ToolStatus.FAILED, ToolStatus.UNKNOWN})
