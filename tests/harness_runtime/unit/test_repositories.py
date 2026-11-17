@@ -22,7 +22,6 @@ from harness.contracts import (
     Event,
     EventType,
     IdempotencyConflict,
-    InvalidTransition,
     Limits,
     NotFound,
     RemainingBudget,
@@ -304,10 +303,45 @@ async def test_cancel_running_task_goes_through_cancelling(repos):
     assert stored.status is TaskStatus.CANCELLING
     seen = await repos.tasks.heartbeat(lease, TTL, T0)
     assert seen.cancel_requested_at == T0
-    with pytest.raises(InvalidTransition):
-        await repos.tasks.commit(lease, failed_outcome(), T0)
     done = await repos.tasks.commit(lease, TaskOutcome(status=TaskStatus.CANCELLED), T0)
     assert done.status is TaskStatus.CANCELLED
+
+
+@pytest.mark.parametrize("outcome", [
+    TaskOutcome(status=TaskStatus.SUCCEEDED, result_ref="art_late", verification_ref="ver_late"),
+    failed_outcome(),
+    TaskOutcome(status=TaskStatus.WAITING, wait_condition="input"),
+    TaskOutcome(status=TaskStatus.QUEUED),
+])
+async def test_cancel_wins_over_late_outcome(repos, outcome):
+    task, lease = await claimed(repos)
+    await repos.usage.reserve(task.id, lease.attempt_id, "model_1", UsageKind.MODEL, Usage(model_calls=1), T0)
+    await repos.usage.settle("model_1", Usage(model_calls=1), T0)
+    await repos.tasks.request_cancel("s1", task.id, "stop now", T0)
+    late = outcome.model_copy(update={"checkpoint_ref": "ckpt_partial", "artifact_refs": ["art_partial"]})
+    done = await repos.tasks.commit(lease, late, T0)
+    assert done.status is TaskStatus.CANCELLED
+    assert done.current_attempt_id is None and done.wait_condition is None and done.result_ref is None
+    assert done.checkpoint_ref == "ckpt_partial" and done.usage.model_calls == 1
+    assert done.error.code is ErrorCode.CANCELLED and done.error.message == "stop now"
+    attempt = await repos.tasks.get_attempt("s1", lease.attempt_id)
+    assert attempt.ended_at == T0 and attempt.exit_reason == "cancelled"
+    event = (await repos.events.list("s1", task_id=task.id))[-1]
+    assert event.payload["to"] == "cancelled" and event.payload["artifact_refs"] == ["art_partial"]
+    assert await repos.tasks.claim("w2", [RunLane.FOREGROUND], TTL, T0) is None
+    with pytest.raises(StaleLease):
+        await repos.tasks.commit(lease, late, T0)
+
+
+async def test_completion_before_cancel_keeps_terminal_outcome(repos):
+    task, lease = await claimed(repos)
+    verification = await repos.verifications.add(
+        VerificationResult(task_id=task.id, result_ref="art_1", checker_version="1", status=VerificationStatus.PASSED)
+    )
+    done = await repos.tasks.commit(
+        lease, TaskOutcome(status=TaskStatus.SUCCEEDED, result_ref="art_1", verification_ref=verification.id), T0
+    )
+    assert await repos.tasks.request_cancel("s1", task.id, "too late", T0) == done
 
 
 async def test_cancel_other_scope_is_not_found(repos):

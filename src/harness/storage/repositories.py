@@ -130,6 +130,10 @@ class TaskRepository(Protocol):
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
         """End the attempt and move the task to ``outcome.status``.
 
+        If cancellation was accepted first, atomically finish as ``cancelled``
+        instead. Keep partial artifacts, settled usage and the checkpoint;
+        do not publish the late outcome's result or wait condition.
+
         Raise ``StaleLease`` for an old lease, ``InvalidTransition`` for a
         move the state machine forbids, and ``VerificationRequired`` when
         ``succeeded`` lacks a passed verification of ``outcome.result_ref``.
