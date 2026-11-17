@@ -251,7 +251,13 @@ class TestMaybePersistToolResult:
         cmd = env.execute.call_args[0][0]
         assert '"exit_code"' in cmd
 
-    def test_above_threshold_no_env_truncates_inline(self):
+    def test_above_threshold_no_env_spills_to_host(self, tmp_path, monkeypatch):
+        """Without a sandbox the output is spilled under DACLAW_HOME, not dropped.
+
+        The data-agent toolset has no terminal, so env is always None there; the
+        old behaviour lost the output entirely.
+        """
+        monkeypatch.setenv("DACLAW_HOME", str(tmp_path / "home"))
         content = "x" * 60_000
         result = maybe_persist_tool_result(
             content=content,
@@ -260,9 +266,26 @@ class TestMaybePersistToolResult:
             env=None,
             threshold=30_000,
         )
+        assert PERSISTED_OUTPUT_TAG in result
+        assert len(result) < len(content)
+        spill = tmp_path / "home" / "analysis_runs" / "_spill" / "tc_789.txt"
+        assert spill.is_file()
+        assert len(spill.read_text(encoding="utf-8")) == len(content)
+
+    def test_no_env_and_unwritable_host_falls_back_to_truncation(self, monkeypatch):
+        monkeypatch.setattr(
+            "tools.tool_result_storage._host_spill_path", lambda _id: ""
+        )
+        content = "x" * 60_000
+        result = maybe_persist_tool_result(
+            content=content,
+            tool_name="terminal",
+            tool_use_id="tc_790",
+            env=None,
+            threshold=30_000,
+        )
         assert PERSISTED_OUTPUT_TAG not in result
         assert "Truncated" in result
-        assert len(result) < len(content)
 
     def test_env_write_failure_falls_back_to_truncation(self):
         env = MagicMock()

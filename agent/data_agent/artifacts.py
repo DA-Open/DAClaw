@@ -174,7 +174,10 @@ class AnalysisRun:
         out.write_text(
             json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8"
         )
-        result.full_result_path = rel
+        # Anchored at the run directory, not just the file name: the same SQL in
+        # two runs produces the same artifact id, so a run-relative path alone
+        # is ambiguous for anything reading it back later.
+        result.full_result_path = f"{self.dir.name}/{rel}"
 
     def save_code(
         self, code: str, stdout: str = "", charts: Optional[List[str]] = None

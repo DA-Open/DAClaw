@@ -132,7 +132,7 @@ TOOLSETS = {
             "data_knowledge_search", "data_query", "data_parallel_query",
             "data_visualize", "data_dashboard", "data_document", "data_story",
             "data_excel", "data_excel_edit", "data_excel_formula", "data_excel_fix",
-            "data_dbt", "data_profile",
+            "data_dbt", "data_profile", "data_result_read",
             # ask-the-user + self-generated skills (quality-gated)
             "clarify", "skills_list", "skill_view", "skill_manage",
         ],
