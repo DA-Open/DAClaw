@@ -14,6 +14,10 @@ Permissions come from a YAML file (``DARAOS_HARNESS_POLICY_FILE``)::
           paths: [/data/s1]       # directories files.read may read
           tools: [files.read, artifacts.read, artifacts.write]   # optional, narrows
           ref: grant:s1:main      # optional, recorded on each action
+    tokens:                       # API callers (item 7); see api/auth.py
+      - sha256: 9f86d0...         # sha256 of the bearer token, never the token
+        scope_id: s1
+        actor_id: u1
 
 The role whitelist comes from the agent profiles and the capability tool
 lists from the packs; the file only says what each user allows. A scope with
@@ -44,8 +48,9 @@ from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
 from .tools.connectors import p0_connectors
 
-_POLICY_KEYS = {"disabled_tools", "users"}
+_POLICY_KEYS = {"disabled_tools", "users", "tokens"}
 _GRANT_KEYS = {"paths", "tools", "ref"}
+_TOKEN_KEYS = {"sha256", "scope_id", "actor_id"}
 
 
 class PolicyFileError(ValueError):
@@ -55,7 +60,7 @@ class PolicyFileError(ValueError):
 def load_policy_file(path: Path | str | None) -> dict[str, Any]:
     """Read and check the permissions YAML. ``None`` means no users at all."""
     if path is None:
-        return {"disabled_tools": [], "users": {}}
+        return {"disabled_tools": [], "users": {}, "tokens": []}
     p = Path(path)
     try:
         data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
@@ -88,7 +93,22 @@ def load_policy_file(path: Path | str | None) -> dict[str, Any]:
                 value = grant.get(key)
                 if value is not None and (not isinstance(value, list) or not all(isinstance(v, str) for v in value)):
                     raise PolicyFileError(f"{p.name}: users.{scope}.{role}.{key} must be a list of strings")
-    return {"disabled_tools": disabled, "users": users}
+    tokens = data.get("tokens") or []
+    if not isinstance(tokens, list):
+        raise PolicyFileError(f"{p.name}: tokens must be a list")
+    seen: set[str] = set()
+    for i, entry in enumerate(tokens):
+        if not isinstance(entry, dict) or set(entry) != _TOKEN_KEYS:
+            raise PolicyFileError(f"{p.name}: tokens[{i}] needs exactly {sorted(_TOKEN_KEYS)}")
+        if not all(isinstance(entry[k], str) and entry[k] for k in _TOKEN_KEYS):
+            raise PolicyFileError(f"{p.name}: tokens[{i}] values must be non-empty strings")
+        digest = entry["sha256"].lower()
+        if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+            raise PolicyFileError(f"{p.name}: tokens[{i}].sha256 must be 64 hex characters (the token's sha256)")
+        if digest in seen:
+            raise PolicyFileError(f"{p.name}: tokens[{i}] repeats a token")
+        seen.add(digest)
+    return {"disabled_tools": disabled, "users": users, "tokens": tokens}
 
 
 def user_grants(spec: Mapping[str, Any]) -> dict[str, dict[str, UserGrant]]:
