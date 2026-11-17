@@ -344,6 +344,17 @@ async def test_completion_before_cancel_keeps_terminal_outcome(repos):
     assert await repos.tasks.request_cancel("s1", task.id, "too late", T0) == done
 
 
+async def test_cancel_does_not_publish_previous_attempt_result(repos):
+    task, lease = await claimed(repos)
+    await repos.tasks.commit(
+        lease, TaskOutcome(status=TaskStatus.QUEUED, result_ref="art_partial"), T0
+    )
+    next_lease = await repos.tasks.claim("w2", [RunLane.FOREGROUND], TTL, T0)
+    await repos.tasks.request_cancel("s1", task.id, "stop now", T0)
+    done = await repos.tasks.commit(next_lease, TaskOutcome(status=TaskStatus.CANCELLED), T0)
+    assert done.status is TaskStatus.CANCELLED and done.result_ref is None
+
+
 async def test_cancel_other_scope_is_not_found(repos):
     task = await created(repos)
     with pytest.raises(NotFound):

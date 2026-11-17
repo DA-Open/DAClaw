@@ -347,7 +347,10 @@ class InMemoryTaskRepository:
             updated = _replace(
                 task,
                 status=outcome.status,
-                result_ref=outcome.result_ref if outcome.result_ref is not None else task.result_ref,
+                result_ref=(
+                    None if outcome.status is TaskStatus.CANCELLED
+                    else outcome.result_ref if outcome.result_ref is not None else task.result_ref
+                ),
                 wait_condition=outcome.wait_condition,
                 error=outcome.error,
                 checkpoint_ref=(
