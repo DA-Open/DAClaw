@@ -29,6 +29,9 @@ from datetime import datetime
 from typing import Protocol
 
 from ..contracts import (
+    InboxItem,
+    NoticeReservation,
+    Subscription,
     Action,
     ActionStatus,
     Artifact,
@@ -44,6 +47,7 @@ from ..contracts import (
     UsageReservation,
     VerificationResult,
 )
+from ..interfaces import SubscriptionRepository
 
 
 @dataclass(frozen=True)
@@ -68,6 +72,9 @@ class ActionRegistration:
 
 
 class TaskRepository(Protocol):
+    async def recent_conversation(self, scope_id: str, conversation_id: str) -> list[Task]: ...
+    async def revoke_subscription(self, scope_id: str, subscription_id: str, now: datetime) -> Subscription: ...
+    async def reclaim_readonly(self, now: datetime) -> int: ...
     async def create(self, task: Task) -> CreateResult:
         """Insert a task and its ``task_created`` event.
 
@@ -85,6 +92,7 @@ class TaskRepository(Protocol):
         lanes: list[RunLane],
         lease_ttl_sec: int,
         now: datetime,
+        *, background_scope_limit: int = 2,
     ) -> AttemptLease | None:
         """Take one queued task on ``lanes``: highest priority, then oldest.
 
@@ -127,7 +135,7 @@ class TaskRepository(Protocol):
     async def get_attempt(self, scope_id: str, attempt_id: str) -> Attempt:
         """Raise ``NotFound`` when absent or the task is in another scope."""
 
-    async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
+    async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime, *, inbox: InboxItem | None = None) -> Task:
         """End the attempt and move the task to ``outcome.status``.
 
         If cancellation was accepted first, atomically finish as ``cancelled``
@@ -236,6 +244,13 @@ class UsageRepository(Protocol):
     async def open_reservations(self, task_id: str) -> list[UsageReservation]: ...
 
 
+class DeliveryRepository(Protocol):
+    async def list(self, scope_id: str) -> list[InboxItem]: ...
+    async def get(self, scope_id: str, item_id: str) -> InboxItem: ...
+    async def reserve_notice(self, item: InboxItem, channel: str, now: datetime) -> NoticeReservation: ...
+    async def ack(self, scope_id: str, item_id: str, status: str, label: str | None, now: datetime) -> InboxItem: ...
+
+
 @dataclass(frozen=True)
 class Repositories:
     tasks: TaskRepository
@@ -244,3 +259,5 @@ class Repositories:
     artifacts: ArtifactRepository
     verifications: VerificationRepository
     usage: UsageRepository
+    subscriptions: SubscriptionRepository | None = None
+    delivery: DeliveryRepository | None = None

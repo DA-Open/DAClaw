@@ -15,10 +15,10 @@ SPEC_METHODS = {
     "ArtifactStore": {"put", "read"},
     "Verifier": {"verify"},
     # P1/P2: types only for now, so the implementations can be written against them.
-    "SubscriptionRepository": {"create", "get", "list_for_scope", "update", "record_event", "consumed"},
+    "SubscriptionRepository": {"create", "get", "list_for_scope", "admit", "decisions", "pending_events"},
     "OutboxRepository": {"enqueue", "get", "list_due", "update", "cancel_for_task"},
     "MemoryStore": {"put", "get", "search", "supersede"},
-    "DeliveryService": {"reserve_notice", "dispatch"},
+    "DeliveryService": {"reserve_notice", "prepare", "inbox", "read"},
     "ProactiveController": {"on_event"},
 }
 

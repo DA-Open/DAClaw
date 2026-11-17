@@ -12,6 +12,7 @@ as types so their implementations can be written and faked independently.
 from __future__ import annotations
 
 from datetime import datetime
+from collections.abc import Callable
 from typing import Protocol
 
 from .contracts import (
@@ -32,6 +33,9 @@ from .contracts import (
     Subscription,
     SubscriptionEvent,
     SubscriptionStatus,
+    AdmissionDecision,
+    InboxItem,
+    Usage,
     AttemptLease,
     AuthorizedCall,
     CandidateResult,
@@ -148,12 +152,10 @@ class Verifier(Protocol):
 
 
 class SubscriptionRepository(Protocol):
-    """Standing goals and what each one already handled (P2).
+    """Standing goals and transactional admission, unique per subscription/event.
 
-    `record_event` is unique on (subscription_id, event_id): a redelivered
-    event is a no-op, and one event may still produce tasks for other
-    subscriptions. Revoking goes through `update`; it stops new triggers
-    without touching tasks already created.
+    ``evaluate`` is synchronous, does no IO, and constructs a validated task
+    through TaskService.prepare. The decision and task are committed together.
     """
 
     async def create(self, subscription: Subscription) -> Subscription: ...
@@ -165,13 +167,16 @@ class SubscriptionRepository(Protocol):
         self, scope_id: str, *, status: SubscriptionStatus | None = None
     ) -> list[Subscription]: ...
 
-    async def update(self, subscription: Subscription) -> Subscription:
-        """Bump `version`; reject a write based on an older version."""
-
-    async def record_event(self, record: SubscriptionEvent) -> SubscriptionEvent:
-        """Insert, or return the earlier row for the same (subscription, event)."""
-
-    async def consumed(self, subscription_id: str, event_id: str) -> SubscriptionEvent | None: ...
+    async def list_all(self) -> list[Subscription]: ...
+    async def decisions(self, scope_id: str, subscription_id: str) -> list[AdmissionDecision]: ...
+    async def event(self, scope_id: str, event_id: str) -> Event: ...
+    async def latest_event(self, scope_id: str, subject_ref: str) -> Event | None: ...
+    async def pending_events(self) -> list[Event]: ...
+    async def mark_processed(self, scope_id: str, event_id: str, now: datetime) -> None: ...
+    async def admit(self, event: Event, subscription_id: str,
+                    evaluate: Callable[[Subscription, list[Task], list[AdmissionDecision], Usage], tuple[AdmissionDecision, Task | None]],
+                    now: datetime) -> AdmissionDecision: ...
+    async def results(self, scope_id: str) -> list[Task]: ...
 
 
 class OutboxRepository(Protocol):
@@ -209,15 +214,15 @@ class MemoryStore(Protocol):
 
 
 class DeliveryService(Protocol):
-    """Decide whether to tell the user, then send (spec 5, 交付)."""
+    """Q3 in-app delivery. External dispatch and outbox reconciliation are Q4."""
 
     async def reserve_notice(self, request: NoticeRequest) -> NoticeReservation:
         """Atomically check the user's notice quota and the cross-channel dedup
         key. A suppressed request must not reach the outbox."""
 
-    async def dispatch(self, item: OutboxItem) -> DeliveryOutcome:
-        """Re-check cancel, expiry and grants, send through the channel, store
-        the receipt. Never record queued as delivered."""
+    async def prepare(self, task: Task, outcome: TaskOutcome) -> InboxItem | None: ...
+    async def inbox(self, scope_id: str) -> list[InboxItem]: ...
+    async def read(self, scope_id: str, item_id: str, *, explicit: bool = False) -> dict: ...
 
 
 class ProactiveController(Protocol):

@@ -433,10 +433,12 @@ def test_subscription_rejects_unknown_fields():
 
 
 def test_subscription_event_is_per_subscription():
-    first = SubscriptionEvent(subscription_id="sub_1", event_id="evt_1", decision="admit", task_id="task_1")
-    second = SubscriptionEvent(subscription_id="sub_2", event_id="evt_1", decision="skip", reason="deduped")
+    first = SubscriptionEvent(subscription_id="sub_1", event_id="evt_1", decision="admit", task_id="task_1", reason="new", policy_version="p@1")
+    second = SubscriptionEvent(subscription_id="sub_2", event_id="evt_1", decision="skip", reason="deduped", policy_version="p@1")
     assert first.task_id != second.task_id
-    assert first.processed_at.tzinfo is not None
+    assert first.decided_at.tzinfo is not None
+    with pytest.raises(ValidationError):
+        SubscriptionEvent(subscription_id="sub_1", event_id="evt_1", decision="anything", reason="x", policy_version="p@1")
 
 
 def test_approval_binds_action_and_request_hash():

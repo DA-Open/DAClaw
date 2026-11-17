@@ -200,6 +200,7 @@ class SubscriptionStatus(StrEnum):
 
 class NoticeOutcome(StrEnum):
     RESERVED = "reserved"
+    ALREADY_RESERVED = "already_reserved"
     SUPPRESSED = "suppressed"
 
 
@@ -1148,6 +1149,10 @@ class AdmissionDecision(_Model):
     reason: str
     policy_version: str
     input_snapshot_ref: str | None = None
+    input_snapshot: dict[str, Any] = Field(default_factory=dict)
+    # Earlier distinct evaluations, retained when a deferred event is revisited.
+    evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    kind: Literal["baseline", "diff"] | None = None
     task_id: str | None = None
     decided_at: datetime = Field(default_factory=utcnow)
     backfill_label: Literal["useful", "not_useful", "harmful"] | None = None
@@ -1174,13 +1179,21 @@ class Subscription(_Model):
     owner_id: str
     goal: str = Field(min_length=1)
     subject_ref: str | None = None
+    resources: list[str] = Field(default_factory=list)
+    proactivity: Literal["quiet", "normal", "eager"] = "normal"
+    result_ttl_sec: int = Field(86400, gt=0)
+    daily_limits: Limits = Field(default_factory=lambda: Limits(
+        max_model_calls=50, max_tool_calls=150, max_total_tokens=250_000))
+    # UTC hours; start == end means no quiet period.
+    quiet_hours: tuple[int, int] = (0, 0)
+    focus: list[str] = Field(default_factory=list)
     # e.g. {"type": "data_updated", "source": "lake"} -- matched by the controller.
     event_filter: dict[str, Any] = Field(default_factory=dict)
     # A cron-like expression for time-based checks; evaluated by the Scheduler.
     schedule: str | None = None
     grant_ref: str | None = None
     capability_ref: str
-    limits: Limits = Field(default_factory=Limits)
+    limits: Limits = Field(default_factory=lambda: Limits(timeout_sec=600, max_model_calls=10, max_tool_calls=30, max_total_tokens=50000))
     # Four background outcomes: silent / digest / notify / ask (see DeliveryMode).
     delivery_mode: DeliveryMode = "digest"
     expires_at: datetime | None = None
@@ -1193,23 +1206,47 @@ class Subscription(_Model):
     def _check(self) -> Subscription:
         if not self.event_filter and not self.schedule:
             raise ValueError("a subscription needs an event_filter or a schedule")
+        if any(not 0 <= hour <= 23 for hour in self.quiet_hours):
+            raise ValueError("quiet_hours must contain UTC hours in 0..23")
         return self
 
 
-class SubscriptionEvent(_Model):
-    """One (subscription, event) admission decision.
+# One contract and one decision log, including deferred re-evaluations.
+SubscriptionEvent = AdmissionDecision
 
-    Unique on (subscription_id, event_id): the same event arriving twice is a
-    no-op, and one event may be admitted by several subscriptions. A global
-    processed_at would lose that, so the decision is recorded per subscription.
-    """
 
+class DataEvent(_Model):
+    kind: Literal["data_connected", "data_updated", "schedule"]
+    data_version: str = Field(min_length=1, max_length=200)
+    fingerprint: str = Field(min_length=1, max_length=200)
+
+
+class InboxItem(_Model):
+    id: str = Field(default_factory=lambda: new_id("inbox"))
+    scope_id: str
     subscription_id: str
-    event_id: str
-    decision: str = Field(min_length=1)
-    reason: str = ""
-    task_id: str | None = None
-    processed_at: datetime = Field(default_factory=utcnow)
+    task_id: str
+    result_ref: str
+    subject_ref: str
+    data_version: str
+    topic: str
+    keywords: list[str] = Field(default_factory=list)
+    mode: Literal["silent", "digest", "notify"]
+    score: int = Field(ge=0, le=9)
+    dedup_key: str
+    valid_until: datetime
+    status: Literal["pending", "read", "handled", "ignored", "cancelled"] = "pending"
+    notice_reserved: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class NoticeRecord(_Model):
+    scope_id: str
+    dedup_key: str
+    task_id: str
+    channel: str
+    severity: int
+    valid_until: datetime
 
 
 class Approval(_Model):
@@ -1231,6 +1268,7 @@ class Approval(_Model):
 class Grant(_Model):
     """What one subject may do to one resource (spec 5, 授权).
 
+    Reserved for P1/P2: Q1-Q3 use whitelists, not a grants table.
     `key` is `tool:target` (e.g. send_email:ops@company.com); allowing git
     does not allow curl. Written by the trusted API only, never by a model.
     """
