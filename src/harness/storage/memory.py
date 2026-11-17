@@ -20,6 +20,7 @@ from ..contracts import (
     Artifact,
     Attempt,
     AttemptLease,
+    ErrorCode,
     Event,
     EventType,
     HarnessError,
@@ -30,6 +31,7 @@ from ..contracts import (
     RunLane,
     StaleLease,
     Task,
+    TaskError,
     TaskOutcome,
     TaskStatus,
     Usage,
@@ -315,6 +317,18 @@ class InMemoryTaskRepository:
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
         async with self._s.lock:
             task, attempt = self._s.check_lease(lease, now)
+            # Cancellation and completion race for this same lock. A cancel
+            # already accepted must finish the attempt, not reject its outcome
+            # and leave the task stuck in cancelling.
+            if task.status is TaskStatus.CANCELLING and outcome.status is not TaskStatus.CANCELLED:
+                outcome = _replace(
+                    outcome,
+                    status=TaskStatus.CANCELLED,
+                    result_ref=None,
+                    verification_ref=None,
+                    wait_condition=None,
+                    error=TaskError(code=ErrorCode.CANCELLED, message=task.cancel_reason or "cancel requested"),
+                )
             assert_transition(task.status, outcome.status)
             if outcome.status is TaskStatus.SUCCEEDED:
                 verification = self._s.verifications.get(outcome.verification_ref or "")
