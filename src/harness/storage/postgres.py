@@ -26,7 +26,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, update, or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -52,6 +52,7 @@ from ..contracts import (
     TaskError,
     TaskOutcome,
     TaskStatus,
+    SubscriptionStatus,
     Usage,
     UsageKind,
     UsageReservation,
@@ -303,6 +304,13 @@ class PgTaskRepository:
     def __init__(self, db: _Db) -> None:
         self._db = db
 
+    async def recent_conversation(self, scope_id, conversation_id):
+        async with self._db.engine.connect() as conn:
+            rows = (await conn.execute(select(s.tasks).where(s.tasks.c.scope_id == scope_id,
+                s.tasks.c.conversation_id == conversation_id, s.tasks.c.agent_role == "main")
+                .order_by(s.tasks.c.created_at.desc(), s.tasks.c.id).limit(3))).mappings()
+            return [_task(r) for r in rows]
+
     async def create(self, task: Task) -> CreateResult:
         async with self._db.engine.begin() as conn:
             inserted = (
@@ -360,14 +368,19 @@ class PgTaskRepository:
         lanes: list[RunLane],
         lease_ttl_sec: int,
         now: datetime,
+        *, background_scope_limit: int = 2,
     ) -> AttemptLease | None:
         async with self._db.engine.begin() as conn:
+            running = s.tasks.alias("running")
+            scope_count = select(func.count()).where(running.c.scope_id == s.tasks.c.scope_id,
+                running.c.agent_role == "proactive", running.c.status.in_(_LEASED)).correlate(s.tasks).scalar_subquery()
             row = (
                 await conn.execute(
                     select(s.tasks)
                     .where(
                         s.tasks.c.status == TaskStatus.QUEUED.value,
                         s.tasks.c.run_lane.in_([RunLane(lane).value for lane in lanes]),
+                        or_(s.tasks.c.agent_role != "proactive", scope_count < background_scope_limit),
                     )
                     .order_by(s.tasks.c.priority.desc(), s.tasks.c.created_at, s.tasks.c.id)
                     .limit(1)
@@ -377,6 +390,16 @@ class PgTaskRepository:
             if row is None:
                 return None
             task = _task(row)
+            if task.agent_role == "proactive":
+                locked = (await conn.execute(select(func.pg_try_advisory_xact_lock(
+                    func.hashtextextended(task.scope_id, 0))))).scalar_one()
+                if not locked:
+                    return None
+                count = (await conn.execute(select(func.count()).select_from(s.tasks).where(
+                    s.tasks.c.scope_id == task.scope_id, s.tasks.c.agent_role == "proactive",
+                    s.tasks.c.status.in_(_LEASED)))).scalar_one()
+                if count >= background_scope_limit:
+                    return None
             assert_transition(task.status, TaskStatus.RUNNING)
             epoch = task.lease_epoch + 1
             expires = now + timedelta(seconds=lease_ttl_sec)
@@ -475,8 +498,11 @@ class PgTaskRepository:
             raise NotFound(f"attempt {attempt_id} not found")
         return _attempt(row)
 
-    async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
+    async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime, *, inbox=None) -> Task:
         async with self._db.engine.begin() as conn:
+            if inbox is not None:
+                from .postgres_proactive import lock_scope
+                await lock_scope(conn, lease.scope_id)
             task, attempt = await self._db.check_lease(conn, lease, now)
             # The task lock orders cancellation against completion. If cancel
             # won, finish this attempt as cancelled instead of stranding it.
@@ -539,6 +565,11 @@ class PgTaskRepository:
             if outcome.artifact_refs:
                 extra["artifact_refs"] = list(outcome.artifact_refs)
             await self._db.status_event(conn, updated, old, now, attempt_id=attempt.id, **extra)
+            if inbox is not None and updated.status == TaskStatus.SUCCEEDED:
+                from .postgres_delivery import publish
+                await publish(self._db, conn, inbox, now)
+                await conn.execute(update(s.tasks).where(s.tasks.c.id == updated.id).values(result_expires_at=inbox.valid_until))
+                updated = updated.model_copy(update={"result_expires_at": inbox.valid_until})
             return updated
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str, now: datetime) -> Task:
@@ -574,6 +605,50 @@ class PgTaskRepository:
             await self._db.status_event(conn, updated, task.status, now, reason=reason)
             return updated
 
+
+    async def revoke_subscription(self, scope_id, subscription_id, now):
+        from .postgres_proactive import lock_scope, PgSubscriptionRepository
+        async with self._db.engine.begin() as conn:
+            await lock_scope(conn, scope_id)
+            sub = await PgSubscriptionRepository(self._db)._get(conn, scope_id, subscription_id)
+            if sub.status == SubscriptionStatus.REVOKED:
+                return sub
+            sub.status, sub.updated_at = SubscriptionStatus.REVOKED, now
+            sub.version += 1
+            await conn.execute(update(s.subscriptions).where(s.subscriptions.c.id == sub.id)
+                               .values(status=sub.status.value, body=_dump(sub)))
+            rows = (await conn.execute(select(s.tasks).where(s.tasks.c.subscription_id == sub.id,
+                s.tasks.c.status.in_(["queued", "running", "waiting", "cancelling"])).with_for_update())).mappings().all()
+            for row in rows:
+                task = _task(row)
+                old = task.status
+                task = task.model_copy(update={"status": TaskStatus.CANCELLING if task.current_attempt_id else TaskStatus.CANCELLED, "wait_condition": None})
+                task.cancel_requested_at, task.cancel_reason = now, "subscription revoked"
+                task.version += 1
+                task.updated_at = now
+                await conn.execute(update(s.tasks).where(s.tasks.c.id == task.id).values(**_task_row(task)))
+                await self._db.status_event(conn, task, old, now)
+            await conn.execute(update(s.inbox_items).where(s.inbox_items.c.subscription_id == sub.id,
+                               s.inbox_items.c.status == "pending").values(status="cancelled"))
+            return sub
+
+    async def reclaim_readonly(self, now):
+        async with self._db.engine.begin() as conn:
+            rows = (await conn.execute(select(s.tasks).join(s.attempts, s.tasks.c.current_attempt_id == s.attempts.c.id)
+                .where(s.tasks.c.agent_profile_ref == "proactive@1", s.tasks.c.capability_ref == "data_card@1",
+                       s.attempts.c.lease_expires_at <= now).with_for_update(of=s.tasks, skip_locked=True))).mappings().all()
+            for row in rows:
+                task = _task(row)
+                old, attempt_id = task.status, task.current_attempt_id
+                task.status = TaskStatus.CANCELLED if old == TaskStatus.CANCELLING else TaskStatus.QUEUED
+                task.current_attempt_id = None
+                task.version += 1
+                task.updated_at = now
+                await conn.execute(update(s.tasks).where(s.tasks.c.id == task.id).values(**_task_row(task)))
+                await conn.execute(update(s.attempts).where(s.attempts.c.id == attempt_id)
+                                   .values(ended_at=now, exit_reason="lease_expired"))
+                await self._db.status_event(conn, task, old, now, attempt_id=attempt_id)
+            return len(rows)
 
 class PgEventRepository:
     def __init__(self, db: _Db) -> None:
@@ -861,6 +936,8 @@ class PgRepositories(Repositories):
 
     def __init__(self, engine: AsyncEngine) -> None:
         db = _Db(engine)
+        from .postgres_proactive import PgSubscriptionRepository
+        from .postgres_delivery import PgDeliveryRepository
         super().__init__(
             tasks=PgTaskRepository(db),
             events=PgEventRepository(db),
@@ -868,6 +945,8 @@ class PgRepositories(Repositories):
             artifacts=PgArtifactRepository(db),
             verifications=PgVerificationRepository(db),
             usage=PgUsageRepository(db),
+            subscriptions=PgSubscriptionRepository(db),
+            delivery=PgDeliveryRepository(db),
         )
         object.__setattr__(self, "engine", engine)
 
@@ -879,7 +958,10 @@ class PgRepositories(Repositories):
     async def check_ready(self) -> None:
         """Require a reachable, migrated database without changing its schema."""
         async with self.engine.connect() as conn:
-            await conn.execute(select(s.tasks.c.id).limit(0))
+            await conn.execute(select(s.tasks.c.id).union_all(
+                select(s.subscriptions.c.id), select(s.subscription_events.c.event_id),
+                select(s.inbox_items.c.id), select(s.delivery_counters.c.dedup_key),
+            ).limit(0))
 
     async def close(self) -> None:
         await self.engine.dispose()

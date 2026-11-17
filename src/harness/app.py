@@ -48,6 +48,13 @@ from .storage.repositories import Repositories
 from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
 from .tools.connectors import p0_connectors
+from .tools.connectors.data import DataConnector, DATA_PROFILE, DATA_QUERY
+from .tools.connectors.background_results import BackgroundResultsConnector
+from .results.checks.data_card import DataCardChecks
+from .results.verifier import DEFAULT_CHECKERS
+from .delivery.service import DeliveryService
+from .tasks.proactive_controller import ProactiveController
+from .tasks.scheduler import Scheduler
 
 if TYPE_CHECKING:
     from .storage.postgres import PgRepositories
@@ -142,6 +149,9 @@ class HarnessSystem:
     builder: SimpleContextBuilder
     runner: AgentRunner
     tasks: TaskService
+    proactive: ProactiveController
+    delivery: DeliveryService
+    scheduler: Scheduler
     _owned_pg: PgRepositories | None = field(default=None, repr=False)
 
     @asynccontextmanager
@@ -209,21 +219,27 @@ def build_system(
         else:
             repos = InMemoryRepositories()
     artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
+    delivery = DeliveryService(repos, artifacts, policy, clock=clock)
+    connectors = [*p0_connectors(artifacts), DataConnector(DATA_PROFILE, artifacts), DataConnector(DATA_QUERY, artifacts), BackgroundResultsConnector(delivery)]
     gateway = ToolGateway(
-        repos, artifacts, policy, p0_connectors(artifacts), profiles=agents.tool_policies(), clock=clock
+        repos, artifacts, policy, connectors, profiles=agents.tool_policies(), clock=clock, delivery=delivery
     )
-    verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock)
+    data_checks = DataCardChecks(repos, policy, clock)
+    verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock,
+        checkers={**DEFAULT_CHECKERS, "data_card_schema": data_checks.schema, "stats_replay": data_checks.replay})
     builder = SimpleContextBuilder(
         repos,
         instructions=PackageInstructions(),
         tools=PolicyToolCatalog(policy, gateway.specs),
         capabilities=capabilities,
         clock=clock,
+        delivery=delivery,
     )
     runner = AgentRunner(repos, model, gateway, verifier, artifacts, reminders=config.budget_reminder, clock=clock)
     tasks = TaskService(
-        repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock
+        repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock, delivery=delivery
     )
+    proactive = ProactiveController(repos, tasks, policy, scope_limit=config.background_scope_limit, clock=clock)
     return HarnessSystem(
         config=config,
         repos=repos,
@@ -236,5 +252,8 @@ def build_system(
         builder=builder,
         runner=runner,
         tasks=tasks,
+        proactive=proactive,
+        delivery=delivery,
+        scheduler=Scheduler(repos, proactive, clock=clock),
         _owned_pg=owned_pg,
     )

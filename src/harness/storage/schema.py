@@ -217,6 +217,25 @@ usage_reservations = Table(
 )
 Index("ix_usage_reservations_task_status", usage_reservations.c.task_id, usage_reservations.c.status)
 
+subscriptions = Table("subscriptions", metadata,
+    Column("id", Text, primary_key=True), Column("scope_id", Text, nullable=False, index=True),
+    Column("status", Text, nullable=False), Column("body", JSONB, nullable=False))
+subscription_events = Table("subscription_events", metadata,
+    Column("subscription_id", Text, ForeignKey("subscriptions.id"), primary_key=True),
+    Column("event_id", Text, ForeignKey("events.id"), primary_key=True),
+    Column("scope_id", Text, nullable=False), Column("decision", Text, nullable=False),
+    Column("task_id", Text, ForeignKey("tasks.id")), Column("body", JSONB, nullable=False))
+Index("ix_tasks_proactive_running", tasks.c.scope_id, tasks.c.agent_role,
+      postgresql_where=text("status = 'running'"))
+inbox_items = Table("inbox_items", metadata,
+    Column("id", Text, primary_key=True), Column("scope_id", Text, nullable=False, index=True),
+    Column("subscription_id", Text, ForeignKey("subscriptions.id"), nullable=False),
+    Column("task_id", Text, ForeignKey("tasks.id"), nullable=False, unique=True),
+    Column("status", Text, nullable=False), Column("body", JSONB, nullable=False))
+delivery_counters = Table("delivery_counters", metadata,
+    Column("scope_id", Text, primary_key=True), Column("dedup_key", Text, primary_key=True),
+    Column("body", JSONB, nullable=False))
+
 __all__ = [
     "actions",
     "artifacts",

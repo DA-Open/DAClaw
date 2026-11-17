@@ -15,7 +15,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `contracts.py` shared types, task state machine | — | done | PR-A |
 | `config.py` (env `DARAOS_HARNESS_*`) | — | done | PR-A |
 | `interfaces.py` module Protocols (spec 5.2) | done | — | PR-A |
-| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migration `0001`); selected by `build_system` from `database_dsn` | PR-A / PR-B (2a, 2b) |
+| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migrations `0001`–`0003`); selected by `build_system` from `database_dsn` | PR-A / PR-B / Proactive Q1–Q3 |
 | `tasks/` TaskService + worker | done | `python -m harness.worker`; PostgreSQL workers can claim tasks submitted by a separate API process | PR-C / PR-B (2b) |
 | `app.py` wiring, permissions file | — | `build_system`, `HarnessSystem.lifespan`, `DARAOS_HARNESS_POLICY_FILE` | PR-C / PR-B (2b) |
 | `trace.py` task timeline | — | done (`--trace`) | PR-C |
@@ -26,7 +26,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
 | `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
 | P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
-| `delivery/`, ProactiveController, subscriptions (P2) | types only | not started | — |
+| `delivery/`, ProactiveController, subscriptions (P2) | done for Q1–Q3 | trusted events/subscriptions, rules-only admission, scheduler, verified data cards, inbox and Main handoff; [runbook and acceptance](../../docs/plans/2026-11-17-proactive-agent-implementation.md) | `feat/proactive-agent` |
 
 ## Who does what
 
@@ -334,7 +334,13 @@ With no file, no scope has any tool.
 | `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
 | `GET /artifacts/{id}` | whole content (200), or a byte range (206); 5 MiB max per call |
 
-Not yet: resume, approvals, `POST /events`, subscriptions (P1/P2).
+Proactive Q1–Q3 also exposes `POST/GET /subscriptions`,
+`DELETE /subscriptions/{id}`, `GET /subscriptions/{id}/decisions` (JSONL),
+`POST /events`, `GET /inbox`, and `POST /inbox/{id}/ack`.
+These use the same bearer-token identity and scope isolation. See the
+[Proactive runbook](../../docs/plans/2026-11-17-proactive-agent-implementation.md)
+for event payloads, permissions, the scheduler and separate background workers.
+Resume and approvals remain P1 work.
 
 **Artifact downloads** support `offset` / `length` query parameters or one
 `Range: bytes=start-end` header (open-ended and suffix ranges also work).
@@ -513,18 +519,19 @@ python -m harness.worker --model-config /srv/daraos/model.yaml --lanes foregroun
 
 The API can then read the task, events, trace and artifact content from the
 same stores, including after a normal API restart. A queued task remains
-available to a later worker. This does not add recovery of an attempt whose
-worker died while running: expired leases still need the P1 Scheduler, and
-checkpoint replay/resume is not implemented.
+available to a later worker. `python -m harness.scheduler` recovers expired
+leases only for `proactive@1` / `data_card@1` tasks, retaining cumulative
+usage and the original deadline. General recovery and checkpoint replay/resume
+remain P1 work.
 
 ## Open items
 
 | Item | Decided | When |
 |---|---|---|
-| Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
+| General expired-lease recovery (crashed worker) | Q1 Scheduler covers read-only Proactive data-card tasks; other profiles still need P1 recovery | P1 |
 | Checkpoint resume | `TaskService.checkpoint` is available; Runner writes a checkpoint when a tool returns `needs_approval` or `unknown` and the attempt enters waiting. Resume does not read or replay it yet | P1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
-| ProactiveController, DeliveryService, subscriptions, outbox | Types and Protocols exist; no implementation, no tables | P2 |
+| Proactive external delivery / outbox | Q1–Q3 subscriptions, scheduler, verified data cards and inbox are implemented; external sends, receipts, unknown reconciliation and notification quotas remain unimplemented | Q4 / P1 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
 | ContextBuilder token cut, memory, resume from checkpoint | P0 builder lists goal, acceptance, inputs and artifacts only | P1 |

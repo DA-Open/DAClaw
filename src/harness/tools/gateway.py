@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 
 TOOL_CALL = Usage(tool_calls=1)
 # Tools whose arguments name a file the policy must check (P0: files.read).
-PATH_ARGS = {"files.read": "path"}
+PATH_ARGS = {"files.read": "path", "data.profile": "path", "data.query_readonly": "path"}
 
 _ACTION_FOR_RESULT = {
     ToolStatus.SUCCEEDED: ActionStatus.SUCCEEDED,
@@ -135,6 +135,7 @@ class ToolGateway:
         *,
         profiles: dict[str, str],
         clock: Callable[[], datetime] = utcnow,
+        delivery=None,
     ) -> None:
         self._repos = repos
         self._artifacts = artifacts
@@ -142,6 +143,7 @@ class ToolGateway:
         self._connectors = {c.spec.name: c for c in connectors}
         self._profiles = dict(profiles)
         self._clock = clock
+        self._delivery = delivery
 
     @property
     def specs(self) -> list[ToolSpec]:
@@ -153,6 +155,48 @@ class ToolGateway:
         lease = execution.lease
         task = await self._repos.tasks.get(lease.scope_id, lease.task_id)
         connector = self._connectors.get(call.tool)
+        artifact = None
+        # Cached content must obey current permissions, including subscription
+        # revocation and (for incidental Main reads) freshness.
+        if connector is not None and call.tool in {"artifacts.read", "background_results.read"}:
+            problem = _schema_problem(connector.spec, call.args)
+            if problem is not None:
+                return _refused(ToolStatus.FAILED, ErrorCode.INVALID_REQUEST, problem)
+            try:
+                if call.tool == "artifacts.read":
+                    artifact = await self._repos.artifacts.get(task.scope_id, call.args["artifact_id"])
+                elif self._delivery is not None:
+                    item = await self._repos.delivery.get(task.scope_id, call.args["id"])
+                    if not await self._delivery.accessible(task.scope_id, item, explicit=call.args.get("explicit", False)):
+                        return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, "background result is no longer accessible")
+            except NotFound:
+                return _refused(ToolStatus.FAILED, ErrorCode.NOT_FOUND, "result or artifact not found")
+        if artifact is not None and not task.subscription_id:
+            if artifact.task_id:
+                source = await self._repos.tasks.get(task.scope_id, artifact.task_id)
+                if source.subscription_id:
+                    from ..tasks.proactive_controller import active, resources_allowed
+                    sub = await self._repos.subscriptions.get(task.scope_id, source.subscription_id)
+                    if (not active(sub, self._clock()) or not resources_allowed(sub, self._policy)
+                        or not self._policy.check_path(Path(source.subject_ref).resolve(), scope_id=task.scope_id,
+                                                       role=task.agent_role).allowed):
+                        return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, "background artifact permission revoked")
+        if task.subscription_id:
+            from ..tasks.proactive_controller import active, resources_allowed
+            sub = await self._repos.subscriptions.get(task.scope_id, task.subscription_id)
+            if not active(sub, self._clock()) or not resources_allowed(sub, self._policy):
+                return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, "subscription is inactive or its resources were revoked")
+            permission = self._policy.check_tool(call.tool, scope_id=task.scope_id, role=task.agent_role,
+                tool_policy_ref=self._profiles[task.agent_profile_ref], capability_ref=task.capability_ref)
+            if not permission.allowed:
+                return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, permission.reason)
+            if call.tool in PATH_ARGS:
+                path = Path(str(call.args.get(PATH_ARGS[call.tool], ""))).expanduser().resolve()
+                if path not in {Path(p).expanduser().resolve() for p in sub.resources}:
+                    return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, "resource is outside the subscription")
+            if artifact is not None:
+                if artifact.task_id not in {task.id, task.source_task_id} or artifact.task_id is None:
+                    return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, "proactive cannot read Main or unrelated artifacts")
 
         # -- step 1: same key seen before? --------------------------------
         request_hash = call.request_hash()
