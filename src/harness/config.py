@@ -68,6 +68,8 @@ class BudgetReminderConfig:
 class HarnessConfig:
     database_dsn: str | None = field(default=None, repr=False)
     artifact_root: Path = Path("./harness_artifacts")
+    # Permissions YAML (user whitelist, deployment deny list); see app.py.
+    policy_file: Path | None = None
     lease_ttl_sec: int = 60
     heartbeat_interval_sec: int = 15
     default_limits: Limits = field(default_factory=Limits)
@@ -89,6 +91,7 @@ class HarnessConfig:
         return {
             "database_dsn": "<set>" if self.database_dsn else None,
             "artifact_root": str(self.artifact_root),
+            "policy_file": str(self.policy_file) if self.policy_file else None,
             "lease_ttl_sec": self.lease_ttl_sec,
             "heartbeat_interval_sec": self.heartbeat_interval_sec,
             "default_limits": self.default_limits.model_dump(),
@@ -147,6 +150,7 @@ class HarnessConfig:
         return cls(
             database_dsn=get("DATABASE_DSN"),
             artifact_root=Path(get("ARTIFACT_ROOT") or "./harness_artifacts"),
+            policy_file=Path(get("POLICY_FILE")) if get("POLICY_FILE") else None,
             lease_ttl_sec=get_int("LEASE_TTL_SEC", 60),
             heartbeat_interval_sec=get_int("HEARTBEAT_INTERVAL_SEC", 15),
             default_limits=Limits(

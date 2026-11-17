@@ -1,0 +1,187 @@
+"""Wire the harness modules into one runnable system.
+
+``build_system`` is the single place where repositories, artifact store,
+policy, gateway, verifier, context builder, runner, task service and worker
+are put together, so the worker CLI, the API (item 7) and the tests all get
+the same wiring (README "Verification, capability packs, profiles").
+
+Permissions come from a YAML file (``DARAOS_HARNESS_POLICY_FILE``)::
+
+    disabled_tools: []            # deployment policy: off for everyone
+    users:                        # the user whitelist, per scope_id
+      s1:
+        main:
+          paths: [/data/s1]       # directories files.read may read
+          tools: [files.read, artifacts.read, artifacts.write]   # optional, narrows
+          ref: grant:s1:main      # optional, recorded on each action
+
+The role whitelist comes from the agent profiles and the capability tool
+lists from the packs; the file only says what each user allows. A scope with
+no entry gets no tools (spec: access is opt-in per user).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .agents import AgentRegistry, PackageInstructions, main_role_whitelist
+from .capabilities import CapabilityRegistry
+from .config import HarnessConfig
+from .context.builder import SimpleContextBuilder
+from .contracts import AgentRole, RunLane, utcnow
+from .interfaces import ModelAdapter
+from .results import CapabilityVerifier, FileArtifactStore
+from .runtime.runner import AgentRunner
+from .storage.memory import InMemoryRepositories
+from .storage.repositories import Repositories
+from .tasks import TaskService, Worker
+from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
+from .tools.connectors import p0_connectors
+
+_POLICY_KEYS = {"disabled_tools", "users"}
+_GRANT_KEYS = {"paths", "tools", "ref"}
+
+
+class PolicyFileError(ValueError):
+    """The permissions file is malformed."""
+
+
+def load_policy_file(path: Path | str | None) -> dict[str, Any]:
+    """Read and check the permissions YAML. ``None`` means no users at all."""
+    if path is None:
+        return {"disabled_tools": [], "users": {}}
+    p = Path(path)
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        raise PolicyFileError(f"policy file {p} not found") from None
+    except yaml.YAMLError as exc:
+        raise PolicyFileError(f"{p.name}: invalid YAML: {exc}") from None
+    if not isinstance(data, dict):
+        raise PolicyFileError(f"{p.name}: expected a mapping at the top level")
+    unknown = set(data) - _POLICY_KEYS
+    if unknown:
+        raise PolicyFileError(f"{p.name}: unknown keys {sorted(unknown)}")
+    disabled = data.get("disabled_tools") or []
+    if not isinstance(disabled, list) or not all(isinstance(t, str) for t in disabled):
+        raise PolicyFileError(f"{p.name}: disabled_tools must be a list of tool names")
+    users = data.get("users") or {}
+    if not isinstance(users, dict):
+        raise PolicyFileError(f"{p.name}: users must map scope_id to roles")
+    for scope, by_role in users.items():
+        if not isinstance(by_role, dict):
+            raise PolicyFileError(f"{p.name}: users.{scope} must map role to a grant")
+        for role, grant in by_role.items():
+            try:
+                AgentRole(role)
+            except ValueError:
+                raise PolicyFileError(f"{p.name}: users.{scope}: unknown role {role!r}") from None
+            if not isinstance(grant, dict) or set(grant) - _GRANT_KEYS:
+                raise PolicyFileError(f"{p.name}: users.{scope}.{role} allows only {sorted(_GRANT_KEYS)}")
+            for key in ("paths", "tools"):
+                value = grant.get(key)
+                if value is not None and (not isinstance(value, list) or not all(isinstance(v, str) for v in value)):
+                    raise PolicyFileError(f"{p.name}: users.{scope}.{role}.{key} must be a list of strings")
+    return {"disabled_tools": disabled, "users": users}
+
+
+def user_grants(spec: Mapping[str, Any]) -> dict[str, dict[str, UserGrant]]:
+    out: dict[str, dict[str, UserGrant]] = {}
+    for scope, by_role in (spec.get("users") or {}).items():
+        out[scope] = {}
+        for role, grant in by_role.items():
+            tools = grant.get("tools")
+            out[scope][role] = UserGrant(
+                tools=frozenset(tools) if tools is not None else None,
+                paths=tuple(grant.get("paths") or ()),
+                ref=grant.get("ref") or f"grant:{scope}:{role}",
+            )
+    return out
+
+
+@dataclass
+class HarnessSystem:
+    config: HarnessConfig
+    repos: Repositories
+    artifacts: FileArtifactStore
+    agents: AgentRegistry
+    capabilities: CapabilityRegistry
+    policy: WhitelistPolicy
+    gateway: ToolGateway
+    verifier: CapabilityVerifier
+    builder: SimpleContextBuilder
+    runner: AgentRunner
+    tasks: TaskService
+
+    def worker(self, *, lanes=(RunLane.FOREGROUND,), worker_id: str | None = None) -> Worker:
+        return Worker(
+            self.tasks,
+            self.builder,
+            self.runner,
+            self.agents,
+            lanes=lanes,
+            heartbeat_interval_sec=self.config.heartbeat_interval_sec,
+            worker_id=worker_id,
+            grant_refs=lambda task: [
+                g.ref
+                for g in [self.policy.user_grant(task.scope_id, task.agent_role)]
+                if g is not None and g.ref
+            ],
+        )
+
+
+def build_system(
+    config: HarnessConfig,
+    model: ModelAdapter,
+    *,
+    repos: Repositories | None = None,
+    policy_spec: Mapping[str, Any] | None = None,
+    clock: Callable[[], datetime] = utcnow,
+) -> HarnessSystem:
+    """All real modules over ``repos`` (in-memory by default until the
+    PostgreSQL repositories land in item 2)."""
+    repos = repos or InMemoryRepositories()
+    artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
+    agents = AgentRegistry.builtin()
+    capabilities = CapabilityRegistry.builtin()
+    spec = policy_spec if policy_spec is not None else load_policy_file(config.policy_file)
+    policy = WhitelistPolicy(
+        roles=main_role_whitelist(),
+        users=user_grants(spec),
+        capabilities=capabilities.tool_map(),
+        disabled_tools=spec.get("disabled_tools") or (),
+    )
+    gateway = ToolGateway(
+        repos, artifacts, policy, p0_connectors(artifacts), profiles=agents.tool_policies(), clock=clock
+    )
+    verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock)
+    builder = SimpleContextBuilder(
+        repos,
+        instructions=PackageInstructions(),
+        tools=PolicyToolCatalog(policy, gateway.specs),
+        capabilities=capabilities,
+        clock=clock,
+    )
+    runner = AgentRunner(repos, model, gateway, verifier, artifacts, reminders=config.budget_reminder, clock=clock)
+    tasks = TaskService(
+        repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock
+    )
+    return HarnessSystem(
+        config=config,
+        repos=repos,
+        artifacts=artifacts,
+        agents=agents,
+        capabilities=capabilities,
+        policy=policy,
+        gateway=gateway,
+        verifier=verifier,
+        builder=builder,
+        runner=runner,
+        tasks=tasks,
+    )
