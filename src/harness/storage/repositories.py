@@ -5,8 +5,8 @@ repositories". Two implementations must behave the same:
 
 * ``storage.memory.InMemoryRepositories`` (this PR), for unit tests and for
   writing Runner / ToolGateway / Verifier before the database exists;
-* a PostgreSQL implementation (next PR), checked by the same test suite in
-  ``tests/harness/unit/test_repositories.py``.
+* ``storage.postgres.PgRepositories``, checked by the same test suite in
+  ``tests/harness_runtime/unit/test_repositories.py``.
 
 Rules every implementation follows:
 

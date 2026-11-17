@@ -15,7 +15,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `contracts.py` shared types, task state machine | — | done | PR-A |
 | `config.py` (env `DARAOS_HARNESS_*`) | — | done | PR-A |
 | `interfaces.py` module Protocols (spec 5.2) | done | — | PR-A |
-| `storage/` repositories | done | in-memory done; PostgreSQL + migrations next | PR-A / PR-B |
+| `storage/` repositories | done | in-memory and PostgreSQL done (`PgRepositories`, Alembic migration `0001`); not yet wired into `build_system` | PR-A / PR-B |
 | `tasks/` TaskService + worker | done | not started | PR-C |
 | `runtime/` AgentRunner, ModelAdapter, budget | done | done | PR-D |
 | `context/` ContextBuilder | done | minimal (no memory, no token cut) | PR-D |
@@ -169,6 +169,38 @@ message's `native` field and replayed only to the same protocol.
 `ScriptedModelAdapter` is the fake model for tests. `scripts/harness_runner_smoke.py`
 runs one real model through the Runner with fake tools, for a manual check.
 
+## PostgreSQL
+
+`storage/postgres.py` (`PgRepositories`) behaves like the in-memory store:
+every test in `unit/test_repositories.py` runs on both. Tables are defined
+once in `storage/schema.py`; the migration in `storage/migrations/versions/`
+creates them, and a test checks the two match.
+
+| Guarantee | How |
+|---|---|
+| Two workers never take the same task | claim selects queued rows `FOR UPDATE SKIP LOCKED`, highest priority then oldest, using the partial index `ix_tasks_queue` (`WHERE status = 'queued'`) |
+| A stale worker cannot heartbeat, checkpoint, record or commit | each of those locks the task row and checks `current_attempt_id`, `lease_epoch`, status and the attempt's expiry in the same transaction |
+| The budget is never overspent | reserve locks the task row, then checks settled + open reservations + this one against the limits and inserts the reservation |
+| One task per `(scope_id, request_key)`, one action per `(task_id, logical_key)`, one reservation per `call_id`, one outside event per `(scope_id, source, source_event_id)` | unique constraints, `INSERT ... ON CONFLICT DO NOTHING` |
+| Status and its event commit together | same transaction; `events.seq` is an identity column (the SSE cursor) |
+
+Each repository method is one short transaction; locks are always taken
+task row first, so callers on one task never deadlock. Nested values
+(acceptance, limits, usage, errors, payloads, checks) are `jsonb`, validated
+by the models in `contracts.py`.
+
+```bash
+pip install -e '.[harness]'                       # sqlalchemy 2.0.x, asyncpg, alembic
+export DARAOS_HARNESS_DATABASE_DSN=postgresql://user:pass@host:5432/db
+python -m harness.storage.migrate upgrade         # also: downgrade, current, heads, revision
+```
+
+There is no `alembic.ini`; the config is built in `storage/migrate.py` and
+the URL comes from the environment only. A new migration: change
+`schema.py`, run `revision -m "..." --autogenerate`, then read the script
+(Alembic misses renames and partial indexes). `test_one_migration_head`
+fails when two branches each added a migration; merge them before landing.
+
 ## Open items
 
 | Item | Decided | When |
@@ -181,10 +213,20 @@ runs one real model through the Runner with fake tools, for a manual check.
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
 | ContextBuilder token cut, memory, resume from checkpoint | P0 builder lists goal, acceptance, inputs and artifacts only | P1 |
 | Parallel tool calls in one step | Run one after another in P0 | later |
-| PostgreSQL driver and migrations | `asyncpg` driver, SQLAlchemy 2.0 Core (async) for queries, tables defined once in `storage/schema.py`, Alembic (async template) for migrations; tests start a `postgres:16` container. SQLAlchemy stays on 2.0.x | PR-B |
+| Wire PostgreSQL into the system | `build_system` uses `PgRepositories` when `DARAOS_HARNESS_DATABASE_DSN` is set; then the API and workers can run as separate processes | PR-B (2b) |
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests/harness_runtime -q
+.venv/bin/python -m pytest tests/harness_runtime -q                     # no database needed
+.venv/bin/python -m pytest tests/harness_runtime -q -m integration      # PostgreSQL tests
 ```
+
+The PostgreSQL tests (the `postgres` half of `test_repositories.py` and
+`integration/test_postgres.py`) are marked `integration`. They use
+`DARAOS_HARNESS_TEST_DSN` if set (that database is wiped), otherwise they
+start a throwaway `postgres:16` container with docker, one per test session,
+and remove it afterwards. Without docker or the harness extra they skip.
+`integration/test_postgres.py` races separate connections against each
+other (claims, the last budget unit, one action key, one request key, old
+and new worker committing); removing the row locks makes those tests fail.
