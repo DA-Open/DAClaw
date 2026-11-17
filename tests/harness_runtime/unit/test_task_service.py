@@ -159,7 +159,7 @@ def test_policy_file_round_trip(tmp_path):
 
 
 def test_no_policy_file_means_no_users():
-    assert load_policy_file(None) == {"disabled_tools": [], "users": {}}
+    assert load_policy_file(None) == {"disabled_tools": [], "users": {}, "tokens": []}
 
 
 @pytest.mark.parametrize(
@@ -183,3 +183,21 @@ def test_bad_policy_files_are_refused(tmp_path, body, match):
 def test_missing_policy_file_is_an_error(tmp_path):
     with pytest.raises(PolicyFileError, match="not found"):
         load_policy_file(tmp_path / "nope.yaml")
+
+
+def test_token_file_validation(tmp_path):
+    from harness.api import token_digest
+
+    good = tmp_path / "ok.yaml"
+    good.write_text(f"tokens:\n  - sha256: {token_digest('t')}\n    scope_id: s1\n    actor_id: u1\n", encoding="utf-8")
+    assert load_policy_file(good)["tokens"][0]["scope_id"] == "s1"
+    for body, match in (
+        ("tokens: abc\n", "must be a list"),
+        ("tokens:\n  - sha256: short\n    scope_id: s\n    actor_id: u\n", "64 hex"),
+        ("tokens:\n  - token: plain\n    scope_id: s\n    actor_id: u\n", "needs exactly"),
+        (f"tokens:\n  - {{sha256: {token_digest('t')}, scope_id: s, actor_id: u}}\n  - {{sha256: {token_digest('t')}, scope_id: s2, actor_id: v}}\n", "repeats"),
+    ):
+        bad = tmp_path / "bad.yaml"
+        bad.write_text(body, encoding="utf-8")
+        with pytest.raises(PolicyFileError, match=match):
+            load_policy_file(bad)

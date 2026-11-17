@@ -24,7 +24,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `tools/` ToolGateway, Policy, connectors | done | done (P0: `files.read`, `artifacts.read`, `artifacts.write`) | PR-E |
 | `results/` ArtifactStore, Verifier | done | done (`FileArtifactStore`, `CapabilityVerifier` with `artifact_readable`, `required_sections`) | PR-E / PR-F |
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
-| `api/` POST/GET/cancel tasks | — | not started | PR-G |
+| `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | done (`python -m harness.api`; token auth; in-memory store until PostgreSQL is wired in) | PR-G |
 | P0 acceptance scenarios | — | not started | PR-H |
 | `delivery/`, ProactiveController, subscriptions (P2) | not yet | not started | — |
 
@@ -301,6 +301,53 @@ users:                        # user whitelist, per scope_id
 ```
 
 With no file, no scope has any tool.
+
+## HTTP API
+
+`api/app.py`, run with `python -m harness.api` (spec 5.1; P0 subset):
+
+| Route | Does |
+|---|---|
+| `POST /tasks` | `Idempotency-Key` header required; 202 with `task_id`, `agent_role`, `run_lane`, `status`, `events_url` |
+| `GET /tasks/{id}` | status, wait reason, usage, remaining budget, `result_ref`, error |
+| `GET /tasks/{id}/events` | SSE; `Last-Event-ID` resumes; one `final` event after the task stops (succeeded, failed, cancelled or waiting); a dropped client does not cancel the task |
+| `POST /tasks/{id}/cancel` | idempotent; body `{"reason": "..."}` optional |
+| `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
+| `GET /artifacts/{id}` | content, `offset` / `length` byte range (5 MB max per call) |
+
+Not yet: resume, approvals, `POST /events`, subscriptions (P1/P2).
+
+**Identity** comes only from the bearer token. The permissions file lists
+callers by the token's sha256 (the token itself is never stored):
+
+```yaml
+tokens:
+  - sha256: <printf %s "$TOKEN" | sha256sum>
+    scope_id: s1
+    actor_id: u1
+```
+
+With no tokens every request is 401, so the API is closed by default. The
+token is checked before the body is read. The body may not carry
+`scope_id`, `actor_id`, `agent_role` or `run_lane` (400): the role is always
+`main`, and `prefer_background` only picks the lane. Another scope's task or
+artifact is 404, the same answer as a missing one. Files in `input_refs`
+must sit in the caller's whitelisted directories (400 at submit time).
+
+**Errors** all have `{error_code, message, retryable, request_id}` and an
+`X-Request-ID` header: 400 bad body, unknown capability or profile, unknown
+check, limits over the caps; 401 token; 404 not found or not yours; 409
+same key with other content; 500 `internal` only, details in the log.
+
+**Running it.** The API never runs model or tool calls in a request. Until
+PostgreSQL is wired in (item 2b) tasks live in the process's memory, so a
+worker runs in the same process:
+
+```bash
+python -m harness.api --port 8090 --with-worker --model-config model.yaml
+```
+
+It binds 127.0.0.1 by default.
 
 ## Model adapters
 
