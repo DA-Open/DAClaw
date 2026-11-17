@@ -13,6 +13,8 @@ def test_defaults_without_env():
     assert config.budget_reminder.thresholds == (0.5, 0.2)
     assert config.budget_reminder.reserve_model_calls == 1
     assert config.lease_ttl_sec == 60
+    assert config.sse_max_connections == 64
+    assert config.sse_max_connections_per_scope == 4
 
 
 def test_reads_env():
@@ -23,6 +25,8 @@ def test_reads_env():
             P + "BUDGET_REMINDER_THRESHOLDS": "0.6, 0.3,0.1",
             P + "BUDGET_REMINDER_ENABLED": "off",
             P + "LEASE_TTL_SEC": "120",
+            P + "SSE_MAX_CONNECTIONS": "12",
+            P + "SSE_MAX_CONNECTIONS_PER_SCOPE": "2",
         }
     )
     assert config.database_dsn == "postgresql://u:secret@db/harness"
@@ -30,6 +34,8 @@ def test_reads_env():
     assert config.budget_reminder.thresholds == (0.6, 0.3, 0.1)
     assert config.budget_reminder.enabled is False
     assert config.lease_ttl_sec == 120
+    assert config.safe_dict()["sse_max_connections"] == 12
+    assert config.safe_dict()["sse_max_connections_per_scope"] == 2
 
 
 def test_dsn_never_shown():
@@ -48,6 +54,8 @@ def test_dsn_never_shown():
         {P + "BUDGET_REMINDER_THRESHOLDS": "1.5"},
         {P + "BUDGET_REMINDER_THRESHOLDS": "a,b"},
         {P + "HEARTBEAT_INTERVAL_SEC": "60", P + "LEASE_TTL_SEC": "60"},
+        {P + "SSE_MAX_CONNECTIONS": "0"},
+        {P + "SSE_MAX_CONNECTIONS_PER_SCOPE": "-1"},
     ],
 )
 def test_bad_env_is_rejected(env):

@@ -327,9 +327,23 @@ With no file, no scope has any tool.
 | `GET /tasks/{id}/events` | SSE; `Last-Event-ID` resumes; one `final` event after the task stops (succeeded, failed, cancelled or waiting); a dropped client does not cancel the task |
 | `POST /tasks/{id}/cancel` | idempotent; body `{"reason": "..."}` optional |
 | `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
-| `GET /artifacts/{id}` | content, `offset` / `length` byte range (5 MB max per call) |
+| `GET /artifacts/{id}` | whole content (200), or a byte range (206); 5 MiB max per call |
 
 Not yet: resume, approvals, `POST /events`, subscriptions (P1/P2).
+
+**Artifact downloads** support `offset` / `length` query parameters or one
+`Range: bytes=start-end` header (open-ended and suffix ranges also work).
+Partial responses include `Content-Range` and `Accept-Ranges: bytes`; clients
+can use the returned end offset to fetch the next chunk. Each chunk is capped
+at 5 MiB. A whole-artifact request above that limit returns 413 and must be
+retried with a range. A complete empty artifact is 200; unsatisfiable ranges
+are 416 with `Content-Range: bytes */size`. Zero-length queries, malformed or
+multiple ranges, and combining header/query range selectors are 400. Unknown
+range units are ignored. `ETag` uses the stored content hash; `If-Range` only
+enables a range when its strong ETag matches, otherwise normal whole-download
+rules apply. Scoped lookup precedes Range-header parsing and 416 responses,
+so another scope still sees
+404 without the artifact's size.
 
 **Identity** comes only from the bearer token. The permissions file lists
 callers by the token's sha256 (the token itself is never stored):
@@ -348,10 +362,27 @@ token is checked before the body is read. The body may not carry
 artifact is 404, the same answer as a missing one. Files in `input_refs`
 must sit in the caller's whitelisted directories (400 at submit time).
 
+**Request bounds.** `goal` is 1–32,768 Unicode characters. `input_refs`
+contains at most 128 references, each at most 4,096 characters. Exceeding
+any of these limits returns 400 `invalid_request` before creating a task.
+
+**SSE capacity.** Each API process accepts at most 64 active event streams,
+with at most 4 per authenticated scope (shared across that scope's tokens).
+Set `DARAOS_HARNESS_SSE_MAX_CONNECTIONS` and
+`DARAOS_HARNESS_SSE_MAX_CONNECTIONS_PER_SCOPE` to positive integers to change
+these limits. Excess connections receive 429 `limits_exceeded`,
+`retryable: true` and `Retry-After: 1`. Slots are released on completion,
+disconnect, cancellation and stream errors. These are process-local limits;
+multiple API processes multiply the capacity. While a stream is idle, polling
+backs off from 0.5 to 5 seconds and resets when events arrive. Keep-alives
+continue every 15 seconds of idle waiting; new events can take up to one
+poll interval to appear.
+
 **Errors** all have `{error_code, message, retryable, request_id}` and an
 `X-Request-ID` header: 400 bad body, unknown capability or profile, unknown
 check, limits over the caps; 401 token; 404 not found or not yours; 409
-same key with other content; 500 `internal` only, details in the log.
+same key with other content; 413 full artifact too large; 416 unsatisfiable
+range; 429 event-stream capacity exceeded; 500 `internal` only, details in the log.
 
 **Running it.** The API never runs model or tool calls in a request. With
 PostgreSQL it can run on its own without `--model-config` or `--scripted`;
@@ -498,7 +529,7 @@ checkpoint replay/resume is not implemented.
 
 ```bash
 .venv/bin/python -m pytest tests/harness_runtime -q                     # no database needed
-.venv/bin/python -m pytest tests/harness_runtime -q -m integration      # PostgreSQL tests
+.venv/bin/python -m pytest tests/harness_runtime -q -m integration -n0  # PostgreSQL tests
 ```
 
 The PostgreSQL tests (the `postgres` half of `test_repositories.py` and
@@ -506,6 +537,9 @@ The PostgreSQL tests (the `postgres` half of `test_repositories.py` and
 `DARAOS_HARNESS_TEST_DSN` if set (that database is wiped), otherwise they
 start a throwaway `postgres:16` container with docker, one per test session,
 and remove it afterwards. Without docker or the harness extra they skip.
+Use `-n0` for database tests: the repository defaults to `-n auto`, which
+starts one container per xdist worker and can exhaust Docker resources.
+Tests still race separate database connections within a single worker.
 `integration/test_postgres.py` races separate connections against each
 other (claims, the last budget unit, one action key, one request key, old
 and new worker committing); removing the row locks makes those tests fail.

@@ -63,8 +63,11 @@ def process_setup(pg_dsn, tmp_path):
         {"submit": {"summary": "done", "artifacts": {"draft": "@draft"}}},
     ]), encoding="utf-8")
     env = {key: value for key, value in os.environ.items() if not key.startswith("DARAOS_HARNESS_")}
+    pythonpath = str(Path(__file__).resolve().parents[3] / "src")
+    if env.get("PYTHONPATH"):
+        pythonpath += os.pathsep + env["PYTHONPATH"]
     env.update({
-        "PYTHONPATH": str(Path(__file__).resolve().parents[3] / "src"),
+        "PYTHONPATH": pythonpath,
         "PYTHONDONTWRITEBYTECODE": "1",
         "DARAOS_HARNESS_DATABASE_DSN": pg_dsn,
         "DARAOS_HARNESS_ARTIFACT_ROOT": str(tmp_path / "shared-artifacts"),
@@ -83,6 +86,20 @@ def process_setup(pg_dsn, tmp_path):
         },
     }
     return env, body, script
+
+
+def test_child_can_import_from_inherited_pythonpath(tmp_path, monkeypatch, request):
+    dependencies = tmp_path / "external-dependencies"
+    dependencies.mkdir()
+    (dependencies / "external_test_dependency.py").write_text("VALUE = 'inherited'\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(dependencies))
+    env, _, _ = request.getfixturevalue("process_setup")
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import harness, external_test_dependency; print(external_test_dependency.VALUE)"],
+        cwd=tmp_path, env=env, capture_output=True, text=True, check=True, timeout=10,
+    )
+    assert result.stdout.strip() == "inherited"
 
 
 @contextmanager

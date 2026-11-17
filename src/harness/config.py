@@ -72,6 +72,8 @@ class HarnessConfig:
     policy_file: Path | None = None
     lease_ttl_sec: int = 60
     heartbeat_interval_sec: int = 15
+    sse_max_connections: int = 64
+    sse_max_connections_per_scope: int = 4
     default_limits: Limits = field(default_factory=Limits)
     caps: DeploymentCaps = field(default_factory=DeploymentCaps)
     budget_reminder: BudgetReminderConfig = field(default_factory=BudgetReminderConfig)
@@ -81,6 +83,8 @@ class HarnessConfig:
             raise ValueError("lease_ttl_sec and heartbeat_interval_sec must be positive")
         if self.heartbeat_interval_sec >= self.lease_ttl_sec:
             raise ValueError("heartbeat_interval_sec must be shorter than lease_ttl_sec")
+        if self.sse_max_connections <= 0 or self.sse_max_connections_per_scope <= 0:
+            raise ValueError("SSE connection limits must be positive")
         self.caps.check(self.default_limits)
 
     def __repr__(self) -> str:
@@ -94,6 +98,8 @@ class HarnessConfig:
             "policy_file": str(self.policy_file) if self.policy_file else None,
             "lease_ttl_sec": self.lease_ttl_sec,
             "heartbeat_interval_sec": self.heartbeat_interval_sec,
+            "sse_max_connections": self.sse_max_connections,
+            "sse_max_connections_per_scope": self.sse_max_connections_per_scope,
             "default_limits": self.default_limits.model_dump(),
             "caps": {f.name: getattr(self.caps, f.name) for f in fields(self.caps)},
             "budget_reminder": {
@@ -153,6 +159,8 @@ class HarnessConfig:
             policy_file=Path(get("POLICY_FILE")) if get("POLICY_FILE") else None,
             lease_ttl_sec=get_int("LEASE_TTL_SEC", 60),
             heartbeat_interval_sec=get_int("HEARTBEAT_INTERVAL_SEC", 15),
+            sse_max_connections=get_int("SSE_MAX_CONNECTIONS", 64),
+            sse_max_connections_per_scope=get_int("SSE_MAX_CONNECTIONS_PER_SCOPE", 4),
             default_limits=Limits(
                 timeout_sec=get_int("DEFAULT_TIMEOUT_SEC", base_limits.timeout_sec),
                 max_model_calls=get_int("DEFAULT_MAX_MODEL_CALLS", base_limits.max_model_calls),

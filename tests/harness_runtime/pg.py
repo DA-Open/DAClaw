@@ -1,6 +1,6 @@
 """A PostgreSQL database for the harness tests.
 
-Run with ``python -m pytest tests/harness_runtime -m integration`` (the default
+Run with ``python -m pytest tests/harness_runtime -m integration -n0`` (the default
 run skips them). ``DARAOS_HARNESS_TEST_DSN`` points the tests at a database you already run
 (it is wiped: every table the migrations create is truncated). Without it a
 throwaway ``postgres:16`` container is started through the docker CLI, once
@@ -93,7 +93,7 @@ def pg_dsn():
 
     The PostgreSQL tests carry the ``integration`` mark, so the repo's default
     run (``-m 'not integration'``) does not reach this fixture at all. Run
-    them with ``-m integration`` (or ``-o addopts=""``) and the harness extra
+    them with ``-m integration -n0`` (or ``-o addopts=""``) and the harness extra
     installed (``pip install -e '.[harness]'``).
     """
     missing = _missing_modules()

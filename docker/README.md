@@ -13,6 +13,19 @@ The image is `linux/amd64` only. It contains no configuration or credentials:
 `config.yaml`, `.env`, API keys, sessions and uploads all live in a data
 directory on the host that you mount at `/opt/data`.
 
+Builds from `DaraOS` install both the `all` and `harness` Python extras,
+including asyncpg and Alembic. The Docker build checks that `uv.lock` matches
+`pyproject.toml`; after changing dependencies, run `uv lock` and commit the
+updated lockfile. The pinned Atropos source uses the original NousResearch
+repository because the DA-Open mirror is no longer available.
+
+Check the bundled migration entry point without a database or credentials:
+
+```bash
+docker run --rm --entrypoint /opt/daclaw/.venv/bin/python daclaw:local \
+  -m harness.storage.migrate heads
+```
+
 ## Quick start
 
 ```bash
