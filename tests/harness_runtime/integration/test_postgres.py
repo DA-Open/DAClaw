@@ -10,6 +10,7 @@ there is one migration head, and downgrade/upgrade round-trips.
 from __future__ import annotations
 
 import asyncio
+import shutil
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -24,6 +25,8 @@ from sqlalchemy import inspect, text  # noqa: E402
 from harness.contracts import (  # noqa: E402
     Action,
     ErrorCode,
+    Event,
+    EventType,
     Actor,
     AgentRole,
     Limits,
@@ -40,6 +43,7 @@ from harness.contracts import (  # noqa: E402
     UsageKind,
 )
 from harness.storage import schema  # noqa: E402
+from harness.storage import migrate  # noqa: E402
 from harness.storage.migrate import heads, run  # noqa: E402
 from harness.storage.postgres import PgRepositories, async_url  # noqa: E402
 
@@ -156,6 +160,48 @@ async def test_heartbeat_and_cancel_do_not_deadlock(pools):
     assert (await pools[0].tasks.get("s1", task.id)).status is TaskStatus.CANCELLING
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("second_kind", ["cancel", "other_task", "taskless"])
+async def test_event_cursor_does_not_skip_a_late_commit(pools, second_kind):
+    task = (await pools[0].tasks.create(make_task("events"))).task
+    await pools[0].tasks.claim("w", [RunLane.FOREGROUND], TTL, T0)
+    other_task = (await pools[0].tasks.create(make_task("other"))).task if second_kind == "other_task" else None
+    task_filter = task.id if second_kind == "cancel" else None
+    before = await pools[0].events.list("s1", task_id=task_filter)
+    cursor = before[-1].seq
+    pending = None
+    try:
+        # Hold the first event between INSERT and COMMIT, as a delayed worker
+        # can be. The public repository call below must not publish past it.
+        async with pools[0].engine.begin() as conn:
+            first = await pools[0].events._db.append_event(
+                conn,
+                Event(scope_id="s1", task_id=None if second_kind == "taskless" else task.id, type=EventType.MODEL_CALL),
+            )
+            if second_kind == "cancel":
+                later = pools[1].tasks.request_cancel("s1", task.id, "user", T0)
+            else:
+                later = pools[1].events.append(
+                    Event(scope_id="s1", task_id=other_task.id if other_task else None, type=EventType.EXTERNAL)
+                )
+            pending = asyncio.create_task(later)
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(pending), timeout=0.2)
+            assert await pools[2].events.list("s1", task_id=task_filter, after_seq=cursor) == []
+            # Locking one scope must not stop a different scope publishing.
+            independent = await asyncio.wait_for(
+                pools[2].events.append(Event(scope_id="s2", type=EventType.EXTERNAL)), timeout=5
+            )
+            assert (await pools[2].events.list("s2"))[0].id == independent.id
+    finally:
+        if pending is not None:
+            await asyncio.wait_for(pending, timeout=5)
+    page = await pools[0].events.list("s1", task_id=task_filter, after_seq=cursor, limit=1)
+    assert [event.id for event in page] == [first.id]
+    remaining = await pools[0].events.list("s1", task_id=task_filter, after_seq=page[-1].seq)
+    assert len(remaining) == 1 and remaining[0].seq > first.seq
+
+
 # -- migrations ------------------------------------------------------------------------
 
 
@@ -206,6 +252,22 @@ async def test_downgrade_and_upgrade_round_trip(pools):
     async with engine.connect() as conn:
         back = await conn.run_sync(lambda c: set(inspect(c).get_table_names()))
     assert {t.name for t in schema.metadata.sorted_tables} <= back
+
+
+@pytest.mark.asyncio
+async def test_generate_and_run_a_revision(pools, tmp_path, monkeypatch):
+    # Generate into a copy: never add a test revision to the source tree.
+    copied = tmp_path / "migrations"
+    shutil.copytree(migrate.MIGRATIONS, copied)
+    monkeypatch.setattr(migrate, "MIGRATIONS", copied)
+    await migrate.run(pools[0].engine, "revision", message="test revision", autogenerate=True)
+    generated = [path for path in (copied / "versions").glob("*.py") if path.name not in {"0001_initial.py", "__init__.py"}]
+    assert len(generated) == 1
+    assert migrate.heads() != ["0001"]
+    await migrate.run(pools[0].engine, "upgrade", "head")
+    async with pools[0].engine.connect() as conn:
+        assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == migrate.heads()[0]
+    await migrate.run(pools[0].engine, "downgrade", "0001")
 
 
 def test_async_url():

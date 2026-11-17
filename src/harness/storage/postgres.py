@@ -26,7 +26,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -148,6 +148,14 @@ class _Db:
         self.engine = engine
 
     async def append_event(self, conn: AsyncConnection, event: Event) -> Event:
+        # Identity values are allocated before commit. Serialize publication
+        # within a scope so an after_seq reader cannot skip an earlier insert
+        # that commits later, including events without a task_id. Take this
+        # lock after task/usage locks; callers must not acquire those after
+        # appending an event. It is released when the whole transaction ends.
+        await conn.execute(
+            select(func.pg_advisory_xact_lock(func.hashtextextended(f"harness.events:{event.scope_id}", 0)))
+        )
         row = _event_row(event)
         if event.source_event_id is not None:
             stmt = (
