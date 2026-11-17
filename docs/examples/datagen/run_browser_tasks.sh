@@ -16,7 +16,7 @@
 #
 # Usage:
 #   cd ~/.daclaw/daclaw-agent
-#   bash datagen-config-examples/run_browser_tasks.sh
+#   bash docs/examples/datagen/run_browser_tasks.sh
 #
 # Output: data/browser_tasks_example/trajectories.jsonl
 # =============================================================================

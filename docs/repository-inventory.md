@@ -136,11 +136,11 @@ release.
 | `README.md` | Keep | Public overview. |
 | `AGENTS.md` | Must keep | Instructions for coding agents working in this repo. |
 | `docs/` | Keep | Technical docs. |
-| `plans/` | Keep or merge into `docs/plans/` | Planning docs. |
-| `future work.md` | Keep but repair encoding | Existing architecture/future-work notes, currently encoding-damaged. |
-| `reports/` | Optional | Example/generated report. One tracked report currently exists. |
-| `multiagent_recent_papers.md`, `recent_multiagent_claw_papers.md` | Optional research notes | Useful if research direction matters; otherwise can move to `docs/research/`. |
-| `daclaw-already-has-routines.md` | Optional notes | Product/architecture note. |
+| `docs/plans/` | Keep | Planning docs (the root `plans/` folder was merged here). |
+| `docs/future-work.md` | Keep | Architecture and future-work notes (was `future work.md` at the root). |
+| `docs/examples/` | Optional | Example report (`dacomp-zh-001-credit-risk-report.md`, was `reports/`) and batch data generation configs (`datagen/`, was `datagen-config-examples/`). |
+| `docs/research/` | Optional research notes | Multi-agent paper surveys (were `multiagent_recent_papers.md`, `recent_multiagent_claw_papers.md` at the root). |
+| `docs/notes/daclaw-already-has-routines.md` | Optional notes | Product/architecture note (was at the root). |
 
 ## Category J: Local Generated Or Ignored State
 
@@ -167,9 +167,8 @@ These are tracked in git but may not belong in long-term source control.
 
 | Path | Current Status | Recommendation |
 | --- | --- | --- |
-| `dist/daclaw_agent-0.9.0.tar.gz` | Tracked release archive | Review. Usually release archives belong in GitHub Releases, not source. |
-| `dist/daclaw_agent-0.9.0-py3-none-any.whl` | Tracked wheel | Review. Usually generated package artifacts should not be committed. |
-| `reports/dacomp-zh-001-credit-risk-report.md` | Tracked generated/example report | Keep only if it is an intentional demo fixture. |
+| `docs/examples/dacomp-zh-001-credit-risk-report.md` | Tracked example report | Kept as a demo of the report format. |
+| `dist/` release archives | Removed in #13 | The tracked wheel and sdist were deleted; `/dist/` is in `.gitignore`. |
 
 Do not delete these blindly because they are tracked. Decide policy first.
 
