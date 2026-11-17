@@ -168,9 +168,10 @@ whitelists from config stand in for the grants table:
 | Capability | `Task.capability_ref` | which tools the pack needs (narrows only) |
 
 A call is allowed only by the intersection; a user entry can only narrow its
-role list, and a scope without an entry gets nothing. Files the task names in
-`input_refs` as `file:<path>` may be read even outside the user's
-directories. Paths are resolved first, so `../` and symlinks out of a
+role list, and a scope without an entry gets nothing. Files named in a
+task's `input_refs` get no exemption: whoever creates a task chooses its
+`input_refs`, so they must sit in the user's directories like any other path
+(review of #16). Paths are resolved first, so `../` and symlinks out of a
 directory are refused. `PolicyToolCatalog` gives ContextBuilder exactly the
 allowed tools, so the model never sees a tool it may not call.
 
