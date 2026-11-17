@@ -146,10 +146,11 @@ python -m pytest tests/harness_runtime -o addopts= -q
 ```
 
 本次完整 Harness 回归：**485 passed，0 failed/errors/skipped**；`uv lock --check` 通过。
-全仓检查发现旧 CLI/Gateway 等模块失败，未将全仓声明为通过。
+固定实现提交 `4052c913` 的全仓检查为 **12,523 passed / 40 failed / 10 errors / 36 skipped**；
+失败/错误全部位于 Harness 之外的 CLI/Gateway 等模块，未将全仓声明为通过。
 从全仓失败中提取的 47 个非 Harness 用例在未加入 Proactive 实现的基线 `376ffcfe` 上
 复现 26 项失败；本分支同组重跑 27 项失败，其中差异为并发批准/拒绝用例。
-全仓最终记录及环境限制在 PR 中列出，未为消除无关失败修改业务代码或放宽断言。
+全仓记录及环境限制在 PR 中列出，未为消除无关失败修改业务代码或放宽断言。
 验证环境使用 Linux 本地虚拟环境；位于 Windows 挂载盘的虚拟环境启动较慢，
 会触发现有进程测试的启动超时，未因此放宽断言。
 
