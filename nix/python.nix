@@ -7,6 +7,7 @@
   pyproject-nix,
   pyproject-build-systems,
   stdenv,
+  unixodbc,
 }:
 let
   workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./..; };
@@ -35,8 +36,12 @@ let
       };
     };
 
-  pythonPackageOverrides = final: _prev:
-    if isAarch64Darwin then {
+  pythonPackageOverrides = final: prev:
+    lib.optionalAttrs (prev ? pyodbc) {
+      pyodbc = prev.pyodbc.overrideAttrs (old: {
+        buildInputs = (old.buildInputs or [ ]) ++ [ unixodbc ];
+      });
+    } // (if isAarch64Darwin then {
       numpy = mkPrebuiltOverride final python311.pkgs.numpy { };
 
       av = mkPrebuiltOverride final python311.pkgs.av { };
@@ -66,7 +71,7 @@ let
         tokenizers = [ ];
         tqdm = [ ];
       };
-    } else {};
+    } else {});
 
   pythonSet =
     (callPackage pyproject-nix.build.packages {
