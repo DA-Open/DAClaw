@@ -876,6 +876,11 @@ class PgRepositories(Repositories):
         engine_kwargs.setdefault("pool_pre_ping", True)
         return cls(create_async_engine(async_url(dsn), **engine_kwargs))
 
+    async def check_ready(self) -> None:
+        """Require a reachable, migrated database without changing its schema."""
+        async with self.engine.connect() as conn:
+            await conn.execute(select(s.tasks.c.id).limit(0))
+
     async def close(self) -> None:
         await self.engine.dispose()
 

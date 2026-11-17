@@ -15,17 +15,17 @@ rule here and the code disagree, fix one of them in the same PR.
 | `contracts.py` shared types, task state machine | — | done | PR-A |
 | `config.py` (env `DARAOS_HARNESS_*`) | — | done | PR-A |
 | `interfaces.py` module Protocols (spec 5.2) | done | — | PR-A |
-| `storage/` repositories | done | in-memory and PostgreSQL done (`PgRepositories`, Alembic migration `0001`); not yet wired into `build_system` | PR-A / PR-B |
-| `tasks/` TaskService + worker | done | done (in-memory store until PostgreSQL lands; `python -m harness.worker`) | PR-C |
-| `app.py` wiring, permissions file | — | done (`build_system`, `DARAOS_HARNESS_POLICY_FILE`) | PR-C |
+| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migration `0001`); selected by `build_system` from `database_dsn` | PR-A / PR-B (2a, 2b) |
+| `tasks/` TaskService + worker | done | `python -m harness.worker`; PostgreSQL workers can claim tasks submitted by a separate API process | PR-C / PR-B (2b) |
+| `app.py` wiring, permissions file | — | `build_system`, `HarnessSystem.lifespan`, `DARAOS_HARNESS_POLICY_FILE` | PR-C / PR-B (2b) |
 | `trace.py` task timeline | — | done (`--trace`) | PR-C |
 | `runtime/` AgentRunner, ModelAdapter, budget | done | done | PR-D |
 | `context/` ContextBuilder | done | minimal (no memory, no token cut) | PR-D |
 | `tools/` ToolGateway, Policy, connectors | done | done (P0: `files.read`, `artifacts.read`, `artifacts.write`) | PR-E |
 | `results/` ArtifactStore, Verifier | done | done (`FileArtifactStore`, `CapabilityVerifier` with `artifact_readable`, `required_sections`) | PR-E / PR-F |
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
-| `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | done (`python -m harness.api`; token auth; in-memory store until PostgreSQL is wired in) | PR-G |
-| P0 acceptance scenarios | — | not started | PR-H |
+| `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
+| P0 acceptance scenarios | — | document-draft, worker and API scenarios exist; full P0 acceptance remains pending | PR-H |
 | `delivery/`, ProactiveController, subscriptions (P2) | not yet | not started | — |
 
 ## Who does what
@@ -244,6 +244,16 @@ Wiring: `app.build_system(config, model)` puts all real modules together
 `TaskService`). The worker CLI, the API and the tests all use it, so there
 is one place to change the wiring.
 
+Without an explicit `repos=...`, `build_system` selects PostgreSQL when
+`config.database_dsn` is set and an in-memory store otherwise. Use
+`async with system.lifespan():` around an embedded system: it checks the
+owned PostgreSQL store at startup and closes its connection pool on exit,
+including startup failure. The API and worker entry points do this already.
+An explicitly injected repository overrides that selection and remains
+owned by its caller, which must manage its initialization and closure.
+Database migrations are a separate deployment step; startup does not apply
+them or silently fall back to an in-memory store.
+
 ## Tasks and the worker
 
 `TaskService` (`tasks/service.py`) is the only writer of task status. On
@@ -271,9 +281,13 @@ python -m harness.worker --once --submit task.json --model-config model.yaml --p
 python -m harness.worker --once --submit task.json --scripted script.json   # no network
 ```
 
-Until the PostgreSQL repositories land, the store is in memory, so
-`--submit` creates the task in the same process (as the API would, role
-`main`, trusted origin). `model.yaml` holds `ModelConfig` fields; the key
+Without a database DSN, the store is in memory and `--submit` creates the
+task in the same process (as the API would, role `main`, trusted origin).
+With PostgreSQL, omit `--submit` to claim a task already queued by the API;
+`--once --scripted /absolute/path/script.json` also works this way without
+model calls. The worker's default lane is **foreground**: use
+`--lanes foreground background` to also handle `prefer_background` tasks.
+`model.yaml` holds `ModelConfig` fields; the key
 comes from the environment variable named by `api_key_env`. The command
 prints one JSON line and exits 0 when the attempt was committed.
 
@@ -339,15 +353,17 @@ must sit in the caller's whitelisted directories (400 at submit time).
 check, limits over the caps; 401 token; 404 not found or not yours; 409
 same key with other content; 500 `internal` only, details in the log.
 
-**Running it.** The API never runs model or tool calls in a request. Until
-PostgreSQL is wired in (item 2b) tasks live in the process's memory, so a
-worker runs in the same process:
+**Running it.** The API never runs model or tool calls in a request. With
+PostgreSQL it can run on its own without `--model-config` or `--scripted`;
+a separate worker performs the model and tool calls. Without a database
+DSN, tasks live in the process's memory, so run a worker in that process:
 
 ```bash
 python -m harness.api --port 8090 --with-worker --model-config model.yaml
 ```
 
-It binds 127.0.0.1 by default.
+It binds 127.0.0.1 by default. See the PostgreSQL example below for separate
+processes.
 
 ## Model adapters
 
@@ -408,7 +424,7 @@ by the models in `contracts.py`.
 
 ```bash
 pip install -e '.[harness]'                       # sqlalchemy 2.0.x, asyncpg, alembic
-export DARAOS_HARNESS_DATABASE_DSN=postgresql://user:pass@host:5432/db
+export DARAOS_HARNESS_DATABASE_DSN='postgresql://<user>:<password>@<host>:5432/<database>'
 python -m harness.storage.migrate upgrade         # also: downgrade, current, heads, revision
 ```
 
@@ -418,19 +434,65 @@ the URL comes from the environment only. A new migration: change
 (Alembic misses renames and partial indexes). `test_one_migration_head`
 fails when two branches each added a migration; merge them before landing.
 
+### API and worker in separate processes
+
+Install the harness in the Python environment used by both processes and
+run the migration before starting either. The paths below are examples;
+prepare the permissions file (including API token hashes), input material,
+API request body and scripted steps first.
+
+Both shells must use the same DSN, **the same absolute artifact root**, and
+the same permissions configuration. On one host they may have different
+working directories, but must be able to access the same input files at
+the absolute paths allowed by `users.<scope>.main.paths`. Use absolute paths
+in `input_refs`, script arguments and configuration. The default relative
+`./harness_artifacts` is unsuitable for processes with different working
+directories: PostgreSQL stores artifact metadata, while the file store
+still holds the content on disk. A shared database alone does not share
+files between hosts.
+
+```bash
+# Set these in both shells; replace the DSN placeholders locally.
+export DARAOS_HARNESS_DATABASE_DSN='postgresql://<user>:<password>@<host>:5432/<database>'
+export DARAOS_HARNESS_ARTIFACT_ROOT=/srv/daraos/artifacts
+export DARAOS_HARNESS_POLICY_FILE=/srv/daraos/policy.yaml
+
+# Once, before startup:
+python -m harness.storage.migrate upgrade
+
+# Shell 1: API only; no model credentials or model configuration needed.
+python -m harness.api --port 8090
+```
+
+Submit a task through `POST /tasks` using its bearer token and
+`Idempotency-Key`. After it is queued, run in the second shell:
+
+```bash
+# Shares the settings above; claims the API task without --submit.
+python -m harness.worker --once --scripted /srv/daraos/script.json --lanes foreground background --print-result
+
+# For a continuously polling worker with a real model:
+python -m harness.worker --model-config /srv/daraos/model.yaml --lanes foreground background
+```
+
+The API can then read the task, events, trace and artifact content from the
+same stores, including after a normal API restart. A queued task remains
+available to a later worker. This does not add recovery of an attempt whose
+worker died while running: expired leases still need the P1 Scheduler, and
+checkpoint replay/resume is not implemented.
+
 ## Open items
 
 | Item | Decided | When |
 |---|---|---|
 | Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
-| Who calls `TaskService.checkpoint` | Implemented (JSON artifact + `checkpoint_ref`); the Runner does not write checkpoints yet, and resume reads none | P1 |
+| Checkpoint resume | `TaskService.checkpoint` is available; Runner writes a checkpoint when a tool returns `needs_approval` or `unknown` and the attempt enters waiting. Resume does not read or replay it yet | P1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
 | ProactiveController, DeliveryService, subscriptions, outbox | Not started; their types come with them | P2 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
 | ContextBuilder token cut, memory, resume from checkpoint | P0 builder lists goal, acceptance, inputs and artifacts only | P1 |
 | Parallel tool calls in one step | Run one after another in P0 | later |
-| Wire PostgreSQL into the system | `build_system` uses `PgRepositories` when `DARAOS_HARNESS_DATABASE_DSN` is set; then the API and workers can run as separate processes | PR-B (2b) |
 
 ## Tests
 

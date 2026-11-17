@@ -13,7 +13,7 @@ Not here (P1/P2): resume, approvals, POST /events, subscriptions.
 
 The API never runs model or tool calls in a request (spec 2): it only talks
 to TaskService and the stores. Workers run tasks, in this process
-(``--with-worker``) or in others once the PostgreSQL store is wired in.
+(``--with-worker``) or in separate processes sharing PostgreSQL and artifacts.
 
 Identity comes from the bearer token (``api.auth``), never from the body:
 ``agent_role`` is always ``main`` and ``prefer_background`` only picks the

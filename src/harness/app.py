@@ -27,10 +27,11 @@ no entry gets no tools (spec: access is opt-in per user).
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -47,6 +48,9 @@ from .storage.repositories import Repositories
 from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
 from .tools.connectors import p0_connectors
+
+if TYPE_CHECKING:
+    from .storage.postgres import PgRepositories
 
 _POLICY_KEYS = {"disabled_tools", "users", "tokens"}
 _GRANT_KEYS = {"paths", "tools", "ref"}
@@ -138,6 +142,23 @@ class HarnessSystem:
     builder: SimpleContextBuilder
     runner: AgentRunner
     tasks: TaskService
+    _owned_pg: PgRepositories | None = field(default=None, repr=False)
+
+    @asynccontextmanager
+    async def lifespan(self):
+        """Check and close the PostgreSQL store created by this system.
+
+        Explicitly injected repositories remain the caller's responsibility.
+        A configured database failure is reported before serving or claiming
+        tasks; it never selects an empty in-memory store instead.
+        """
+        try:
+            if self._owned_pg is not None:
+                await self._owned_pg.check_ready()
+            yield self
+        finally:
+            if self._owned_pg is not None:
+                await self._owned_pg.close()
 
     def worker(self, *, lanes=(RunLane.FOREGROUND,), worker_id: str | None = None) -> Worker:
         return Worker(
@@ -164,10 +185,11 @@ def build_system(
     policy_spec: Mapping[str, Any] | None = None,
     clock: Callable[[], datetime] = utcnow,
 ) -> HarnessSystem:
-    """All real modules over ``repos`` (in-memory by default until the
-    PostgreSQL repositories land in item 2)."""
-    repos = repos or InMemoryRepositories()
-    artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
+    """Wire modules over an injected store, configured PostgreSQL, or memory.
+
+    Application entry points must enter the returned system's ``lifespan``
+    to initialize and close any database pool this function creates.
+    """
     agents = AgentRegistry.builtin()
     capabilities = CapabilityRegistry.builtin()
     spec = policy_spec if policy_spec is not None else load_policy_file(config.policy_file)
@@ -177,6 +199,16 @@ def build_system(
         capabilities=capabilities.tool_map(),
         disabled_tools=spec.get("disabled_tools") or (),
     )
+    owned_pg = None
+    if repos is None:
+        if config.database_dsn:
+            from .storage.postgres import PgRepositories
+
+            owned_pg = PgRepositories.from_dsn(config.database_dsn)
+            repos = owned_pg
+        else:
+            repos = InMemoryRepositories()
+    artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
     gateway = ToolGateway(
         repos, artifacts, policy, p0_connectors(artifacts), profiles=agents.tool_policies(), clock=clock
     )
@@ -204,4 +236,5 @@ def build_system(
         builder=builder,
         runner=runner,
         tasks=tasks,
+        _owned_pg=owned_pg,
     )

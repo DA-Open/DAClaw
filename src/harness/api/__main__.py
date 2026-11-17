@@ -8,9 +8,10 @@ scopes come from ``tokens`` in the permissions file
 (``DARAOS_HARNESS_POLICY_FILE``). With no tokens configured every request is
 401, so the API is closed by default.
 
-Until the PostgreSQL store is wired in (item 2b) tasks live in this
-process's memory, so a worker must run here too: ``--with-worker`` starts
-one alongside the server (needs ``--model-config`` or ``--scripted``).
+Set ``DARAOS_HARNESS_DATABASE_DSN`` to share tasks with a separate worker.
+Without it tasks live in this process's memory; ``--with-worker`` starts
+a worker alongside the server (needs ``--model-config`` or ``--scripted``).
+Both processes need the same absolute artifact root and input paths.
 """
 
 from __future__ import annotations
@@ -55,12 +56,14 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--with-worker needs --model-config or --scripted")
     model = _model(args) if args.with_worker else _NoModel()
     system = build_system(config, model, policy_spec=spec)
-    lifespan = None
-    if args.with_worker:
-        worker = system.worker(lanes=[RunLane(l) for l in args.lanes])
 
-        @contextlib.asynccontextmanager
-        async def lifespan(_app):
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        async with system.lifespan():
+            if not args.with_worker:
+                yield
+                return
+            worker = system.worker(lanes=[RunLane(l) for l in args.lanes])
             stop = asyncio.Event()
             running = asyncio.create_task(worker.run_forever(stop=stop))
             try:
