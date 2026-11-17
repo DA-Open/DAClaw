@@ -191,13 +191,20 @@ DEFAULT_CHECKERS: dict[str, Checker] = {
 # -- built-in checks that always apply -----------------------------------------------
 
 
-def _required_artifacts(task: Task, candidate: CandidateResult) -> CheckResult | None:
+async def _required_artifacts(task: Task, candidate: CandidateResult, artifacts: ArtifactStore) -> CheckResult | None:
     wanted = task.acceptance.required_artifacts
     if not wanted:
         return None
     missing = [n for n in wanted if n not in candidate.artifact_refs]
     if missing:
         return _result("required_artifacts", FAILED, f"missing artifacts: {', '.join(missing)}")
+    actor = Actor(actor_id=task.actor_id, scope_id=task.scope_id)
+    for name in wanted:
+        ref = candidate.artifact_refs[name]
+        try:
+            await artifacts.read(ref, actor, length=0)
+        except HarnessError as exc:
+            return _result("required_artifacts", FAILED, f"artifact {name!r} ({ref}) cannot be read: {exc.message}")
     return _result("required_artifacts", PASSED, f"present: {', '.join(wanted)}",
                    [candidate.artifact_refs[n] for n in wanted])
 
@@ -301,7 +308,7 @@ class CapabilityVerifier:
             unverified.append(f"capability {task.capability_ref}: {exc}")
 
         for built_in in (
-            _required_artifacts(task, result),
+            await _required_artifacts(task, result, self._artifacts),
             _result_schema(pack, result) if pack else None,
             await _evidence(task, result, self._repos),
             _required_actions(task, result),
