@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from harness.contracts import (
     TASK_TRANSITIONS,
     Acceptance,
+    Approval,
+    ApprovalDecision,
     Artifact,
     ArtifactContent,
     ArtifactRef,
@@ -16,14 +18,28 @@ from harness.contracts import (
     CandidateResult,
     CheckResult,
     CheckSpec,
+    DeliveryOutcome,
+    DeliveryStatus,
     ErrorCode,
     ErrorResponse,
     IdempotencyConflict,
     InvalidTransition,
+    Grant,
     Limits,
+    MemoryKind,
+    MemoryRecord,
+    MemoryStatus,
+    NoticeOutcome,
+    NoticeRequest,
+    NoticeReservation,
+    OutboxItem,
+    OutboxStatus,
     RemainingBudget,
     RunLane,
     StepKind,
+    Subscription,
+    SubscriptionEvent,
+    SubscriptionStatus,
     Task,
     TaskError,
     TaskOrigin,
@@ -378,3 +394,109 @@ def test_task_ref_of():
         "run_lane": "foreground",
         "status": "queued",
     }
+
+
+# -- subscriptions, approvals and delivery (P1/P2 types) -----------------------
+
+
+def subscription(**kw):
+    data = dict(
+        scope_id="s1",
+        owner_id="u1",
+        goal="watch refunds",
+        capability_ref="document_draft@1",
+        schedule="*/30 * * * *",
+    )
+    data.update(kw)
+    return Subscription(**data)
+
+
+def test_subscription_needs_a_trigger():
+    with pytest.raises(ValidationError):
+        subscription(schedule=None)
+    assert subscription().status is SubscriptionStatus.ACTIVE
+
+
+def test_subscription_defaults_are_safe():
+    sub = subscription()
+    assert sub.id.startswith("sub_")
+    assert sub.version == 1
+    assert sub.delivery_mode == "digest"
+    assert sub.limits.max_tool_calls > 0
+    # A filter alone is a valid trigger too.
+    assert subscription(schedule=None, event_filter={"type": "data_updated"}).schedule is None
+
+
+def test_subscription_rejects_unknown_fields():
+    with pytest.raises(ValidationError):
+        subscription(scope="s1")
+
+
+def test_subscription_event_is_per_subscription():
+    first = SubscriptionEvent(subscription_id="sub_1", event_id="evt_1", decision="admit", task_id="task_1")
+    second = SubscriptionEvent(subscription_id="sub_2", event_id="evt_1", decision="skip", reason="deduped")
+    assert first.task_id != second.task_id
+    assert first.processed_at.tzinfo is not None
+
+
+def test_approval_binds_action_and_request_hash():
+    approval = Approval(action_id="act_1", request_hash="h1", approver="u1", decision=ApprovalDecision.APPROVE)
+    assert approval.decision is ApprovalDecision.APPROVE
+    with pytest.raises(ValidationError):
+        Approval(action_id="act_1", request_hash="h1", approver="u1", decision="yes")
+
+
+def test_grant_expiry_and_revocation_make_it_inactive():
+    live = Grant(key="send_email:ops@company.com", subject="u1", resource="ops@company.com", action="send_email")
+    assert live.active
+    expired = live.model_copy(update={"expires_at": datetime(2000, 1, 1, tzinfo=timezone.utc)})
+    assert not expired.active
+    revoked = live.model_copy(update={"revoked_at": datetime.now(timezone.utc)})
+    assert not revoked.active
+
+
+def test_notice_request_needs_a_dedup_key():
+    with pytest.raises(ValidationError):
+        NoticeRequest(scope_id="s1", recipient="u1", result_ref="a1", channel="feishu", dedup_key="")
+    request = NoticeRequest(scope_id="s1", recipient="u1", result_ref="a1", channel="feishu", dedup_key="d1")
+    assert request.mode == "notify"
+
+
+def test_notice_reservation_can_be_suppressed():
+    reservation = NoticeReservation(outcome=NoticeOutcome.SUPPRESSED, dedup_key="d1", reason="quiet hours")
+    assert reservation.notice_id is None
+    assert reservation.reason
+
+
+def test_outbox_item_starts_pending():
+    item = OutboxItem(scope_id="s1", recipient="u1", channel="feishu", content_ref="a1", dedup_key="d1")
+    assert item.status is OutboxStatus.PENDING
+    assert item.attempts == 0
+    with pytest.raises(ValidationError):
+        OutboxItem(
+            scope_id="s1", recipient="u1", channel="feishu", content_ref="a1", dedup_key="d1", attempts=-1
+        )
+
+
+def test_delivered_outcome_needs_a_receipt():
+    with pytest.raises(ValidationError):
+        DeliveryOutcome(status=DeliveryStatus.DELIVERED)
+    assert DeliveryOutcome(status=DeliveryStatus.DELIVERED, receipt_ref="rcpt_1").receipt_ref
+    # An unknown send keeps its item for reconciliation without a receipt.
+    assert DeliveryOutcome(status=DeliveryStatus.UNKNOWN).receipt_ref is None
+
+
+def test_memory_record_is_candidate_until_confirmed():
+    record = MemoryRecord(scope_id="s1", kind=MemoryKind.FACT, content_ref="a1", source_ref="msg_1")
+    assert record.status is MemoryStatus.CANDIDATE
+    confirmed = record.model_copy(update={"status": MemoryStatus.CONFIRMED})
+    superseding = record.model_copy(update={"supersedes_id": confirmed.id})
+    assert superseding.supersedes_id == confirmed.id
+
+
+def test_new_types_survive_a_json_round_trip():
+    sub = subscription()
+    again = Subscription.model_validate_json(sub.model_dump_json())
+    assert again == sub
+    assert canonical_hash(sub) == canonical_hash(again)
+
