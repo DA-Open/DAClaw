@@ -38,6 +38,7 @@ from ..contracts import (
     Artifact,
     Attempt,
     AttemptLease,
+    ErrorCode,
     Event,
     EventType,
     HarnessError,
@@ -48,6 +49,7 @@ from ..contracts import (
     RunLane,
     StaleLease,
     Task,
+    TaskError,
     TaskOutcome,
     TaskStatus,
     Usage,
@@ -476,6 +478,18 @@ class PgTaskRepository:
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
         async with self._db.engine.begin() as conn:
             task, attempt = await self._db.check_lease(conn, lease, now)
+            # The task lock orders cancellation against completion. If cancel
+            # won, finish this attempt as cancelled instead of stranding it.
+            if task.status is TaskStatus.CANCELLING and outcome.status is not TaskStatus.CANCELLED:
+                outcome = TaskOutcome.model_validate(
+                    outcome.model_dump() | {
+                        "status": TaskStatus.CANCELLED,
+                        "result_ref": None,
+                        "verification_ref": None,
+                        "wait_condition": None,
+                        "error": TaskError(code=ErrorCode.CANCELLED, message=task.cancel_reason or "cancel requested"),
+                    }
+                )
             assert_transition(task.status, outcome.status)
             if outcome.status is TaskStatus.SUCCEEDED:
                 verification = (
@@ -497,7 +511,10 @@ class PgTaskRepository:
                     .where(s.tasks.c.id == task.id)
                     .values(
                         status=outcome.status.value,
-                        result_ref=outcome.result_ref if outcome.result_ref is not None else task.result_ref,
+                        result_ref=(
+                            None if outcome.status is TaskStatus.CANCELLED
+                            else outcome.result_ref if outcome.result_ref is not None else task.result_ref
+                        ),
                         wait_condition=outcome.wait_condition.value if outcome.wait_condition else None,
                         error=_dump(outcome.error) if outcome.error is not None else None,
                         checkpoint_ref=(

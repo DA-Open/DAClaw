@@ -183,9 +183,12 @@ creates them, and a test checks the two match.
 | The budget is never overspent | reserve locks the task row, then checks settled + open reservations + this one against the limits and inserts the reservation |
 | One task per `(scope_id, request_key)`, one action per `(task_id, logical_key)`, one reservation per `call_id`, one outside event per `(scope_id, source, source_event_id)` | unique constraints, `INSERT ... ON CONFLICT DO NOTHING` |
 | Status and its event commit together | same transaction; `events.seq` is an identity column (the SSE cursor) |
+| Incremental event readers do not skip late commits | every event insertion takes a transaction advisory lock for its scope before allocating `seq`, including events without a task; other scopes remain independent |
+| An accepted cancel wins over a late outcome | commit checks cancellation while holding the task row lock, finishes the attempt as cancelled, and retains partial artifacts and usage without publishing a result |
 
-Each repository method is one short transaction; locks are always taken
-task row first, so callers on one task never deadlock. Nested values
+Each repository method is one short transaction. Take task/usage locks
+before the event-scope lock, and acquire no task/usage locks after appending
+an event; standalone event appends take only the scope lock. Nested values
 (acceptance, limits, usage, errors, payloads, checks) are `jsonb`, validated
 by the models in `contracts.py`.
 

@@ -41,6 +41,8 @@ from harness.contracts import (  # noqa: E402
     TriggerType,
     Usage,
     UsageKind,
+    VerificationResult,
+    VerificationStatus,
 )
 from harness.storage import schema  # noqa: E402
 from harness.storage import migrate  # noqa: E402
@@ -145,6 +147,51 @@ async def test_old_and_new_worker_race_to_commit(pools):
     )
     assert isinstance(results[0], StaleLease)
     assert results[1].status is TaskStatus.FAILED and results[1].lease_epoch == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_first", [True, False])
+async def test_cancel_and_completion_resolve_under_the_task_lock(pools, monkeypatch, cancel_first):
+    task = (await pools[0].tasks.create(make_task("cancel-race"))).task
+    lease = await pools[0].tasks.claim("w", [RunLane.FOREGROUND], TTL, T0)
+    verified = await pools[0].verifications.add(
+        VerificationResult(task_id=task.id, result_ref="art_done", checker_version="1", status=VerificationStatus.PASSED)
+    )
+    outcome = TaskOutcome(status=TaskStatus.SUCCEEDED, result_ref="art_done", verification_ref=verified.id)
+    inserted, release = asyncio.Event(), asyncio.Event()
+    original = pools[0].tasks._db.status_event
+
+    async def pause_before_commit(*args, **kwargs):
+        await original(*args, **kwargs)
+        inserted.set()
+        await release.wait()
+
+    monkeypatch.setattr(pools[0].tasks._db, "status_event", pause_before_commit)
+    if cancel_first:
+        first = pools[0].tasks.request_cancel("s1", task.id, "stop", T0)
+        second = pools[1].tasks.commit(lease, outcome, T0)
+    else:
+        first = pools[0].tasks.commit(lease, outcome, T0)
+        second = pools[1].tasks.request_cancel("s1", task.id, "too late", T0)
+    first_call = asyncio.create_task(first)
+    second_call = None
+    try:
+        await asyncio.wait_for(inserted.wait(), timeout=5)
+        second_call = asyncio.create_task(second)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(asyncio.shield(second_call), timeout=0.2)
+    finally:
+        release.set()
+        await asyncio.wait_for(first_call, timeout=5)
+        if second_call is not None:
+            await asyncio.wait_for(second_call, timeout=5)
+        else:
+            second.close()
+    stored = await pools[0].tasks.get("s1", task.id)
+    assert stored.status is (TaskStatus.CANCELLED if cancel_first else TaskStatus.SUCCEEDED)
+    assert stored.result_ref == (None if cancel_first else "art_done")
+    attempt = await pools[0].tasks.get_attempt("s1", lease.attempt_id)
+    assert attempt.ended_at == T0 and attempt.exit_reason == stored.status.value
 
 
 @pytest.mark.asyncio
