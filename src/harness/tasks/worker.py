@@ -198,7 +198,16 @@ class Worker:
         except Exception as exc:  # noqa: BLE001 - e.g. missing instructions file
             log.exception("worker %s: context build failed for %s", self.worker_id, task.id)
             return _infra_failure(f"could not build the context: {type(exc).__name__}: {exc}")
-        return await self.runner.run(context, profile, execution, lease_lost=lambda: watch.lost)
+        try:
+            return await self.runner.run(context, profile, execution, lease_lost=lambda: watch.lost)
+        except StaleLease:
+            raise
+        except Exception as exc:  # noqa: BLE001 - review of #18: a Runner bug must not leave the task running
+            # The Runner normally turns every error into an outcome; reaching
+            # here means a bug. Without a Scheduler (P1) nothing would requeue
+            # the task, so it is committed as failed. Partial artifacts stay.
+            log.exception("worker %s: runner raised for %s", self.worker_id, task.id)
+            return _infra_failure(f"runner raised {type(exc).__name__}: {exc}")
 
     async def _heartbeat(self, lease: AttemptLease, watch: _LeaseWatch) -> None:
         while True:

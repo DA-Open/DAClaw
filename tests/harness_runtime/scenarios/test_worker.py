@@ -208,6 +208,23 @@ async def test_heartbeats_keep_a_long_attempt_alive(tmp_path):
     assert report.heartbeats >= 3
 
 
+async def test_runner_crash_is_committed_as_failed_not_stuck(tmp_path):
+    # Review of #18: an exception out of the Runner (a bug) used to escape
+    # run_once and leave the task running until the lease ran out.
+    system, _, _ = setup(tmp_path, happy)
+    task = await submit(system)
+
+    async def crash(*args, **kwargs):
+        raise RuntimeError("runner bug")
+
+    system.runner.run = crash
+    report = await system.worker().run_once()
+    assert report.committed and report.status is TaskStatus.FAILED
+    assert "RuntimeError" in report.error and "runner bug" in report.error
+    stored = await system.tasks.get("s1", task.id)
+    assert stored.status is TaskStatus.FAILED and stored.error.code == "internal"
+
+
 async def test_unknown_profile_is_committed_as_failed_not_stuck(tmp_path):
     system, _, _ = setup(tmp_path, happy)
     task = await submit(system)
