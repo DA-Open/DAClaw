@@ -40,13 +40,13 @@ WORKDIR /opt/daclaw
 RUN chown daclaw:daclaw /opt/daclaw
 
 # Python deps first, pinned by uv.lock, so code-only changes reuse this layer.
-# requirements-extra.txt adds what uv.lock does not cover yet; it is installed
-# with the lock as constraints so the final sync does not move anything back.
+# requirements-extra.txt adds the Python Playwright version matching npm's
+# browser install, with the lock as constraints for shared dependencies.
 COPY --chown=daclaw:daclaw pyproject.toml uv.lock README.md ./
 COPY --chown=daclaw:daclaw docker/requirements-extra.txt docker/
 USER daclaw
-RUN uv sync --frozen --extra all --no-install-project && \
-    uv export --frozen --extra all --no-hashes --no-emit-project -o /tmp/lock-constraints.txt && \
+RUN uv sync --locked --extra all --extra harness --no-install-project && \
+    uv export --locked --extra all --extra harness --no-hashes --no-emit-project -o /tmp/lock-constraints.txt && \
     uv pip install -c /tmp/lock-constraints.txt -r docker/requirements-extra.txt && \
     rm /tmp/lock-constraints.txt
 USER root
@@ -86,7 +86,7 @@ RUN (cd web && npm install --registry "$NPM_REGISTRY" --no-audit && npm run buil
 # packages, which a plain (exact) sync would uninstall. pip check fails the
 # build if the extras and the lock ever disagree again.
 USER daclaw
-RUN uv sync --frozen --extra all --inexact && \
+RUN uv sync --locked --extra all --extra harness --inexact && \
     uv pip check
 
 USER root

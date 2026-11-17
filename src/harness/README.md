@@ -15,17 +15,17 @@ rule here and the code disagree, fix one of them in the same PR.
 | `contracts.py` shared types, task state machine | — | done | PR-A |
 | `config.py` (env `DARAOS_HARNESS_*`) | — | done | PR-A |
 | `interfaces.py` module Protocols (spec 5.2) | done | — | PR-A |
-| `storage/` repositories | done | in-memory done; PostgreSQL + migrations next | PR-A / PR-B |
-| `tasks/` TaskService + worker | done | done (in-memory store until PostgreSQL lands; `python -m harness.worker`) | PR-C |
-| `app.py` wiring, permissions file | — | done (`build_system`, `DARAOS_HARNESS_POLICY_FILE`) | PR-C |
+| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migration `0001`); selected by `build_system` from `database_dsn` | PR-A / PR-B (2a, 2b) |
+| `tasks/` TaskService + worker | done | `python -m harness.worker`; PostgreSQL workers can claim tasks submitted by a separate API process | PR-C / PR-B (2b) |
+| `app.py` wiring, permissions file | — | `build_system`, `HarnessSystem.lifespan`, `DARAOS_HARNESS_POLICY_FILE` | PR-C / PR-B (2b) |
 | `trace.py` task timeline | — | done (`--trace`) | PR-C |
 | `runtime/` AgentRunner, ModelAdapter, budget | done | done | PR-D |
 | `context/` ContextBuilder | done | minimal (no memory, no token cut) | PR-D |
 | `tools/` ToolGateway, Policy, connectors | done | done (P0: `files.read`, `artifacts.read`, `artifacts.write`) | PR-E |
 | `results/` ArtifactStore, Verifier | done | done (`FileArtifactStore`, `CapabilityVerifier` with `artifact_readable`, `required_sections`) | PR-E / PR-F |
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
-| `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | done (`python -m harness.api`; token auth; in-memory store until PostgreSQL is wired in) | PR-G |
-| P0 acceptance scenarios | — | not started | PR-H |
+| `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
+| P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
 | `delivery/`, ProactiveController, subscriptions (P2) | not yet | not started | — |
 
 ## Who does what
@@ -244,6 +244,16 @@ Wiring: `app.build_system(config, model)` puts all real modules together
 `TaskService`). The worker CLI, the API and the tests all use it, so there
 is one place to change the wiring.
 
+Without an explicit `repos=...`, `build_system` selects PostgreSQL when
+`config.database_dsn` is set and an in-memory store otherwise. Use
+`async with system.lifespan():` around an embedded system: it checks the
+owned PostgreSQL store at startup and closes its connection pool on exit,
+including startup failure. The API and worker entry points do this already.
+An explicitly injected repository overrides that selection and remains
+owned by its caller, which must manage its initialization and closure.
+Database migrations are a separate deployment step; startup does not apply
+them or silently fall back to an in-memory store.
+
 ## Tasks and the worker
 
 `TaskService` (`tasks/service.py`) is the only writer of task status. On
@@ -271,9 +281,13 @@ python -m harness.worker --once --submit task.json --model-config model.yaml --p
 python -m harness.worker --once --submit task.json --scripted script.json   # no network
 ```
 
-Until the PostgreSQL repositories land, the store is in memory, so
-`--submit` creates the task in the same process (as the API would, role
-`main`, trusted origin). `model.yaml` holds `ModelConfig` fields; the key
+Without a database DSN, the store is in memory and `--submit` creates the
+task in the same process (as the API would, role `main`, trusted origin).
+With PostgreSQL, omit `--submit` to claim a task already queued by the API;
+`--once --scripted /absolute/path/script.json` also works this way without
+model calls. The worker's default lane is **foreground**: use
+`--lanes foreground background` to also handle `prefer_background` tasks.
+`model.yaml` holds `ModelConfig` fields; the key
 comes from the environment variable named by `api_key_env`. The command
 prints one JSON line and exits 0 when the attempt was committed.
 
@@ -313,9 +327,23 @@ With no file, no scope has any tool.
 | `GET /tasks/{id}/events` | SSE; `Last-Event-ID` resumes; one `final` event after the task stops (succeeded, failed, cancelled or waiting); a dropped client does not cancel the task |
 | `POST /tasks/{id}/cancel` | idempotent; body `{"reason": "..."}` optional |
 | `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
-| `GET /artifacts/{id}` | content, `offset` / `length` byte range (5 MB max per call) |
+| `GET /artifacts/{id}` | whole content (200), or a byte range (206); 5 MiB max per call |
 
 Not yet: resume, approvals, `POST /events`, subscriptions (P1/P2).
+
+**Artifact downloads** support `offset` / `length` query parameters or one
+`Range: bytes=start-end` header (open-ended and suffix ranges also work).
+Partial responses include `Content-Range` and `Accept-Ranges: bytes`; clients
+can use the returned end offset to fetch the next chunk. Each chunk is capped
+at 5 MiB. A whole-artifact request above that limit returns 413 and must be
+retried with a range. A complete empty artifact is 200; unsatisfiable ranges
+are 416 with `Content-Range: bytes */size`. Zero-length queries, malformed or
+multiple ranges, and combining header/query range selectors are 400. Unknown
+range units are ignored. `ETag` uses the stored content hash; `If-Range` only
+enables a range when its strong ETag matches, otherwise normal whole-download
+rules apply. Scoped lookup precedes Range-header parsing and 416 responses,
+so another scope still sees
+404 without the artifact's size.
 
 **Identity** comes only from the bearer token. The permissions file lists
 callers by the token's sha256 (the token itself is never stored):
@@ -334,20 +362,39 @@ token is checked before the body is read. The body may not carry
 artifact is 404, the same answer as a missing one. Files in `input_refs`
 must sit in the caller's whitelisted directories (400 at submit time).
 
+**Request bounds.** `goal` is 1–32,768 Unicode characters. `input_refs`
+contains at most 128 references, each at most 4,096 characters. Exceeding
+any of these limits returns 400 `invalid_request` before creating a task.
+
+**SSE capacity.** Each API process accepts at most 64 active event streams,
+with at most 4 per authenticated scope (shared across that scope's tokens).
+Set `DARAOS_HARNESS_SSE_MAX_CONNECTIONS` and
+`DARAOS_HARNESS_SSE_MAX_CONNECTIONS_PER_SCOPE` to positive integers to change
+these limits. Excess connections receive 429 `limits_exceeded`,
+`retryable: true` and `Retry-After: 1`. Slots are released on completion,
+disconnect, cancellation and stream errors. These are process-local limits;
+multiple API processes multiply the capacity. While a stream is idle, polling
+backs off from 0.5 to 5 seconds and resets when events arrive. Keep-alives
+continue every 15 seconds of idle waiting; new events can take up to one
+poll interval to appear.
+
 **Errors** all have `{error_code, message, retryable, request_id}` and an
 `X-Request-ID` header: 400 bad body, unknown capability or profile, unknown
 check, limits over the caps; 401 token; 404 not found or not yours; 409
-same key with other content; 500 `internal` only, details in the log.
+same key with other content; 413 full artifact too large; 416 unsatisfiable
+range; 429 event-stream capacity exceeded; 500 `internal` only, details in the log.
 
-**Running it.** The API never runs model or tool calls in a request. Until
-PostgreSQL is wired in (item 2b) tasks live in the process's memory, so a
-worker runs in the same process:
+**Running it.** The API never runs model or tool calls in a request. With
+PostgreSQL it can run on its own without `--model-config` or `--scripted`;
+a separate worker performs the model and tool calls. Without a database
+DSN, tasks live in the process's memory, so run a worker in that process:
 
 ```bash
 python -m harness.api --port 8090 --with-worker --model-config model.yaml
 ```
 
-It binds 127.0.0.1 by default.
+It binds 127.0.0.1 by default. See the PostgreSQL example below for separate
+processes.
 
 ## Model adapters
 
@@ -383,22 +430,116 @@ message's `native` field and replayed only to the same protocol.
 `ScriptedModelAdapter` is the fake model for tests. `scripts/harness_runner_smoke.py`
 runs one real model through the Runner with fake tools, for a manual check.
 
+## PostgreSQL
+
+`storage/postgres.py` (`PgRepositories`) behaves like the in-memory store:
+every test in `unit/test_repositories.py` runs on both. Tables are defined
+once in `storage/schema.py`; the migration in `storage/migrations/versions/`
+creates them, and a test checks the two match.
+
+| Guarantee | How |
+|---|---|
+| Two workers never take the same task | claim selects queued rows `FOR UPDATE SKIP LOCKED`, highest priority then oldest, using the partial index `ix_tasks_queue` (`WHERE status = 'queued'`) |
+| A stale worker cannot heartbeat, checkpoint, record or commit | each of those locks the task row and checks `current_attempt_id`, `lease_epoch`, status and the attempt's expiry in the same transaction |
+| The budget is never overspent | reserve locks the task row, then checks settled + open reservations + this one against the limits and inserts the reservation |
+| One task per `(scope_id, request_key)`, one action per `(task_id, logical_key)`, one reservation per `call_id`, one outside event per `(scope_id, source, source_event_id)` | unique constraints, `INSERT ... ON CONFLICT DO NOTHING` |
+| Status and its event commit together | same transaction; `events.seq` is an identity column (the SSE cursor) |
+| Incremental event readers do not skip late commits | every event insertion takes a transaction advisory lock for its scope before allocating `seq`, including events without a task; other scopes remain independent |
+| An accepted cancel wins over a late outcome | commit checks cancellation while holding the task row lock, finishes the attempt as cancelled, and retains partial artifacts and usage without publishing a result |
+
+Each repository method is one short transaction. Take task/usage locks
+before the event-scope lock, and acquire no task/usage locks after appending
+an event; standalone event appends take only the scope lock. Nested values
+(acceptance, limits, usage, errors, payloads, checks) are `jsonb`, validated
+by the models in `contracts.py`.
+
+```bash
+pip install -e '.[harness]'                       # sqlalchemy 2.0.x, asyncpg, alembic
+export DARAOS_HARNESS_DATABASE_DSN='postgresql://<user>:<password>@<host>:5432/<database>'
+python -m harness.storage.migrate upgrade         # also: downgrade, current, heads, revision
+```
+
+There is no `alembic.ini`; the config is built in `storage/migrate.py` and
+the URL comes from the environment only. A new migration: change
+`schema.py`, run `revision -m "..." --autogenerate`, then read the script
+(Alembic misses renames and partial indexes). `test_one_migration_head`
+fails when two branches each added a migration; merge them before landing.
+
+### API and worker in separate processes
+
+Install the harness in the Python environment used by both processes and
+run the migration before starting either. The paths below are examples;
+prepare the permissions file (including API token hashes), input material,
+API request body and scripted steps first.
+
+Both shells must use the same DSN, **the same absolute artifact root**, and
+the same permissions configuration. On one host they may have different
+working directories, but must be able to access the same input files at
+the absolute paths allowed by `users.<scope>.main.paths`. Use absolute paths
+in `input_refs`, script arguments and configuration. The default relative
+`./harness_artifacts` is unsuitable for processes with different working
+directories: PostgreSQL stores artifact metadata, while the file store
+still holds the content on disk. A shared database alone does not share
+files between hosts.
+
+```bash
+# Set these in both shells; replace the DSN placeholders locally.
+export DARAOS_HARNESS_DATABASE_DSN='postgresql://<user>:<password>@<host>:5432/<database>'
+export DARAOS_HARNESS_ARTIFACT_ROOT=/srv/daraos/artifacts
+export DARAOS_HARNESS_POLICY_FILE=/srv/daraos/policy.yaml
+
+# Once, before startup:
+python -m harness.storage.migrate upgrade
+
+# Shell 1: API only; no model credentials or model configuration needed.
+python -m harness.api --port 8090
+```
+
+Submit a task through `POST /tasks` using its bearer token and
+`Idempotency-Key`. After it is queued, run in the second shell:
+
+```bash
+# Shares the settings above; claims the API task without --submit.
+python -m harness.worker --once --scripted /srv/daraos/script.json --lanes foreground background --print-result
+
+# For a continuously polling worker with a real model:
+python -m harness.worker --model-config /srv/daraos/model.yaml --lanes foreground background
+```
+
+The API can then read the task, events, trace and artifact content from the
+same stores, including after a normal API restart. A queued task remains
+available to a later worker. This does not add recovery of an attempt whose
+worker died while running: expired leases still need the P1 Scheduler, and
+checkpoint replay/resume is not implemented.
+
 ## Open items
 
 | Item | Decided | When |
 |---|---|---|
 | Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
-| Who calls `TaskService.checkpoint` | Implemented (JSON artifact + `checkpoint_ref`); the Runner does not write checkpoints yet, and resume reads none | P1 |
+| Checkpoint resume | `TaskService.checkpoint` is available; Runner writes a checkpoint when a tool returns `needs_approval` or `unknown` and the attempt enters waiting. Resume does not read or replay it yet | P1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
 | ProactiveController, DeliveryService, subscriptions, outbox | Not started; their types come with them | P2 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
 | ContextBuilder token cut, memory, resume from checkpoint | P0 builder lists goal, acceptance, inputs and artifacts only | P1 |
 | Parallel tool calls in one step | Run one after another in P0 | later |
-| PostgreSQL driver and migrations | `asyncpg` driver, SQLAlchemy 2.0 Core (async) for queries, tables defined once in `storage/schema.py`, Alembic (async template) for migrations; tests start a `postgres:16` container. SQLAlchemy stays on 2.0.x | PR-B |
 
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest tests/harness_runtime -q
+.venv/bin/python -m pytest tests/harness_runtime -q                     # no database needed
+.venv/bin/python -m pytest tests/harness_runtime -q -m integration -n0  # PostgreSQL tests
 ```
+
+The PostgreSQL tests (the `postgres` half of `test_repositories.py` and
+`integration/test_postgres.py`) are marked `integration`. They use
+`DARAOS_HARNESS_TEST_DSN` if set (that database is wiped), otherwise they
+start a throwaway `postgres:16` container with docker, one per test session,
+and remove it afterwards. Without docker or the harness extra they skip.
+Use `-n0` for database tests: the repository defaults to `-n auto`, which
+starts one container per xdist worker and can exhaust Docker resources.
+Tests still race separate database connections within a single worker.
+`integration/test_postgres.py` races separate connections against each
+other (claims, the last budget unit, one action key, one request key, old
+and new worker committing); removing the row locks makes those tests fail.

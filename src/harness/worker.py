@@ -3,10 +3,11 @@
     python -m harness.worker --once --submit task.json --model-config model.yaml
     python -m harness.worker --once --submit task.json --scripted script.json
 
-Until the PostgreSQL repositories land (P0 item 2) the task store is in
-memory, so the API and a worker cannot share tasks across processes yet.
-``--submit`` therefore creates the task in this process first, as the API
-would (agent_role=main, trusted origin), and ``--once`` runs one attempt.
+With ``DARAOS_HARNESS_DATABASE_DSN``, this worker claims tasks submitted by
+an API process using the same database. Both processes need the same
+absolute artifact root and input paths. Without a DSN the store is in
+memory: ``--submit`` creates a task in this process first (main role,
+trusted origin). ``--once`` runs one attempt with either backend.
 
 ``task.json`` is the POST /tasks body (spec 5.1) plus ``request_key`` and the
 caller's ``scope_id`` / ``actor_id``::
@@ -95,57 +96,57 @@ def _submit_step(summary: str, refs: dict[str, str], result_step):
 
 async def _main(args: argparse.Namespace) -> int:
     config = HarnessConfig.from_env()
-    system = build_system(config, _model(args))
-    if args.submit:
-        body = dict(_load(args.submit))
-        actor = Actor(actor_id=body.pop("actor_id", "local"), scope_id=body.pop("scope_id"))
-        background = bool(body.pop("prefer_background", False))
-        request = TaskRequest(**body, prefer_background=background)
-        origin = TaskOrigin(
-            agent_role=AgentRole.MAIN,
-            agent_profile_ref="main@1",
-            run_lane=RunLane.BACKGROUND if background else RunLane.FOREGROUND,
-            trigger_type=TriggerType.USER,
-        )
-        task = await system.tasks.create(request, actor, origin)
-        print(json.dumps({"submitted": task.id, "status": str(task.status)}, ensure_ascii=False), flush=True)
+    async with build_system(config, _model(args)).lifespan() as system:
+        if args.submit:
+            body = dict(_load(args.submit))
+            actor = Actor(actor_id=body.pop("actor_id", "local"), scope_id=body.pop("scope_id"))
+            background = bool(body.pop("prefer_background", False))
+            request = TaskRequest(**body, prefer_background=background)
+            origin = TaskOrigin(
+                agent_role=AgentRole.MAIN,
+                agent_profile_ref="main@1",
+                run_lane=RunLane.BACKGROUND if background else RunLane.FOREGROUND,
+                trigger_type=TriggerType.USER,
+            )
+            task = await system.tasks.create(request, actor, origin)
+            print(json.dumps({"submitted": task.id, "status": str(task.status)}, ensure_ascii=False), flush=True)
 
-    lanes = [RunLane(l) for l in args.lanes]
-    worker = system.worker(lanes=lanes)
-    if not args.once:
-        stop = asyncio.Event()
-        await worker.run_forever(stop=stop)
-        return 0
-    report = await worker.run_once()
-    if report is None:
-        print(json.dumps({"claimed": None}), flush=True)
-        return 1
-    line = {
-        "task_id": report.task_id,
-        "attempt_id": report.attempt_id,
-        "status": str(report.status) if report.status else None,
-        "committed": report.committed,
-        "result_ref": report.result_ref,
-        "error": report.error,
-        "lease_lost": report.lease_lost,
-    }
-    if report.result_ref and args.print_result:
-        content = await system.artifacts.read(report.result_ref, Actor(actor_id="cli", scope_id=report.scope_id))
-        line["result"] = content.content.decode("utf-8", errors="replace")
-    print(json.dumps(line, ensure_ascii=False), flush=True)
-    if args.trace is not None:
-        trace = await build_trace(system.repos, system.artifacts, report.scope_id, report.task_id)
-        if args.trace == "-":
-            print(render_trace(trace), file=sys.stderr, flush=True)
-        else:
-            Path(args.trace).write_text(json.dumps(trace, ensure_ascii=False, indent=2), encoding="utf-8")
-    return 0 if report.committed else 1
+        lanes = [RunLane(l) for l in args.lanes]
+        worker = system.worker(lanes=lanes)
+        if not args.once:
+            stop = asyncio.Event()
+            await worker.run_forever(stop=stop)
+            return 0
+        report = await worker.run_once()
+        if report is None:
+            print(json.dumps({"claimed": None}), flush=True)
+            return 1
+        line = {
+            "task_id": report.task_id,
+            "attempt_id": report.attempt_id,
+            "status": str(report.status) if report.status else None,
+            "committed": report.committed,
+            "result_ref": report.result_ref,
+            "error": report.error,
+            "lease_lost": report.lease_lost,
+        }
+        if report.result_ref and args.print_result:
+            content = await system.artifacts.read(report.result_ref, Actor(actor_id="cli", scope_id=report.scope_id))
+            line["result"] = content.content.decode("utf-8", errors="replace")
+        print(json.dumps(line, ensure_ascii=False), flush=True)
+        if args.trace is not None:
+            trace = await build_trace(system.repos, system.artifacts, report.scope_id, report.task_id)
+            if args.trace == "-":
+                print(render_trace(trace), file=sys.stderr, flush=True)
+            else:
+                Path(args.trace).write_text(json.dumps(trace, ensure_ascii=False, indent=2), encoding="utf-8")
+        return 0 if report.committed else 1
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m harness.worker", description=__doc__.splitlines()[0])
     parser.add_argument("--once", action="store_true", help="run one attempt and exit")
-    parser.add_argument("--submit", metavar="TASK_JSON", help="create this task first (in-memory store)")
+    parser.add_argument("--submit", metavar="TASK_JSON", help="optionally create this task before claiming")
     parser.add_argument("--model-config", metavar="YAML", help="ModelConfig fields")
     parser.add_argument("--scripted", metavar="JSON", help="scripted steps instead of a model")
     parser.add_argument("--lanes", nargs="+", default=["foreground"], choices=["foreground", "background"])

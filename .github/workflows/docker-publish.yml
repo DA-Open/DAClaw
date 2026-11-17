@@ -12,7 +12,7 @@ on:
     branches: [hermes_demo]
     tags: ['v*']
   pull_request:
-    branches: [hermes_demo]
+    branches: [hermes_demo, DaraOS]
     paths:
       - Dockerfile
       - .dockerignore
@@ -97,7 +97,9 @@ jobs:
           test -f "$RUNNER_TEMP/daclaw-data/config.yaml"
           test -f "$RUNNER_TEMP/daclaw-data/.env"
           docker run --rm --entrypoint /opt/daclaw/.venv/bin/python daclaw:test \
-            -c "import duckdb, pandas, fastapi, playwright; print('imports ok')"
+            -c "import duckdb, pandas, fastapi, playwright, alembic, asyncpg, greenlet; print('imports ok')"
+          docker run --rm --entrypoint /opt/daclaw/.venv/bin/python daclaw:test \
+            -m harness.storage.migrate heads
 
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'

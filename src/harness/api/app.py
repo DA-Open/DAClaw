@@ -13,7 +13,7 @@ Not here (P1/P2): resume, approvals, POST /events, subscriptions.
 
 The API never runs model or tool calls in a request (spec 2): it only talks
 to TaskService and the stores. Workers run tasks, in this process
-(``--with-worker``) or in others once the PostgreSQL store is wired in.
+(``--with-worker``) or in separate processes sharing PostgreSQL and artifacts.
 
 Identity comes from the bearer token (``api.auth``), never from the body:
 ``agent_role`` is always ``main`` and ``prefer_background`` only picks the
@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -53,11 +53,15 @@ from ..trace import build_trace
 from . import errors
 from .auth import TokenAuth
 from .errors import ApiError
+from .ranges import byte_range
 
 MAIN_PROFILE = "main@1"
 # Statuses after which the task does nothing until someone acts.
 STOPPED = frozenset({TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.WAITING})
 MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
+MAX_GOAL_CHARACTERS = 32_768
+MAX_INPUT_REFS = 128
+MAX_INPUT_REF_CHARACTERS = 4_096
 
 
 class CreateTask(BaseModel):
@@ -66,8 +70,10 @@ class CreateTask(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    goal: str = Field(min_length=1)
-    input_refs: list[str] = Field(default_factory=list)
+    goal: str = Field(min_length=1, max_length=MAX_GOAL_CHARACTERS)
+    input_refs: list[Annotated[str, Field(max_length=MAX_INPUT_REF_CHARACTERS)]] = Field(
+        default_factory=list, max_length=MAX_INPUT_REFS
+    )
     capability_ref: str
     acceptance: Acceptance = Field(default_factory=Acceptance)
     limits: Limits | None = None
@@ -121,11 +127,43 @@ def create_app(
     auth: TokenAuth,
     *,
     poll_interval_sec: float = 0.5,
+    max_poll_interval_sec: float = 5.0,
     keepalive_sec: float = 15.0,
     lifespan=None,
 ) -> FastAPI:
     """``lifespan`` (an async context manager factory) runs around the
     server, e.g. to start a worker in this process."""
+    if poll_interval_sec <= 0 or max_poll_interval_sec < poll_interval_sec or keepalive_sec <= 0:
+        raise ValueError("poll intervals must be positive and ordered; keepalive_sec must be positive")
+    active_streams: dict[str, int] = {}
+
+    class LimitedEventStream(StreamingResponse):
+        async def __call__(self, scope, receive, send):
+            request = Request(scope, receive)
+            scope_id = request.state.actor.scope_id
+            # No await between checking and reserving: all requests in this
+            # API process share the event loop. Counts are per authenticated scope.
+            if (
+                sum(active_streams.values()) >= system.config.sse_max_connections
+                or active_streams.get(scope_id, 0) >= system.config.sse_max_connections_per_scope
+            ):
+                response = JSONResponse(
+                    errors.body(request, ErrorCode.LIMITS_EXCEEDED, "too many event streams; retry later", True),
+                    status_code=429,
+                    headers={"Retry-After": "1"},
+                )
+                await response(scope, receive, send)
+                return
+            active_streams[scope_id] = active_streams.get(scope_id, 0) + 1
+            try:
+                await super().__call__(scope, receive, send)
+            finally:
+                # Covers disconnects, cancellation and send/iterator failures,
+                # including disconnects before the iterator first runs.
+                active_streams[scope_id] -= 1
+                if not active_streams[scope_id]:
+                    del active_streams[scope_id]
+
     app = FastAPI(
         title="DaraOS harness", version="0.1", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
     )
@@ -261,6 +299,7 @@ def create_app(
         async def stream() -> AsyncIterator[str]:
             cursor = after
             idle = 0.0
+            delay = poll_interval_sec
             while True:
                 if await request.is_disconnected():
                     return  # a dropped client does not cancel the task (spec 5.1)
@@ -270,6 +309,7 @@ def create_app(
                     yield _sse(e.seq, "progress", {"type": str(e.type), **e.payload, "occurred_at": e.occurred_at.isoformat()})
                 if events:
                     idle = 0.0
+                    delay = poll_interval_sec
                     continue
                 # Caught up. "final" goes out only once the result is committed
                 # (spec 5.1) and every event up to it has been sent.
@@ -280,13 +320,15 @@ def create_app(
                         yield _sse(None, "final", task_view(task))
                         return
                     continue
-                await asyncio.sleep(poll_interval_sec)
-                idle += poll_interval_sec
+                wait = min(delay, keepalive_sec - idle)
+                await asyncio.sleep(wait)
+                idle += wait
+                delay = min(delay * 2, max_poll_interval_sec)
                 if idle >= keepalive_sec:
                     idle = 0.0
                     yield ": keep-alive\n\n"
 
-        return StreamingResponse(
+        return LimitedEventStream(
             stream(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -297,26 +339,62 @@ def create_app(
         artifact_id: str,
         request: Request,
         offset: int = Query(0, ge=0),
-        length: int | None = Query(None, ge=0, le=MAX_ARTIFACT_BYTES),
+        length: int | None = Query(None, ge=1, le=MAX_ARTIFACT_BYTES),
     ) -> Response:
         who = actor(request)
+        # Scope-check metadata before returning the size in a range error.
+        # The store still owns file existence and content integrity checks.
+        try:
+            metadata = await system.repos.artifacts.get(who.scope_id, artifact_id)
+        except NotFound:
+            raise ApiError(404, ErrorCode.NOT_FOUND, f"artifact {artifact_id} not found") from None
+        size = metadata.size_bytes
+        etag = f'"{metadata.content_hash}"'
+        partial = "offset" in request.query_params or "length" in request.query_params
+        range_header = request.headers.get("range")
+        if range_header is not None and partial:
+            raise ApiError(400, ErrorCode.INVALID_REQUEST, "use Range or offset/length, not both")
+        if range_header is not None and request.headers.get("if-range", etag) == etag:
+            selected = byte_range(range_header, size)
+            if selected is not None:
+                offset, length = selected
+                partial = True
+        if partial and (offset >= size or length == 0):
+            return JSONResponse(
+                errors.body(request, ErrorCode.INVALID_REQUEST, "artifact range is not satisfiable"),
+                status_code=416,
+                headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
+            )
+        if not partial and size > MAX_ARTIFACT_BYTES:
+            raise ApiError(
+                413, ErrorCode.LIMITS_EXCEEDED,
+                f"artifact exceeds {MAX_ARTIFACT_BYTES} bytes; request a byte range with Range or offset/length",
+            )
+        read_length = min(length if length is not None else size - offset, MAX_ARTIFACT_BYTES)
         try:
             content = await system.artifacts.read(
-                artifact_id, who, offset=offset, length=length if length is not None else MAX_ARTIFACT_BYTES
+                artifact_id, who, offset=offset, length=read_length
             )
         except NotFound:
             raise ApiError(404, ErrorCode.NOT_FOUND, f"artifact {artifact_id} not found") from None
         ref = content.ref
+        headers = {
+            "X-Artifact-Id": ref.id,
+            "X-Artifact-Size": str(ref.size_bytes),
+            "X-Artifact-Offset": str(content.offset),
+            "X-Content-Hash": ref.content_hash,
+            "Cache-Control": "private, no-store",
+            "Accept-Ranges": "bytes",
+            "ETag": etag,
+        }
+        if partial:
+            end = content.offset + len(content.content) - 1
+            headers["Content-Range"] = f"bytes {content.offset}-{end}/{ref.size_bytes}"
         return Response(
             content=content.content,
+            status_code=206 if partial else 200,
             media_type=ref.media_type,
-            headers={
-                "X-Artifact-Id": ref.id,
-                "X-Artifact-Size": str(ref.size_bytes),
-                "X-Artifact-Offset": str(content.offset),
-                "X-Content-Hash": ref.content_hash,
-                "Cache-Control": "private, no-store",
-            },
+            headers=headers,
         )
 
     return app
