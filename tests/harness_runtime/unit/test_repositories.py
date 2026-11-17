@@ -1,13 +1,15 @@
 """Behaviour every Repositories implementation must have.
 
-Runs against InMemoryRepositories now. The PostgreSQL implementation will be
-added to the ``repos`` fixture params and must pass the same tests.
+Every test runs twice: on InMemoryRepositories and on PgRepositories. The
+PostgreSQL run needs a database (see tests/harness_runtime/pg.py) and is
+skipped without one.
 """
 
 import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import pytest_asyncio
 
 from harness.contracts import (
     Action,
@@ -49,9 +51,21 @@ ACTOR = Actor(actor_id="u1", scope_id="s1")
 OTHER = Actor(actor_id="u2", scope_id="s2")
 
 
-@pytest.fixture(params=["memory"])
-def repos(request):
-    return InMemoryRepositories()
+@pytest_asyncio.fixture(params=["memory", pytest.param("postgres", marks=pytest.mark.integration)])
+async def repos(request):
+    if request.param == "memory":
+        yield InMemoryRepositories()
+        return
+    from harness.storage.postgres import PgRepositories
+
+    from ..pg import clean
+
+    store = PgRepositories.from_dsn(request.getfixturevalue("pg_dsn"))
+    await clean(store.engine)
+    try:
+        yield store
+    finally:
+        await store.close()
 
 
 def make_task(key="k1", goal="draft", actor=ACTOR, lane=RunLane.FOREGROUND, priority=0, limits=None, at=T0):

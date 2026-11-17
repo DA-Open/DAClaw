@@ -1,4 +1,5 @@
-"""In-memory repositories with the same behaviour as the PostgreSQL ones.
+"""In-memory repositories with the same behaviour as the PostgreSQL ones
+(``storage/postgres.py``).
 
 One ``asyncio.Lock`` guards all tables, so every method is one atomic
 "transaction". Good for unit tests and single-process development; state is
