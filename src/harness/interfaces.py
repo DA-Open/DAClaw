@@ -4,12 +4,14 @@ Each module implements one of these Protocols and uses the other modules only
 through them, so modules can be written in parallel and tested with fakes.
 Signatures follow the spec; where one differs, its docstring says why.
 
-Not here yet: ProactiveController and DeliveryService (P2). Their request
-types (NoticeRequest, OutboxItem, ...) will be added together with them.
+P0 modules first; the P1/P2 entry points (SubscriptionRepository,
+OutboxRepository, MemoryStore, DeliveryService, ProactiveController) are here
+as types so their implementations can be written and faked independently.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from .contracts import (
@@ -21,6 +23,15 @@ from .contracts import (
     ArtifactInput,
     ArtifactRef,
     AssistantStep,
+    DeliveryOutcome,
+    Event,
+    MemoryRecord,
+    NoticeRequest,
+    NoticeReservation,
+    OutboxItem,
+    Subscription,
+    SubscriptionEvent,
+    SubscriptionStatus,
     AttemptLease,
     AuthorizedCall,
     CandidateResult,
@@ -32,6 +43,7 @@ from .contracts import (
     Task,
     TaskOrigin,
     TaskOutcome,
+    TaskRef,
     TaskRequest,
     ToolCall,
     ToolOutcome,
@@ -133,3 +145,88 @@ class Verifier(Protocol):
     async def verify(self, result: CandidateResult, task: Task) -> VerificationResult:
         """Run the capability's checkers against the acceptance fixed at task
         start, and store the result through VerificationRepository."""
+
+
+class SubscriptionRepository(Protocol):
+    """Standing goals and what each one already handled (P2).
+
+    `record_event` is unique on (subscription_id, event_id): a redelivered
+    event is a no-op, and one event may still produce tasks for other
+    subscriptions. Revoking goes through `update`; it stops new triggers
+    without touching tasks already created.
+    """
+
+    async def create(self, subscription: Subscription) -> Subscription: ...
+
+    async def get(self, scope_id: str, subscription_id: str) -> Subscription:
+        """Raise NotFound when it does not exist in this scope."""
+
+    async def list_for_scope(
+        self, scope_id: str, *, status: SubscriptionStatus | None = None
+    ) -> list[Subscription]: ...
+
+    async def update(self, subscription: Subscription) -> Subscription:
+        """Bump `version`; reject a write based on an older version."""
+
+    async def record_event(self, record: SubscriptionEvent) -> SubscriptionEvent:
+        """Insert, or return the earlier row for the same (subscription, event)."""
+
+    async def consumed(self, subscription_id: str, event_id: str) -> SubscriptionEvent | None: ...
+
+
+class OutboxRepository(Protocol):
+    """Queued deliveries (P1/P2). One row per (scope_id, dedup_key)."""
+
+    async def enqueue(self, item: OutboxItem) -> OutboxItem:
+        """Return the existing row when the dedup key was already used."""
+
+    async def get(self, scope_id: str, item_id: str) -> OutboxItem: ...
+
+    async def list_due(self, now: datetime, *, limit: int = 50) -> list[OutboxItem]:
+        """Pending (or retryable failed) items that have not expired, oldest first."""
+
+    async def update(self, item: OutboxItem) -> OutboxItem: ...
+
+    async def cancel_for_task(self, scope_id: str, task_id: str, reason: str) -> int:
+        """Cancel pending items of one task; returns how many changed."""
+
+
+class MemoryStore(Protocol):
+    """Versioned facts, preferences and past results (spec 6).
+
+    Full text lives in ArtifactStore. Model inferences are CANDIDATE and may
+    not be presented as confirmed facts; superseding keeps the old row.
+    """
+
+    async def put(self, record: MemoryRecord) -> MemoryRecord: ...
+
+    async def get(self, scope_id: str, memory_id: str) -> MemoryRecord: ...
+
+    async def search(self, scope_id: str, query: str, *, limit: int = 20) -> list[MemoryRecord]: ...
+
+    async def supersede(self, scope_id: str, memory_id: str, replacement: MemoryRecord) -> MemoryRecord:
+        """Mark the old row superseded, then store `replacement`."""
+
+
+class DeliveryService(Protocol):
+    """Decide whether to tell the user, then send (spec 5, 交付)."""
+
+    async def reserve_notice(self, request: NoticeRequest) -> NoticeReservation:
+        """Atomically check the user's notice quota and the cross-channel dedup
+        key. A suppressed request must not reach the outbox."""
+
+    async def dispatch(self, item: OutboxItem) -> DeliveryOutcome:
+        """Re-check cancel, expiry and grants, send through the channel, store
+        the receipt. Never record queued as delivered."""
+
+
+class ProactiveController(Protocol):
+    """Rules-only entry for events and timers (P2).
+
+    It does not call a model: it checks the subscription, dedup key, grants and
+    background budget, records a decision, and creates a proactive task through
+    TaskService only when the decision is to admit.
+    """
+
+    async def on_event(self, event: Event) -> list[TaskRef]: ...
+

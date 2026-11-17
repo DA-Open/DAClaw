@@ -26,7 +26,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
 | `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
 | P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
-| `delivery/`, ProactiveController, subscriptions (P2) | not yet | not started | — |
+| `delivery/`, ProactiveController, subscriptions (P2) | types only (#23) | not started | — |
 
 ## Who does what
 
@@ -98,7 +98,12 @@ tables do not change later; most come from review comments on the spec.
 | `EventType.BUDGET_REMINDER` + `BudgetReminderRecord` | Reminders before the budget runs out are part of the trajectory |
 | `EventType.CONTEXT_BUILT` + `ContextBuiltRecord` | Size of each part of every model input (system, task brief, history, tool results, reminders, tool specs), so a costly call can be explained from events alone |
 | `ContextBundle.injected_materials` + `InjectedMaterial` | Short (~100 token) pointers to background results for Main (P2) |
-| `AdmissionDecision` | Proactive admission decisions with policy version, input snapshot and later label (P2) |
+| `AdmissionDecision` | Proactive admission decisions with policy version, input snapshot and later label (P2); it is also the per-(subscription, event) dedup record, so there is no separate `SubscriptionEvent` |
+| `Subscription` | A standing goal: trigger (event filter or schedule), capability, limits, delivery mode, result TTL and the resources it may read (P2) |
+| `NoticeRequest` / `NoticeReservation` | Asking to tell the user: cross-channel dedup key and a user-level quota checked atomically; reserved / already reserved / suppressed (P1/P2) |
+| `OutboxItem` / `DeliveryOutcome` | Queued delivery and what one attempt established; only DELIVERED carries a receipt (P1/P2) |
+| `Approval` / `Grant` | A human decision bound to action_id + request_hash; and `tool:target` authorization (P1, type only: P0 still uses the two whitelists) |
+| `MemoryRecord` | Versioned fact / preference / result with CONFIRMED vs CANDIDATE; text lives in ArtifactStore (P2) |
 | `UsageReservation` (`usage_records` table) | The spec asks for idempotent accounting per call ID but names no table |
 | `Task.lease_epoch`, `Task.current_attempt_id` | Reject a stale worker by checking one row |
 | `RemainingBudget.for_task` | One place that turns a task into its remaining budget, time included |
@@ -519,7 +524,7 @@ checkpoint replay/resume is not implemented.
 | Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
 | Checkpoint resume | `TaskService.checkpoint` is available; Runner writes a checkpoint when a tool returns `needs_approval` or `unknown` and the attempt enters waiting. Resume does not read or replay it yet | P1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
-| ProactiveController, DeliveryService, subscriptions, outbox | Not started; their types come with them | P2 |
+| ProactiveController, DeliveryService, subscriptions, outbox | Types and Protocols exist (#23); no implementation, no tables | P1/P2 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
 | ContextBuilder token cut, memory, resume from checkpoint | P0 builder lists goal, acceptance, inputs and artifacts only | P1 |
