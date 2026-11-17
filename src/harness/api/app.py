@@ -170,8 +170,12 @@ def create_app(
             raw = ref[len("file:"):]
             if raw.startswith("//"):
                 raw = raw[2:]
+            try:
+                path = Path(raw).expanduser().resolve()
+            except (ValueError, RuntimeError):
+                raise ApiError(400, ErrorCode.INVALID_REQUEST, f"input {ref!r}: invalid file path") from None
             decision = system.policy.check_path(
-                Path(raw).expanduser().resolve(), scope_id=who.scope_id, role=AgentRole.MAIN
+                path, scope_id=who.scope_id, role=AgentRole.MAIN
             )
             if not decision.allowed:
                 raise ApiError(400, ErrorCode.FORBIDDEN, f"input {ref!r}: {decision.reason}")

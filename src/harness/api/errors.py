@@ -13,6 +13,7 @@ import logging
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 from ..contracts import ErrorCode, HarnessError, new_id
 from ..tasks import UnknownCheck
@@ -55,6 +56,14 @@ def body(request: Request, code: ErrorCode | str, message: str, retryable: bool 
 
 
 def install(app) -> None:
+    @app.exception_handler(404)
+    @app.exception_handler(405)
+    async def _routing(request: Request, exc: HTTPException):
+        code = ErrorCode.NOT_FOUND if exc.status_code == 404 else ErrorCode.INVALID_REQUEST
+        return JSONResponse(
+            body(request, code, str(exc.detail)), status_code=exc.status_code, headers=exc.headers
+        )
+
     @app.exception_handler(ApiError)
     async def _api(request: Request, exc: ApiError):
         return JSONResponse(body(request, exc.code, exc.message, exc.retryable), status_code=exc.status)

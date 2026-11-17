@@ -171,6 +171,27 @@ async def test_input_outside_the_callers_directories_is_400(tmp_path):
 # -- bad requests ----------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("reference", ["file:\x00", "file:~__no_such_harness_user__/brief.md"])
+async def test_invalid_input_file_paths_are_400(tmp_path, reference):
+    api = Api(tmp_path)
+    response = await api.submit(input_refs=[reference])
+    assert_error(response, 400, "invalid_request")
+    assert "invalid file path" in response.json()["message"]
+    assert await api.run_worker() is None
+
+
+@pytest.mark.parametrize(
+    "method,path,status,code",
+    [("GET", "/missing", 404, "not_found"), ("PUT", "/tasks", 405, "invalid_request")],
+)
+async def test_routing_errors_use_the_common_body(tmp_path, method, path, status, code):
+    api = Api(tmp_path)
+    response = await api.client.request(method, path, headers=A)
+    assert_error(response, status, code)
+    if status == 405:
+        assert response.headers["Allow"] == "POST"
+
+
 async def test_bad_requests_are_400_with_the_reason(tmp_path):
     api = Api(tmp_path, caps=DeploymentCaps(max_model_calls=30))
     resp = await api.client.post("/tasks", json=api.body(), headers=A)
