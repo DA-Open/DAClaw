@@ -4,7 +4,11 @@ The five steps of spec 6.2, in order:
 
 1. Normalise arguments, compute ``request_hash``, look up an earlier action
    with the same ``logical_key``. Same key with other arguments is a conflict;
-   an earlier success is reused without running the tool again.
+   an earlier success is reused without running the tool again. An earlier
+   ``unknown`` outcome, or a call that changes things and never finished
+   (``planned`` / ``running``, e.g. its worker died), is not run again: it
+   needs reconciliation. A failed call, or an unfinished read-only one, is
+   retried and charged again (review of #16).
 2. Check the lease, cancellation, deadline, tool scope and grants. Tools
    that are visible outside or hard to undo need approval (none in P0).
 3. Register the action and reserve one tool call in one step
@@ -30,6 +34,8 @@ from pathlib import Path
 from typing import Any
 
 from ..contracts import (
+    UsageKind,
+    new_id,
     Action,
     ActionConflict,
     ActionStatus,
@@ -56,7 +62,7 @@ from ..contracts import (
 )
 from ..interfaces import ArtifactStore, Connector
 from ..storage.repositories import Repositories
-from .policy import WhitelistPolicy, input_file_paths
+from .policy import WhitelistPolicy
 
 log = logging.getLogger(__name__)
 
@@ -73,6 +79,26 @@ _ACTION_FOR_RESULT = {
 
 def _refused(status: ToolStatus, code: ErrorCode, message: str, action_id: str | None = None) -> ToolOutcome:
     return ToolOutcome(action_id=action_id, status=status, error=TaskError(code=code, message=message))
+
+
+def _not_retryable(action: Action) -> ToolOutcome | None:
+    """Refuse to run an earlier call again when that could do it twice."""
+    if action.status is ActionStatus.UNKNOWN:
+        return _refused(
+            ToolStatus.UNKNOWN,
+            ErrorCode.TOOL_ERROR,
+            "an earlier attempt of this call has an unknown outcome; it needs reconciliation",
+            action.id,
+        )
+    if action.status in (ActionStatus.PLANNED, ActionStatus.RUNNING) and not action.read_only:
+        return _refused(
+            ToolStatus.UNKNOWN,
+            ErrorCode.TOOL_ERROR,
+            "an earlier attempt of this call did not finish, so whether it took effect is unknown; "
+            "it needs reconciliation",
+            action.id,
+        )
+    return None
 
 
 def _schema_problem(spec: ToolSpec, args: dict[str, Any]) -> str | None:
@@ -138,13 +164,9 @@ class ToolGateway:
                 )
             if earlier.status is ActionStatus.SUCCEEDED:
                 return await self._reuse(task.scope_id, earlier)
-            if earlier.status is ActionStatus.UNKNOWN:
-                return _refused(
-                    ToolStatus.UNKNOWN,
-                    ErrorCode.TOOL_ERROR,
-                    "an earlier attempt of this call has an unknown outcome; it needs reconciliation",
-                    earlier.id,
-                )
+            refused = _not_retryable(earlier)
+            if refused is not None:
+                return refused
 
         # -- step 2: may this call run at all? -----------------------------
         now = self._clock()
@@ -175,11 +197,13 @@ class ToolGateway:
         path_arg = PATH_ARGS.get(call.tool)
         if path_arg is not None:
             resolved = Path(str(args.get(path_arg, ""))).expanduser().resolve()
+            # Files named in input_refs get no exemption: input_refs come from
+            # whoever created the task, so they are checked against the same
+            # user whitelist (review of #16: "file:/etc/passwd" was readable).
             path_decision = self._policy.check_path(
                 resolved,
                 scope_id=execution.actor.scope_id,
                 role=execution.agent_role,
-                extra=input_file_paths(task),
             )
             if not path_decision.allowed:
                 return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, path_decision.reason)
@@ -218,10 +242,29 @@ class ToolGateway:
                 f"no tool budget left ({', '.join(exceeded) or 'limits'})",
             )
         action = registration.action
-        if not registration.created and action.status is ActionStatus.SUCCEEDED:
-            # Another worker finished the same call between our lookup and
-            # registration; reuse it.
-            return await self._reuse(task.scope_id, action)
+        # The budget charge for this run of the call. A new action is charged
+        # by register(); a retry of an existing one is charged here, under its
+        # own call ID, so max_tool_calls also bounds retries.
+        charge_id = action.id if registration.created and registration.budget is not None else None
+        if not registration.created:
+            if action.status is ActionStatus.SUCCEEDED:
+                # Another worker finished the same call between our lookup
+                # and registration; reuse it.
+                return await self._reuse(task.scope_id, action)
+            refused = _not_retryable(action)
+            if refused is not None:
+                return refused
+            charge_id = f"{action.id}.retry-{new_id('r')}"
+            budget = await self._repos.usage.reserve(
+                task.id, lease.attempt_id, charge_id, UsageKind.TOOL, TOOL_CALL, now
+            )
+            if not budget.granted:
+                return _refused(
+                    ToolStatus.DENIED,
+                    ErrorCode.BUDGET_EXHAUSTED,
+                    f"no tool budget left ({', '.join(budget.exceeded) or 'limits'})",
+                    action.id,
+                )
         await self._repos.actions.update(action.id, ActionStatus.RUNNING, now=self._clock())
 
         # -- step 4: run it -------------------------------------------------
@@ -256,11 +299,11 @@ class ToolGateway:
 
         # -- step 5: settle, record, answer ---------------------------------
         now = self._clock()
-        if registration.created and registration.budget is not None:
+        if charge_id is not None:
             if result.status is ToolStatus.UNKNOWN:
                 pass  # keep the reservation until reconciled (spec 6.2 step 4)
             else:
-                await self._repos.usage.settle(action.id, TOOL_CALL, now)
+                await self._repos.usage.settle(charge_id, TOOL_CALL, now)
         result_ref = await self._store_json(
             task.scope_id, task.id, f"tool_result/{call.logical_key}", result.model_dump(mode="json")
         )
