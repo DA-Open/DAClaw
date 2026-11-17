@@ -36,7 +36,7 @@
 
 > **DataAgent = 跑在 DAClaw 通用 runtime 上的一条专用"数据分析 / 数据工程" runtime(mode)。**
 
-关键决策(沿用 `future work.md` 的判断,我认同):**不 fork、不重写 `run_agent.py`**。
+关键决策(沿用 `docs/future-work.md` 的判断,我认同):**不 fork、不重写 `run_agent.py`**。
 DataAgent 作为一个 **mode + 专用 toolset + 服务层(`agent/data_agent/`)** 挂进现有主循环,
 复用它已经很强的东西(多provider、prompt caching、context 压缩、会话持久化、子代理、审计钩子)。
 
@@ -429,7 +429,7 @@ caveats:
 
 ### 5.5 catalog 如何进入 prompt(不破坏 prompt caching)
 
-**重要约束**(来自 `future work.md` 6.3.3,我认同):**不要每轮把整个 catalog 塞进 system prompt**——
+**重要约束**(来自 `docs/future-work.md` 6.3.3,我认同):**不要每轮把整个 catalog 塞进 system prompt**——
 那会让 Anthropic prefix cache 每轮失效,又贵又慢。正确做法:
 
 ```text
@@ -730,7 +730,7 @@ registry.register(
 },
 ```
 
-**开关策略(呼应 `future work.md` 9.2 的未决问题)**——两种,demo 二选一:
+**开关策略(呼应 `docs/future-work.md` 9.2 的未决问题)**——两种,demo 二选一:
 
 - **方案甲(demo 推荐)**:普通 DAClaw 保持通用,**只有进入 data mode 时**才启用 `data-agent` toolset。
   好处:普通用户不被一堆数据工具干扰;演示时"切进 data mode"本身就是一个清晰的动作。
@@ -738,7 +738,7 @@ registry.register(
 
 demo 用**方案甲**:`DataAgentMode` 激活时 `enabled_toolsets=["data-agent", ...]`,退出即恢复。
 
-### 9.4 全局状态注意(来自 `future work.md` 6.3.2)
+### 9.4 全局状态注意(来自 `docs/future-work.md` 6.3.2)
 
 `model_tools.py` 有 `_last_resolved_tool_names` 等进程级全局状态,影响普通 agent/子代理/RL。
 新工具**只通过 registry/toolset/schema 层接入**,**不在 `handle_function_call` 的分发主流程里塞 data 专属分支**。
@@ -886,13 +886,13 @@ Gateway(经 cron)─┘
 | DuckDB/pyarrow 在 Termux/老环境装不上 | 部分平台 data mode 不可用 | 设为可选 extra + 优雅降级;demo 主打 Linux/macOS |
 | LLM 生成的 SQL 有害(写操作/删表) | 数据被破坏 | `data_query` 强制只读(拒绝非 SELECT);写操作需显式确认(复用现有 approval) |
 | 校验器误报导致 agent 反复重算 | 卡死/超迭代 | validator 分 warn/fail;fail 才回退,且计入 `max_iterations` 预算(现有机制) |
-| 文档编码乱码(`future work.md` 9.3 提到) | 观感差 | demo 前统一清一遍输出编码 |
+| 文档编码乱码(`docs/future-work.md` 9.3 提到) | 观感差 | demo 前统一清一遍输出编码 |
 | 子代理 403(本会话已撞到) | 并行/委派失败 | 用修好的 `claude-w --model` 启动;data 分析的子代理显式带模型 |
 
 ### 11.4 为将来 RL 铺的路(不在 demo 范围,但零成本预留)
 
 analysis_run 的结构化 artifact(plan/query/result/validator/report)天然是 RL 训练信号。
-将来做 DataAgent RL(`future work.md` 第 7 节)时,reward 可拆成
+将来做 DataAgent RL(`docs/future-work.md` 第 7 节)时,reward 可拆成
 schema/execution/numeric/validation/report 多项——**现在把 artifact 存好,将来直接喂训练**,demo 阶段不必实现。
 
 ---

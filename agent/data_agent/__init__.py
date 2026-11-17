@@ -1,7 +1,7 @@
 """DataAgent service layer.
 
 A dedicated data-analysis runtime that rides on top of the general DAClaw
-``AIAgent`` loop rather than replacing it (see ``future work.md`` and
+``AIAgent`` loop rather than replacing it (see ``docs/future-work.md`` and
 ``docs/plans/2026-07-06-dataagent-demo-plan.md``).
 
 This package is a *pure service layer*: it MUST NOT import ``run_agent`` (to

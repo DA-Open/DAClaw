@@ -17,4 +17,9 @@
 | `repository-cleanup-roadmap.md` | Cleanup, Web stability, and software roadmap. |
 | `migration/openclaw.md` | OpenClaw migration guide. |
 | `ecs-web-dashboard-smoke-test.md` | Web dashboard deployment smoke test notes. |
+| `future-work.md` | Architecture notes and future-work directions for DataAgent. |
+| `plans/` | Design and implementation plans. |
+| `research/` | Paper surveys (multi-agent, Claw-style agents). |
+| `notes/` | Short product and architecture notes. |
+| `examples/` | An example analysis report and batch data generation configs (`datagen/`). |
 
