@@ -2,7 +2,7 @@
   "task_id": "dacomp-015",
   "benchmark": "dacomp-da",
   "instruction": "Based on Floor Plan, Decoration, Floor, and Orientation, analyze which combinations of homes have higher Watch Count in the market (provide the top 10), and study which factors affect their Showings.",
-  "workspace": "/home/xuetengfei/dacomp_bench/runs/webh-gpt61sol-r1/agent_results/webh-gpt61sol-r1/dacomp-015",
+  "workspace": "~/dacomp_bench/runs/webh-gpt61sol-r1/agent_results/webh-gpt61sol-r1/dacomp-015",
   "model": "gpt-6.1-sol",
   "turns_used": 14,
   "finished_naturally": true,

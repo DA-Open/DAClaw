@@ -605,7 +605,8 @@ def main() -> None:
     j = sub.add_parser("judge")
     j.add_argument("--run-name", required=True)
     j.add_argument("--judge-model", default="gpt-6.1-sol")
-    j.add_argument("--judge-base-url", default="https://penguinapi.org/v1")
+    j.add_argument("--judge-base-url", default=os.environ.get("DACOMP_JUDGE_BASE_URL", "https://api.openai.com/v1"),
+                   help="OpenAI-compatible endpoint of the judge model (env DACOMP_JUDGE_BASE_URL)")
     j.add_argument("--judge-key-env", default="OPENAI_API_KEY")
     j.add_argument("--judge-max-tokens", type=int, default=16384)
     j.add_argument("--judge-timeout", type=int, default=600)

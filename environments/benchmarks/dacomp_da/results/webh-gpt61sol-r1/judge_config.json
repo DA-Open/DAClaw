@@ -1,7 +1,7 @@
 {
   "name": "judge-gpt-6.1-sol",
   "model": "gpt-6.1-sol",
-  "base_url": "https://penguinapi.org/v1",
+  "base_url": "<openai-compatible relay>",
   "max_tokens": 16384,
   "timeout": 600,
   "reasoning_effort": "low",
