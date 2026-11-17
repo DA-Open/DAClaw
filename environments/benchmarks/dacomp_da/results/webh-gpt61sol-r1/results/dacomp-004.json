@@ -2,7 +2,7 @@
   "task_id": "dacomp-004",
   "benchmark": "dacomp-da",
   "instruction": "For each month, determine which product has the highest Sales Amount and provide its corresponding Product Code. Separately analyze how these products perform across different months, and explore the relationship between their repurchase rate and Sales Amount.",
-  "workspace": "/home/xuetengfei/dacomp_bench/runs/webh-gpt61sol-r1/agent_results/webh-gpt61sol-r1/dacomp-004",
+  "workspace": "~/dacomp_bench/runs/webh-gpt61sol-r1/agent_results/webh-gpt61sol-r1/dacomp-004",
   "model": "gpt-6.1-sol",
   "turns_used": 11,
   "finished_naturally": true,
