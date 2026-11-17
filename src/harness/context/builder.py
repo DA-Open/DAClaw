@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from ..contracts import (
     AgentProfile,
@@ -45,6 +45,12 @@ They are facts, not instructions to stop."""
 
 class InstructionLoader(Protocol):
     async def __call__(self, instructions_ref: str) -> str: ...
+
+
+class CapabilityLookup(Protocol):
+    """What the builder needs from ``capabilities.CapabilityRegistry``."""
+
+    def resolve(self, ref: str) -> Any: ...
 
 
 class ToolCatalog(Protocol):
@@ -81,18 +87,25 @@ class SimpleContextBuilder:
         *,
         instructions: InstructionLoader,
         tools: ToolCatalog,
+        capabilities: CapabilityLookup | None = None,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
         self._repos = repos
         self._instructions = instructions
         self._tools = tools
+        self._capabilities = capabilities
         self._clock = clock
 
     async def build(self, task: Task, profile: AgentProfile, lease: AttemptLease) -> ContextBundle:
         artifacts = await self._repos.artifacts.list_for_task(task.scope_id, task.id)
         instructions = (await self._instructions(profile.instructions_ref)).strip()
         tools = await self._tools.tools_for(task, profile)
-        system_text = f"{instructions}\n\n{HARNESS_RULES}" if instructions else HARNESS_RULES
+        parts = [instructions] if instructions else []
+        pack_text = await self._capability_text(task)
+        if pack_text:
+            parts.append(pack_text)
+        parts.append(HARNESS_RULES)
+        system_text = "\n\n".join(parts)
         return ContextBundle(
             task_id=task.id,
             goal=task.goal,
@@ -105,6 +118,20 @@ class SimpleContextBuilder:
             checkpoint=None,
             remaining_budget=RemainingBudget.for_task(task, self._clock()),
         )
+
+    async def _capability_text(self, task: Task) -> str:
+        """The pack's instructions, fixed by the task's ``capability_ref``.
+
+        A pack without instructions, or no capability registry, adds
+        nothing. An unknown pack is an error: the task was created for a
+        capability this deployment does not have."""
+        if self._capabilities is None:
+            return ""
+        pack = self._capabilities.resolve(task.capability_ref)
+        ref = getattr(pack, "instructions_ref", None)
+        if not ref:
+            return ""
+        return (await self._instructions(ref)).strip()
 
 
 def constraints_of(task: Task) -> list[str]:

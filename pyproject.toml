@@ -149,6 +149,7 @@ py-modules = ["run_agent", "model_tools", "toolsets", "batch_runner", "trajector
 [tool.setuptools.package-data]
 daclaw_cli = ["web_dist/**/*"]
 "agent.data_agent" = ["assets/*.js"]
+harness = ["capabilities/*.yaml", "capabilities/schemas/*.json", "prompts/*.md"]
 
 [tool.setuptools.packages.find]
 # "src" holds the DaraOS harness runtime (package `harness`); everything else
