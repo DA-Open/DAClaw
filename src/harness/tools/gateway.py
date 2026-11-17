@@ -286,8 +286,8 @@ class ToolGateway:
         latest = await self._repos.tasks.get(lease.scope_id, lease.task_id)
         if latest.status is TaskStatus.CANCELLING or latest.cancel_requested_at is not None:
             now = self._clock()
-            if registration.created and registration.budget is not None:
-                await self._repos.usage.release(action.id, now)
+            if charge_id is not None:
+                await self._repos.usage.release(charge_id, now)
             await self._repos.actions.update(action.id, ActionStatus.FAILED, now=now)
             return _refused(ToolStatus.DENIED, ErrorCode.CANCELLED, "the task is being cancelled", action.id)
 

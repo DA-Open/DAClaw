@@ -508,6 +508,27 @@ async def test_cancel_after_registration_stops_the_call(tmp_path):
     assert (await s.usage()).tool_calls == 0
 
 
+async def test_cancel_before_retry_releases_its_reservation(tmp_path):
+    s = await Setup(tmp_path).start()
+    path = tmp_path / "allowed" / "later.md"
+    assert (await s.call("files.read", path=str(path))).status is ToolStatus.FAILED
+    original = s.repos.actions.update
+
+    async def update_then_cancel(action_id, status, **kw):
+        out = await original(action_id, status, **kw)
+        if status is ActionStatus.RUNNING:
+            await s.repos.tasks.request_cancel("s1", s.task.id, "user", T0)
+        return out
+
+    s.repos.actions.update = update_then_cancel
+    outcome = await s.call("files.read", path=str(path))
+    assert outcome.status is ToolStatus.DENIED and outcome.error.code is ErrorCode.CANCELLED
+    assert (await s.usage()).tool_calls == 1
+    assert not await s.repos.usage.open_reservations(s.task.id)
+    await s.repos.tasks.commit(s.execution.lease, TaskOutcome(status=TaskStatus.CANCELLED), T0)
+    assert not await s.repos.usage.open_reservations(s.task.id)
+
+
 async def test_read_only_call_past_the_deadline_is_failed(tmp_path):
     import datetime as dt
 
