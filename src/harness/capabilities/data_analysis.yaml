@@ -1,0 +1,21 @@
+# Capability pack: answer a question over connected tabular data with SQL.
+# Fixed per task by capability_ref "data_analysis@1"; a change needs a new version.
+# The tools list is what the task needs, not a grant: the role whitelist and the
+# user's directories still apply (spec 7).
+id: data_analysis
+version: "1"
+description: Connect a local table, query it with read-only SQL, and report the numbers with their queries.
+instructions_ref: ../prompts/data_analysis.md
+tools:
+  - files.read
+  - data.connect
+  - data.query
+  - artifacts.read
+  - artifacts.write
+result_schema: schemas/data_analysis_result.json
+result_artifact: analysis
+verifiers:
+  - artifact_readable
+  - required_sections
+  - query_evidence
+default_mode: analysis

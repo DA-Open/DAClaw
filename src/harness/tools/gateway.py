@@ -69,7 +69,7 @@ log = logging.getLogger(__name__)
 
 TOOL_CALL = Usage(tool_calls=1)
 # Tools whose arguments name a file the policy must check (P0: files.read).
-PATH_ARGS = {"files.read": "path"}
+PATH_ARGS = {"files.read": "path", "data.connect": "path"}
 
 _ACTION_FOR_RESULT = {
     ToolStatus.SUCCEEDED: ActionStatus.SUCCEEDED,

@@ -47,7 +47,7 @@ from .storage.memory import InMemoryRepositories
 from .storage.repositories import Repositories
 from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
-from .tools.connectors import p0_connectors
+from .tools.connectors import data_connectors, p0_connectors
 
 if TYPE_CHECKING:
     from .storage.postgres import PgRepositories
@@ -210,7 +210,12 @@ def build_system(
             repos = InMemoryRepositories()
     artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
     gateway = ToolGateway(
-        repos, artifacts, policy, p0_connectors(artifacts), profiles=agents.tool_policies(), clock=clock
+        repos,
+        artifacts,
+        policy,
+        [*p0_connectors(artifacts), *data_connectors(artifacts)],
+        profiles=agents.tool_policies(),
+        clock=clock,
     )
     verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock)
     builder = SimpleContextBuilder(

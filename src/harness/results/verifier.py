@@ -47,6 +47,7 @@ from ..contracts import (
 )
 from ..interfaces import ArtifactStore
 from ..storage.repositories import Repositories
+from .checkers import query_evidence
 
 CHECKER_VERSION = "verifier@1"
 PASSED, FAILED, INCONCLUSIVE = VerificationStatus.PASSED, VerificationStatus.FAILED, VerificationStatus.INCONCLUSIVE
@@ -185,6 +186,7 @@ async def required_sections(spec: CheckSpec, ctx: CheckContext) -> CheckResult:
 DEFAULT_CHECKERS: dict[str, Checker] = {
     "artifact_readable": artifact_readable,
     "required_sections": required_sections,
+    "query_evidence": query_evidence,
 }
 
 
