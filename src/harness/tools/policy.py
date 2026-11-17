@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from ..contracts import AgentProfile, AgentRole, ExecutionContext, Task, ToolSpec
 
@@ -128,12 +128,12 @@ class WhitelistPolicy:
 
     # -- resource level -----------------------------------------------------
 
-    def check_path(self, path: Path, *, scope_id: str, role: AgentRole | str, extra: Sequence[Path] = ()) -> Decision:
-        """``path`` must already be resolved. ``extra`` are further allowed
-        roots for this call, e.g. the task's own input files."""
+    def check_path(self, path: Path, *, scope_id: str, role: AgentRole | str) -> Decision:
+        """``path`` must already be resolved. Only the user's whitelisted
+        directories count; files named in a task's ``input_refs`` get no
+        exemption, since whoever creates a task chooses its input_refs."""
         grant = self.user_grant(scope_id, role)
         roots = [Path(p).resolve() for p in (grant.paths if grant else ())]
-        roots += [Path(p).resolve() for p in extra]
         for root in roots:
             if path == root or root in path.parents:
                 return Decision(True, grant_ref=grant.ref if grant else None)
@@ -157,20 +157,6 @@ class ToolPolicyContext:
             tool_policy_ref=profile_policy_ref,
             capability_ref=task.capability_ref,
         )
-
-
-def input_file_paths(task: Task) -> list[Path]:
-    """Paths the task was explicitly given (``input_refs`` of the form
-    ``file:<path>``). The file tools may read these even when they sit outside
-    the user's whitelisted directories: the user named them in the request."""
-    out = []
-    for ref in task.input_refs:
-        if ref.startswith("file:"):
-            raw = ref[len("file:"):]
-            if raw.startswith("//"):
-                raw = str(PurePosixPath(raw[2:]))
-            out.append(Path(raw).expanduser())
-    return out
 
 
 class PolicyToolCatalog:

@@ -211,10 +211,21 @@ async def test_symlink_out_of_the_directory_is_denied(tmp_path):
     assert (await s.call("files.read", path=str(link))).status is ToolStatus.DENIED
 
 
-async def test_task_input_file_may_be_read_outside_the_directories(tmp_path):
-    named = tmp_path / "brief.md"
-    named.write_text("the brief")
+async def test_input_refs_do_not_widen_the_directories(tmp_path):
+    # Review of #16: input_refs come from whoever created the task, so
+    # "file:/etc/passwd" in them must not make that file readable.
+    named = tmp_path / "secret.env"
+    named.write_text("KEY=do-not-read")
     s = await Setup(tmp_path, input_refs=[f"file:{named}"]).start()
+    outcome = await s.call("files.read", path=str(named))
+    assert outcome.status is ToolStatus.DENIED and outcome.error.code is ErrorCode.FORBIDDEN
+    assert await s.actions() == []
+
+
+async def test_input_file_inside_the_directories_is_read(tmp_path):
+    s = await Setup(tmp_path).start()
+    named = write_file(s, "brief.md", "the brief\n")
+    s.input_refs = [f"file:{named}"]
     outcome = await s.call("files.read", path=str(named))
     assert outcome.status is ToolStatus.SUCCEEDED and "the brief" in outcome.summary
 
@@ -231,6 +242,54 @@ async def test_same_key_same_args_reuses_the_earlier_success(tmp_path):
     assert again.status is ToolStatus.SUCCEEDED and again.action_id == first.action_id
     assert again.summary == first.summary  # not re-run: still the old content
     assert len(await s.actions()) == 1 and (await s.usage()).tool_calls == 1
+
+
+async def test_failed_call_is_retried_and_charged_again(tmp_path):
+    # Review of #16: a retry under the same key must count against
+    # max_tool_calls, or the limit does not bound retries.
+    s = await Setup(tmp_path, limits=Limits(max_tool_calls=2)).start()
+    missing = tmp_path / "allowed" / "later.md"
+    first = await s.call("files.read", path=str(missing))
+    assert first.status is ToolStatus.FAILED
+    missing.write_text("now here\n")
+    second = await s.call("files.read", path=str(missing))
+    assert second.status is ToolStatus.SUCCEEDED and second.action_id == first.action_id
+    assert (await s.usage()).tool_calls == 2
+    third = await s.call("files.read", key="step-2.0", path=str(missing))
+    assert third.status is ToolStatus.DENIED and third.error.code is ErrorCode.BUDGET_EXHAUSTED
+
+
+async def test_retry_beyond_the_budget_is_refused(tmp_path):
+    s = await Setup(tmp_path, limits=Limits(max_tool_calls=1)).start()
+    missing = tmp_path / "allowed" / "nope.md"
+    assert (await s.call("files.read", path=str(missing))).status is ToolStatus.FAILED
+    again = await s.call("files.read", path=str(missing))
+    assert again.status is ToolStatus.DENIED and again.error.code is ErrorCode.BUDGET_EXHAUSTED
+    assert (await s.usage()).tool_calls == 1
+
+
+async def test_unfinished_write_is_not_run_again(tmp_path):
+    # Review of #16: a write still marked running (its worker died mid-call)
+    # may already have taken effect; running it again could do it twice.
+    s = await Setup(tmp_path).start()
+    first = await s.call("artifacts.write", name="draft", content="v1")
+    assert first.status is ToolStatus.SUCCEEDED
+    (action,) = await s.actions()
+    await s.repos.actions.update(action.id, ActionStatus.RUNNING, now=s.clock())
+    again = await s.call("artifacts.write", name="draft", content="v1")
+    assert again.status is ToolStatus.UNKNOWN and "did not finish" in again.error.message
+    assert (await s.usage()).tool_calls == 1
+
+
+async def test_unfinished_read_is_retried(tmp_path):
+    s = await Setup(tmp_path).start()
+    path = write_file(s)
+    first = await s.call("files.read", path=str(path))
+    (action,) = await s.actions()
+    await s.repos.actions.update(action.id, ActionStatus.RUNNING, now=s.clock())
+    again = await s.call("files.read", path=str(path))
+    assert again.status is ToolStatus.SUCCEEDED and again.action_id == first.action_id
+    assert (await s.usage()).tool_calls == 2
 
 
 async def test_same_key_other_args_is_a_conflict(tmp_path):

@@ -203,15 +203,22 @@ def _required_artifacts(task: Task, candidate: CandidateResult) -> CheckResult |
 
 
 def _result_schema(pack: CapabilityPack, candidate: CandidateResult) -> CheckResult | None:
+    """The result must match the pack's schema. Like any checker, a check
+    that cannot run (jsonschema missing, a broken schema) is inconclusive,
+    never an exception out of verify() (review of #17)."""
     if not pack.result_schema:
         return None
-    import jsonschema
-
+    try:
+        import jsonschema
+    except ImportError:
+        return _result("result_schema", INCONCLUSIVE, "jsonschema is not installed")
     try:
         jsonschema.validate(candidate.model_dump(mode="json"), pack.result_schema)
     except jsonschema.ValidationError as exc:
         where = "/".join(str(p) for p in exc.absolute_path)
         return _result("result_schema", FAILED, f"result does not match the pack schema{' at ' + where if where else ''}: {exc.message}")
+    except Exception as exc:  # noqa: BLE001 - e.g. SchemaError, a bad $ref
+        return _result("result_schema", INCONCLUSIVE, f"schema check raised {type(exc).__name__}: {exc}")
     return _result("result_schema", PASSED, f"matches {pack.ref} result schema")
 
 
