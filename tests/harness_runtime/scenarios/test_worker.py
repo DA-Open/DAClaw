@@ -172,6 +172,45 @@ async def test_cancel_during_the_run_ends_cancelled_without_more_tools(tmp_path)
     assert all(str(a.status) != "succeeded" for a in await system.repos.actions.list_for_task(task.id))
 
 
+@pytest.mark.parametrize("boundary", ["verification", "commit"])
+async def test_cancel_at_completion_boundary_finishes_attempt(tmp_path, monkeypatch, boundary):
+    system, _, _ = setup(tmp_path, happy)
+    task = await submit(system)
+    if boundary == "verification":
+        verify = system.verifier.verify
+
+        async def cancel_before_verify_returns(*args, **kwargs):
+            verified = await verify(*args, **kwargs)
+            await system.tasks.request_cancel("s1", task.id, "stop now")
+            return verified
+
+        monkeypatch.setattr(system.verifier, "verify", cancel_before_verify_returns)
+    else:
+        commit = system.tasks.commit
+
+        async def cancel_before_commit(lease, outcome):
+            await system.tasks.request_cancel("s1", task.id, "stop now")
+            return await commit(lease, outcome)
+
+        monkeypatch.setattr(system.tasks, "commit", cancel_before_commit)
+
+    report = await system.worker().run_once()
+    assert report.committed and report.status is TaskStatus.CANCELLED
+    assert report.result_ref is None and report.error == "cancelled: stop now"
+    stored = await system.tasks.get("s1", task.id)
+    assert stored.status is TaskStatus.CANCELLED and stored.current_attempt_id is None
+    assert stored.usage.model_calls == 3 and stored.usage.tool_calls == 2
+    attempt = await system.repos.tasks.get_attempt("s1", report.attempt_id)
+    assert attempt.ended_at is not None and attempt.exit_reason == "cancelled"
+    events = await system.repos.events.list("s1", task_id=task.id)
+    assert events[-1].payload["to"] == "cancelled"
+    assert not any(e.payload.get("to") == "succeeded" for e in events)
+    partial = events[-1].payload["artifact_refs"]
+    assert partial
+    assert (await system.artifacts.read(partial[0], ME)).content.decode() == DRAFT
+    assert await system.worker().run_once() is None
+
+
 async def test_lost_lease_commits_nothing(tmp_path):
     system, model, material = setup(tmp_path, happy, heartbeat=0.01, ttl=60)
     task = await submit(system)

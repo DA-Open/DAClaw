@@ -91,6 +91,36 @@ async def test_passed_verification_lets_the_task_succeed(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("artifact_state", ["missing", "other_scope", "missing_content"])
+async def test_required_artifact_must_be_readable_without_explicit_checks(tmp_path, artifact_state):
+    from harness.contracts import VerificationRequired
+
+    w = World(tmp_path)
+    await w.task(acceptance=acceptance(checks=[]))
+    if artifact_state == "missing":
+        ref = "art_does_not_exist"
+    else:
+        ref = await w.put(GOOD, scope="other" if artifact_state == "other_scope" else None)
+        if artifact_state == "missing_content":
+            artifact = await w.repos.artifacts.get(ACTOR.scope_id, ref)
+            w.store._file_of(artifact).unlink()
+    verification = await w.verify({"draft": ref})
+    assert verification.status is F
+    assert w.by_id(verification)["required_artifacts"].status is F
+    outcome = TaskOutcome(status=TaskStatus.SUCCEEDED, result_ref=ref, verification_ref=verification.id)
+    with pytest.raises(VerificationRequired):
+        await w.repos.tasks.commit(w.execution.lease, outcome, T0)
+
+
+@pytest.mark.asyncio
+async def test_required_artifact_without_explicit_checks_allows_binary_content(tmp_path):
+    w = World(tmp_path)
+    await w.task(acceptance=acceptance(checks=[]))
+    ref = await w.put(b"\x00\xff", media_type="application/octet-stream")
+    assert (await w.verify({"draft": ref})).status is P
+
+
+@pytest.mark.asyncio
 async def test_verification_event_is_recorded(tmp_path):
     w = World(tmp_path)
     await w.task()
