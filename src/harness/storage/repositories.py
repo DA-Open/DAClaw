@@ -108,6 +108,9 @@ class TaskRepository(Protocol):
         Raise ``StaleLease`` for an old lease. ``version`` does not change.
         """
 
+    async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
+        """End expired attempts, parking uncertain side effects before retrying."""
+
     async def record_run(
         self,
         lease: AttemptLease,

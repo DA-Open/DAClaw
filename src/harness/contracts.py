@@ -647,6 +647,7 @@ class Checkpoint(_Model):
     completed_action_ids: list[str] = Field(default_factory=list)
     artifact_refs: list[str] = Field(default_factory=list)
     pending_action_ids: list[str] = Field(default_factory=list)
+    pending_calls: list[ToolCall] = Field(default_factory=list)
     environment_ref: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 
