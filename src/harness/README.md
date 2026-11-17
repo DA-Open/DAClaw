@@ -25,7 +25,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `results/` ArtifactStore, Verifier | done | done (`FileArtifactStore`, `CapabilityVerifier` with `artifact_readable`, `required_sections`) | PR-E / PR-F |
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
 | `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
-| P0 acceptance scenarios | — | document-draft, worker and API scenarios exist; full P0 acceptance remains pending | PR-H |
+| P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
 | `delivery/`, ProactiveController, subscriptions (P2) | not yet | not started | — |
 
 ## Who does what

@@ -159,8 +159,10 @@ def sse_events(text):
     return events
 
 
-def test_api_and_worker_share_tasks_across_processes(process_setup, tmp_path):
+@pytest.mark.parametrize("lane", ["foreground", "background"])
+def test_api_and_worker_share_tasks_across_processes(process_setup, tmp_path, lane, record_property):
     env, body, script = process_setup
+    body["prefer_background"] = lane == "background"
     headers = {**AUTH_A, "Idempotency-Key": "cross-process-draft"}
     with api_server(env, tmp_path / "api-cwd") as api:
         assert api.post("/tasks", json=body).status_code == 401
@@ -171,7 +173,10 @@ def test_api_and_worker_share_tasks_across_processes(process_setup, tmp_path):
 
         with api.stream("GET", f"/tasks/{task_id}/events", headers=AUTH_A) as stream:
             assert stream.status_code == 200
-            with child("harness.worker", ["--once", "--scripted", str(script)], env, tmp_path / "worker-cwd") as worker:
+            with child(
+                "harness.worker", ["--once", "--scripted", str(script), "--lanes", lane],
+                env, tmp_path / "worker-cwd",
+            ) as worker:
                 stream.read()
                 events = sse_events(stream.text)
                 report = worker_report(worker)
@@ -184,19 +189,31 @@ def test_api_and_worker_share_tasks_across_processes(process_setup, tmp_path):
         assert event_ids == sorted(set(event_ids))
         task = api.get(f"/tasks/{task_id}", headers=AUTH_A).json()
         assert task["status"] == "succeeded" and task["usage"]["model_calls"] == 3
+        assert task["agent_role"] == "main" and task["run_lane"] == lane
         assert task["usage"]["tool_calls"] == 2
         result_ref = task["result_ref"]
         draft = api.get(f"/artifacts/{result_ref}", headers=AUTH_A)
         assert draft.status_code == 200 and draft.text == DRAFT
         trace = api.get(f"/tasks/{task_id}/trace", headers=AUTH_A).json()
-        assert [step["tool"] for step in trace["steps"] if step["type"] == "tool_action"] == [
-            "files.read", "artifacts.write",
+        assert trace["task"]["agent_role"] == "main" and trace["task"]["run_lane"] == lane
+        actions = [step for step in trace["steps"] if step["type"] == "tool_action"]
+        assert [(step["tool"], step["status"]) for step in actions] == [
+            ("files.read", "succeeded"), ("artifacts.write", "succeeded"),
         ]
+        model_calls = [step for step in trace["steps"] if step["type"] == "model_call"]
+        read_input = api.get(f"/artifacts/{model_calls[1]['input_ref']}", headers=AUTH_A)
+        assert read_input.status_code == 200
+        read_replies = [
+            message for message in read_input.json()["context"]["messages"]
+            if message.get("role") == "tool" and message.get("name") == "files.read"
+        ]
+        brief_content = Path(body["input_refs"][0].removeprefix("file:")).read_text(encoding="utf-8")
+        assert len(read_replies) == 1 and brief_content in read_replies[0]["content"]
 
     # A new API process and a different cwd must still see the database and files.
     with api_server(env, tmp_path / "restarted-api-cwd") as api:
         restored = api.get(f"/tasks/{task_id}", headers=AUTH_A).json()
-        for key in ("task_id", "status", "result_ref", "usage", "created_at", "updated_at"):
+        for key in ("task_id", "status", "agent_role", "run_lane", "result_ref", "usage", "created_at", "updated_at"):
             assert restored[key] == task[key]
         assert api.get(f"/tasks/{task_id}/trace", headers=AUTH_A).json() == trace
         assert api.get(f"/artifacts/{result_ref}", headers=AUTH_A).text == DRAFT
@@ -214,9 +231,19 @@ def test_api_and_worker_share_tasks_across_processes(process_setup, tmp_path):
         for path in (f"/tasks/{task_id}", f"/tasks/{task_id}/trace", f"/tasks/{task_id}/events", f"/artifacts/{result_ref}"):
             assert api.get(path, headers=AUTH_B).status_code == 404
         assert api.post(f"/tasks/{task_id}/cancel", headers=AUTH_B).status_code == 404
+        record_property("acceptance_evidence", json.dumps({
+            "request": body, "script": json.loads(script.read_text(encoding="utf-8")),
+            "create_http_status": response.status_code, "task": task,
+            "artifact_http_status": draft.status_code, "artifact_content": draft.text,
+            "input_file_content": brief_content, "file_read_reply": read_replies[0],
+            "read_input_http_status": read_input.status_code,
+            "restarted_task": restored, "resumed_final": resumed[-1],
+            "trace_role": trace["task"]["agent_role"], "trace_lane": trace["task"]["run_lane"],
+            "trace_steps": trace["steps"],
+        }))
 
 
-def test_cancelled_queued_task_is_not_claimed_by_another_process(process_setup, tmp_path):
+def test_cancelled_queued_task_is_not_claimed_by_another_process(process_setup, tmp_path, record_property):
     env, body, script = process_setup
     with api_server(env, tmp_path / "api-cwd") as api:
         response = api.post("/tasks", json=body, headers={**AUTH_A, "Idempotency-Key": "cancel-before-worker"})
@@ -225,9 +252,113 @@ def test_cancelled_queued_task_is_not_claimed_by_another_process(process_setup, 
         cancelled = api.post(f"/tasks/{task_id}/cancel", headers=AUTH_A)
         assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
         with child("harness.worker", ["--once", "--scripted", str(script)], env, tmp_path / "worker-cwd") as worker:
-            assert worker_report(worker, expected_exit=1) == {"claimed": None}
+            report = worker_report(worker, expected_exit=1)
+        assert report == {"claimed": None}
         task = api.get(f"/tasks/{task_id}", headers=AUTH_A).json()
         assert task["status"] == "cancelled" and task["result_ref"] is None
         assert task["usage"]["model_calls"] == task["usage"]["tool_calls"] == 0
         trace = api.get(f"/tasks/{task_id}/trace", headers=AUTH_A).json()
         assert not any(step["type"] in {"model_call", "tool_action"} for step in trace["steps"])
+        record_property("acceptance_evidence", json.dumps({
+            "request": body, "script": json.loads(script.read_text(encoding="utf-8")),
+            "create_http_status": response.status_code, "cancel_http_status": cancelled.status_code,
+            "cancel_response": cancelled.json(), "worker_report": report,
+            "task": task, "trace_steps": trace["steps"],
+        }))
+
+
+def test_worker_refuses_outside_file_without_exposing_its_content(process_setup, tmp_path, record_property):
+    env, body, script = process_setup
+    secret = tmp_path / "outside.txt"
+    secret.write_text("private-content-must-not-reach-model", encoding="utf-8")
+    steps = json.loads(script.read_text(encoding="utf-8"))
+    steps[0]["args"]["path"] = str(secret)
+    script.write_text(json.dumps(steps), encoding="utf-8")
+
+    with api_server(env, tmp_path / "api-cwd") as api:
+        response = api.post("/tasks", json=body, headers={**AUTH_A, "Idempotency-Key": "outside-file"})
+        assert response.status_code == 202, response.text
+        task_id = response.json()["task_id"]
+        with child("harness.worker", ["--once", "--scripted", str(script)], env, tmp_path / "worker-cwd") as worker:
+            report = worker_report(worker)
+        assert report["committed"] and report["status"] == "succeeded"
+        task = api.get(f"/tasks/{task_id}", headers=AUTH_A).json()
+        assert task["status"] == "succeeded" and task["usage"]["tool_calls"] == 1
+        draft = api.get(f"/artifacts/{task['result_ref']}", headers=AUTH_A)
+        assert draft.status_code == 200 and draft.text == DRAFT
+        trace = api.get(f"/tasks/{task_id}/trace", headers=AUTH_A).json()
+        refused = [step for step in trace["steps"] if step["type"] == "tool_refused"]
+        assert [(step["tool"], step["status"]) for step in refused] == [("files.read", "denied")]
+        assert "outside the directories" in refused[0]["error"]
+        assert [step["tool"] for step in trace["steps"] if step["type"] == "tool_action"] == ["artifacts.write"]
+        for step in trace["steps"]:
+            if step["type"] == "model_call":
+                model_input = api.get(f"/artifacts/{step['input_ref']}", headers=AUTH_A)
+                assert model_input.status_code == 200
+                assert "private-content-must-not-reach-model" not in model_input.text
+        record_property("acceptance_evidence", json.dumps({
+            "request": body, "script": json.loads(script.read_text(encoding="utf-8")),
+            "create_http_status": response.status_code, "task": task, "worker_report": report,
+            "refused_actions": refused, "trace_steps": trace["steps"],
+            "artifact_http_status": draft.status_code, "artifact_content": draft.text,
+        }))
+
+
+def test_worker_stops_at_model_budget_and_exposes_failure(process_setup, tmp_path, record_property):
+    env, body, script = process_setup
+    read = json.loads(script.read_text(encoding="utf-8"))[0]
+    script.write_text(json.dumps([read] * 10), encoding="utf-8")
+    body["limits"] = {"max_model_calls": 3}
+
+    with api_server(env, tmp_path / "api-cwd") as api:
+        response = api.post("/tasks", json=body, headers={**AUTH_A, "Idempotency-Key": "over-budget"})
+        assert response.status_code == 202, response.text
+        task_id = response.json()["task_id"]
+        with child("harness.worker", ["--once", "--scripted", str(script)], env, tmp_path / "worker-cwd") as worker:
+            report = worker_report(worker)
+        assert report["committed"] and report["status"] == "failed"
+        task = api.get(f"/tasks/{task_id}", headers=AUTH_A).json()
+        assert task["status"] == "failed" and task["result_ref"] is None
+        assert task["error"]["code"] == "budget_exhausted"
+        assert task["usage"]["model_calls"] == task["limits"]["max_model_calls"] == 3
+        trace = api.get(f"/tasks/{task_id}/trace", headers=AUTH_A).json()
+        contexts = [step for step in trace["steps"] if step["type"] == "context_built"]
+        assert contexts[-1]["wrap_up"] and not any(step["wrap_up"] for step in contexts[:-1])
+        assert any(step["type"] == "budget_reminder" for step in trace["steps"])
+        assert len([step for step in trace["steps"] if step["type"] == "tool_action"]) == 2
+        assert trace["steps"][-1]["to"] == "failed"
+        record_property("acceptance_evidence", json.dumps({
+            "request": body, "script": json.loads(script.read_text(encoding="utf-8")),
+            "create_http_status": response.status_code, "task": task,
+            "worker_report": report, "trace_steps": trace["steps"],
+        }))
+
+
+def test_failed_verification_keeps_the_draft_without_publishing_a_result(process_setup, tmp_path, record_property):
+    env, body, script = process_setup
+    incomplete = "# Draft\n## Goal\nThe required Plan section is missing.\n"
+    steps = json.loads(script.read_text(encoding="utf-8"))
+    steps[1]["args"]["content"] = incomplete
+    script.write_text(json.dumps(steps), encoding="utf-8")
+
+    with api_server(env, tmp_path / "api-cwd") as api:
+        response = api.post("/tasks", json=body, headers={**AUTH_A, "Idempotency-Key": "missing-section"})
+        assert response.status_code == 202, response.text
+        task_id = response.json()["task_id"]
+        with child("harness.worker", ["--once", "--scripted", str(script)], env, tmp_path / "worker-cwd") as worker:
+            report = worker_report(worker)
+        assert report["committed"] and report["status"] == "failed" and report["result_ref"] is None
+        task = api.get(f"/tasks/{task_id}", headers=AUTH_A).json()
+        assert task["status"] == "failed" and task["result_ref"] is None
+        assert task["error"]["code"] == "verification_failed" and "Plan" in task["error"]["message"]
+        trace = api.get(f"/tasks/{task_id}/trace", headers=AUTH_A).json()
+        verification = next(step for step in trace["steps"] if step["type"] == "verification_recorded")
+        assert verification["status"] == "failed"
+        partial = api.get(f"/artifacts/{verification['result_ref']}", headers=AUTH_A)
+        assert partial.status_code == 200 and partial.text == incomplete
+        record_property("acceptance_evidence", json.dumps({
+            "request": body, "script": json.loads(script.read_text(encoding="utf-8")),
+            "create_http_status": response.status_code, "task": task, "worker_report": report,
+            "verification": verification, "trace_steps": trace["steps"],
+            "partial_artifact_http_status": partial.status_code, "partial_artifact_content": partial.text,
+        }))
