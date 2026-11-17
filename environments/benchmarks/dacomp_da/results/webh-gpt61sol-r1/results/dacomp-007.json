@@ -2,7 +2,7 @@
   "task_id": "dacomp-007",
   "benchmark": "dacomp-da",
   "instruction": "The Research & Development (R&D) department’s employee attrition rate is significantly lower than the other two departments. Please analyze what factors are driving this difference in attrition rates.",
-  "workspace": "/home/xuetengfei/dacomp_bench/runs/webh-gpt61sol-r1/agent_results/webh-gpt61sol-r1/dacomp-007",
+  "workspace": "~/dacomp_bench/runs/webh-gpt61sol-r1/agent_results/webh-gpt61sol-r1/dacomp-007",
   "model": "gpt-6.1-sol",
   "turns_used": 16,
   "finished_naturally": true,
