@@ -1,5 +1,6 @@
 """Verifier, capability packs and the Main profile (results/, capabilities/, agents/)."""
 
+import dataclasses
 import json
 
 import pytest
@@ -225,6 +226,40 @@ async def test_crashing_checker_is_inconclusive_not_passed(tmp_path):
     await w.task(acceptance=acceptance(checks=[{"id": "artifact_readable"}]))
     v = await w.verify({"draft": await w.put(GOOD)})
     assert v.status is I and "RuntimeError" in w.by_id(v)["artifact_readable"].detail
+
+
+@pytest.mark.asyncio
+async def test_broken_result_schema_is_inconclusive_not_an_exception(tmp_path):
+    # Review of #17: the schema check must degrade like the other checkers.
+    good = CapabilityRegistry.builtin().resolve("document_draft@1")
+    broken = dataclasses.replace(good, result_schema={"type": "object", "properties": {"summary": {"type": 12}}})
+    packs = CapabilityRegistry()
+    packs.register(broken)
+    w = World(tmp_path, packs=packs)
+    await w.task()
+    v = await w.verify({"draft": await w.put(GOOD)})
+    assert v.status is I
+    assert "SchemaError" in w.by_id(v)["result_schema"].detail
+
+
+@pytest.mark.asyncio
+async def test_missing_jsonschema_is_inconclusive(tmp_path, monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_jsonschema(name, *args, **kwargs):
+        if name == "jsonschema":
+            raise ImportError("no jsonschema")
+        return real_import(name, *args, **kwargs)
+
+    w = World(tmp_path)
+    await w.task()
+    ref = await w.put(GOOD)
+    monkeypatch.setattr(builtins, "__import__", no_jsonschema)
+    v = await w.verify({"draft": ref})
+    monkeypatch.setattr(builtins, "__import__", real_import)
+    assert v.status is I and "not installed" in w.by_id(v)["result_schema"].detail
 
 
 @pytest.mark.asyncio
