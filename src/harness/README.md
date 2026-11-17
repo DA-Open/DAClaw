@@ -19,8 +19,8 @@ rule here and the code disagree, fix one of them in the same PR.
 | `tasks/` TaskService + worker | done | not started | PR-C |
 | `runtime/` AgentRunner, ModelAdapter, budget | done | done | PR-D |
 | `context/` ContextBuilder | done | minimal (no memory, no token cut) | PR-D |
-| `tools/` ToolGateway, Policy, connectors | done | not started | PR-E |
-| `results/` ArtifactStore, Verifier | done | not started | PR-F |
+| `tools/` ToolGateway, Policy, connectors | done | done (P0: `files.read`, `artifacts.read`, `artifacts.write`) | PR-E |
+| `results/` ArtifactStore, Verifier | done | ArtifactStore done (`FileArtifactStore`, local directory); Verifier not started | PR-E / PR-F |
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | not started | PR-F |
 | `api/` POST/GET/cancel tasks | — | not started | PR-G |
 | P0 acceptance scenarios | — | not started | PR-H |
@@ -135,6 +135,64 @@ tables do not change later; most come from review comments on the spec.
   (timeout) is charged at the reserved amount. Retryable failures are tried
   again up to `model_retries` times in a row, inside the same budget.
 
+## Tool gateway
+
+`tools/gateway.py` follows the five steps of spec 6.2 for every call:
+
+1. **Same key seen before?** Same `logical_key` with other arguments raises
+   `ActionConflict`; an earlier success is reused without running the tool
+   (same `action_id`, stored summary and artifacts); an earlier `unknown`
+   is answered `unknown` again, never re-run blindly.
+2. **May it run?** Current lease (else `StaleLease`), no cancel request, not
+   past the deadline, known tool, permission check, arguments valid against
+   the tool's `input_schema`, file paths inside the allowed directories.
+   Refusals here return `denied` (or `failed` for bad arguments) with no
+   `action_id` and charge nothing.
+3. **Register and reserve** one tool call in one step.
+4. **Run the connector** with an `AuthorizedCall`. A crash in a read-only
+   connector is `failed`; in any other connector it is `unknown`.
+5. **Settle and record**: usage is settled (an `unknown` keeps its
+   reservation), the action gets its status, `args_ref` / `result_ref`, and a
+   `tool_action` event is written.
+
+**Permissions** (`tools/policy.py`, decided in the review of #12). Two
+whitelists from config stand in for the grants table:
+
+| Layer | Keyed by | Says |
+|---|---|---|
+| Role whitelist | `AgentProfile.tool_policy_ref` | which tools this kind of agent may call (the floor) |
+| User whitelist | `scope_id` → role → `UserGrant` | which of those tools this user allows, and which directories `files.read` may read |
+| Capability | `Task.capability_ref` | which tools the pack needs (narrows only) |
+
+A call is allowed only by the intersection; a user entry can only narrow its
+role list, and a scope without an entry gets nothing. Files named in a
+task's `input_refs` get no exemption: whoever creates a task chooses its
+`input_refs`, so they must sit in the user's directories like any other path
+(review of #16). Paths are resolved first, so `../` and symlinks out of a
+directory are refused. `PolicyToolCatalog` gives ContextBuilder exactly the
+allowed tools, so the model never sees a tool it may not call.
+
+**Connectors** (`tools/connectors/files.py`):
+
+| Tool | Read-only | Notes |
+|---|---|---|
+| `files.read` | yes | text only, 5 MB cap, line paging; a page over 6,000 chars is stored as an artifact and returned as a preview plus its ID |
+| `artifacts.read` | yes | this scope's artifacts, text / JSON only, line paging |
+| `artifacts.write` | no | writes a named artifact of this task; no outside side effects |
+
+None of them supports `reconcile` (they are local).
+
+**ArtifactStore** (`results/artifacts.py`, `FileArtifactStore`): content goes
+to `<root>/<scope_id>/<sha256[:2]>/<sha256>` with an atomic write (temp file +
+rename), then the `artifacts` row is added. Identical content is one file but
+each `put` is its own artifact. `read` checks the scope through the repository
+first, then re-checks the content hash (a changed file raises
+`ArtifactIntegrityError`). `root` comes from `HarnessConfig.artifact_root`;
+object storage can replace it behind the same interface. Tool arguments and
+results are stored as trajectory artifacts (`task_id` empty, name
+`<task_id>/tool_args/<key>` and `<task_id>/tool_result/<key>`), like the
+Runner's model inputs.
+
 ## Model adapters
 
 `runtime/models/`. One adapter per wire protocol; a provider preset fills in
@@ -175,7 +233,7 @@ runs one real model through the Runner with fake tools, for a manual check.
 |---|---|---|
 | Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
 | `TaskService.checkpoint` implementation | Interface and repository method exist; nothing calls it yet | P1 |
-| `grants` / `approvals` tables | P0 has no tables. ToolGateway checks two whitelists from config and allows only their intersection: a **role whitelist** (tools Main / Proactive may call; the floor) and a **user whitelist** (per `scope_id` and role, which resources; covers several users on one deployment). A user entry can only narrow its role list. The tables replace the user whitelist later | PR-E; tables P1 |
+| `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
 | ProactiveController, DeliveryService, subscriptions, outbox | Not started; their types come with them | P2 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
