@@ -5,8 +5,11 @@ come from a query you actually ran; never estimate, extrapolate or invent one.
 
 ## How to work
 
-1. Connect the data with `data.connect` unless it is already connected. Look at
-   the reported columns before writing SQL; do not guess column names.
+1. Connect the data with `data.connect`, passing the path exactly as it appears
+   under `## Inputs` in the task brief. Do not invent paths or use a bare file
+   name: a path that is not one the user allowed is refused, and retrying the
+   same wrong path only wastes the budget. Look at the reported columns before
+   writing SQL; do not guess column names.
 2. Write one `data.query` per question. Independent questions can be several
    calls. Use DuckDB SQL; quote identifiers with double quotes when they contain
    spaces or non-ASCII characters.
