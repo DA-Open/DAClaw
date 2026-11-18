@@ -410,7 +410,7 @@ class ToolGateway:
         content = await self._artifacts.read(ref, Actor(actor_id="harness", scope_id=scope_id))
         return json.loads(content.content.decode("utf-8"))
 
-    async def reconcile(self, task: Task, action: Action) -> ActionStatus:
+    async def reconcile(self, task: Task, action: Action) -> ActionStatus | None:
         reference = ActionRef(action_id=action.id, **action.model_dump(include={
             "task_id", "logical_key", "tool", "request_hash", "receipt_ref",
         }))
@@ -425,7 +425,7 @@ class ToolGateway:
             status = action.status
         return await self._record_reconciliation(task, action, result, status, None)
 
-    async def resolve(self, task: Task, action: Action, happened: bool, actor: Actor) -> ActionStatus:
+    async def resolve(self, task: Task, action: Action, happened: bool, actor: Actor) -> ActionStatus | None:
         receipt = await self._store_json(task.scope_id, task.id, f"resolution/{action.id}", {
             "outcome": "happened" if happened else "not_happened", "actor": actor.actor_id,
         })
@@ -434,29 +434,23 @@ class ToolGateway:
 
     async def _record_reconciliation(
         self, task: Task, action: Action, result: ReconcileResult, status: ActionStatus, actor: str | None
-    ) -> ActionStatus:
+    ) -> ActionStatus | None:
         now = self._clock()
         result_ref = None
         if status in (ActionStatus.SUCCEEDED, ActionStatus.FAILED):
-            reservations = await self._repos.usage.open_reservations(task.id)
-            for reservation in reservations:
-                if reservation.call_id == action.id or reservation.call_id.startswith(f"{action.id}.retry-"):
-                    if status is ActionStatus.SUCCEEDED:
-                        await self._repos.usage.settle(reservation.call_id, reservation.reserved, now)
-                    if status is ActionStatus.FAILED:
-                        await self._repos.usage.release(reservation.call_id, now)
             result_ref = await self._store_json(task.scope_id, task.id, f"tool_result/{action.logical_key}", {
                 "status": status.value, "summary": result.detail, "receipt_ref": result.receipt_ref,
             })
-        await self._repos.actions.update(action.id, status, result_ref=result_ref, receipt_ref=result.receipt_ref, now=now)
-        history = await reconciliation_history(self._repos.events, task)
-        attempt = 1 + sum(event.payload["action_id"] == action.id for event in history)
-        await self._repos.events.append(Event(
+        event = Event(
             scope_id=task.scope_id, task_id=task.id, attempt_id=action.attempt_id,
             type=EventType.TOOL_RECONCILE, occurred_at=now, received_at=now,
-            payload={"action_id": action.id, "status": result.status, "attempt": attempt, "actor": actor},
-        ))
-        return status
+            payload={"action_id": action.id, "status": result.status, "actor": actor},
+        )
+        decided = await self._repos.actions.decide(
+            task.scope_id, task.id, action.id, status, result_ref=result_ref, receipt_ref=result.receipt_ref,
+            usage=TOOL_CALL, event=event, now=now,
+        )
+        return decided.status if decided is not None else None
 
 
 async def reconciliation_history(events: EventRepository, task: Task) -> list[Event]:

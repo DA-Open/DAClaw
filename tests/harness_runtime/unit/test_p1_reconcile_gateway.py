@@ -120,6 +120,19 @@ async def test_history_counts_past_first_page_per_action():
     assert connector.execute_calls == 0
 
 
+@pytest.mark.parametrize("status", ["succeeded", "failed", "unknown", "unsupported"])
+async def test_late_automatic_result_has_no_effect(status):
+    repos, gateway, connector, store, clock, task, action = await setup(ReconcileResult(status=status))
+    await gateway.resolve(task, action, True, ACTOR)
+    winner = await repos.actions.get(task.id, action.logical_key)
+    assert await gateway.reconcile(task, action) is None
+    assert await repos.actions.get(task.id, action.logical_key) == winner
+    assert (await repos.tasks.get(task.scope_id, task.id)).usage.tool_calls == 1
+    history = await reconciliation_history(repos.events, task)
+    assert len(history) == 1 and history[0].payload["actor"] == ACTOR.actor_id
+    assert connector.execute_calls == 0
+
+
 @pytest.mark.parametrize("behavior", ["success", "accepted_timeout", "reject", "invalid"])
 async def test_fake_external_execute_behaviors(behavior):
     connector = FakeExternalConnector(ReconcileResult(status="unknown"), execute_behavior=behavior)

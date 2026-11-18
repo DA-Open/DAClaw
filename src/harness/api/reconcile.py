@@ -3,16 +3,22 @@
 from typing import Literal
 
 from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..app import HarnessSystem
-from ..contracts import ActionStatus, ErrorCode, NotFound, utcnow
-from .errors import ApiError
+from ..contracts import ActionStatus, ErrorCode, NotFound
+from .errors import ApiError, body
 
 
 class ResolveAction(BaseModel):
     model_config = ConfigDict(extra="forbid")
     outcome: Literal["happened", "not_happened"]
+
+
+def _conflict(request: Request, status: ActionStatus) -> JSONResponse:
+    content = body(request, ErrorCode.INVALID_TRANSITION, "action is not an unsettled side effect")
+    return JSONResponse(content | {"current_status": status.value}, status_code=409)
 
 
 def reconciliation_router(system: HarnessSystem) -> APIRouter:
@@ -29,9 +35,11 @@ def reconciliation_router(system: HarnessSystem) -> APIRouter:
         if action is None:
             raise NotFound(f"action {action_id} not found")
         if action.read_only or action.status not in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN):
-            raise ApiError(409, ErrorCode.INVALID_TRANSITION, "action is not an unsettled side effect")
+            return _conflict(request, action.status)
         status = await system.gateway.resolve(task, action, payload.outcome == "happened", actor)
-        await system.repos.tasks.release_reconciliation(task.scope_id, task.id, utcnow())
+        if status is None:
+            current = await system.repos.actions.get(task.id, action.logical_key)
+            return _conflict(request, current.status)
         return {"action_id": action.id, "status": status.value}
 
     return router

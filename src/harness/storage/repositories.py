@@ -196,6 +196,12 @@ class ActionRepository(Protocol):
 
     async def list_unsettled(self, task_id: str) -> list[Action]: ...
 
+    async def decide(
+        self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime,
+    ) -> Action | None:
+        """Atomically decide an unsettled action, account usage, record its event and release the task."""
+
 
 class ArtifactRepository(Protocol):
     async def add(self, artifact: Artifact) -> Artifact: ...

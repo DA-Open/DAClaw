@@ -86,6 +86,17 @@ class _Store:
 
     # -- helpers, call with the lock held ------------------------------------
 
+    def release_reconciliation(self, task: Task, now: datetime) -> Task:
+        if task.wait_condition is not WaitCondition.RECONCILIATION or self.unsettled(task.id):
+            return task
+        updated = _replace(
+            task, status=TaskStatus.QUEUED, wait_condition=None,
+            version=task.version + 1, updated_at=now,
+        )
+        self.tasks[task.id] = updated
+        self.status_event(updated, task.status, now)
+        return updated
+
     def append_event(self, event: Event) -> Event:
         if event.source_event_id is not None:
             key = (event.scope_id, event.source, event.source_event_id)
@@ -346,15 +357,7 @@ class InMemoryTaskRepository:
             task = self._s.task(task_id)
             if task.scope_id != scope_id:
                 raise NotFound(f"task {task_id} not found")
-            if task.wait_condition is not WaitCondition.RECONCILIATION or self._s.unsettled(task_id):
-                return _copy(task)
-            updated = _replace(
-                task, status=TaskStatus.QUEUED, wait_condition=None,
-                version=task.version + 1, updated_at=now,
-            )
-            self._s.tasks[task_id] = updated
-            self._s.status_event(updated, task.status, now)
-            return _copy(updated)
+            return _copy(self._s.release_reconciliation(task, now))
 
     async def record_run(
         self,
@@ -564,6 +567,39 @@ class InMemoryActionRepository:
     async def list_unsettled(self, task_id: str) -> list[Action]:
         async with self._s.lock:
             return [_copy(a) for a in sorted(self._s.unsettled(task_id), key=lambda a: (a.created_at, a.id))]
+
+    async def decide(
+        self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime,
+    ) -> Action | None:
+        async with self._s.lock:
+            task = self._s.task(task_id)
+            action = self._s.actions.get(action_id)
+            if task.scope_id != scope_id or action is None or action.task_id != task_id:
+                raise NotFound(f"action {action_id} not found")
+            if action.status not in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN):
+                return None
+            updated = _replace(action, status=status, updated_at=now,
+                               result_ref=action.result_ref if result_ref is None else result_ref,
+                               receipt_ref=action.receipt_ref if receipt_ref is None else receipt_ref)
+            if status in (ActionStatus.SUCCEEDED, ActionStatus.FAILED):
+                for reservation in self._s.reservations.values():
+                    if (reservation.task_id == task_id and reservation.status is ReservationStatus.RESERVED
+                            and (reservation.call_id == action_id or reservation.call_id.startswith(f"{action_id}.retry-"))):
+                        settled = status is ActionStatus.SUCCEEDED
+                        self._s.reservations[reservation.call_id] = _replace(
+                            reservation, status=ReservationStatus.SETTLED if settled else ReservationStatus.RELEASED,
+                            settled=usage if settled else reservation.settled, settled_at=now,
+                        )
+                        if settled:
+                            task = _replace(task, usage=task.usage + usage, updated_at=now)
+            self._s.tasks[task_id] = task
+            self._s.actions[action_id] = updated
+            attempt = 1 + sum(e.type is EventType.TOOL_RECONCILE and e.task_id == task_id
+                              and e.payload["action_id"] == action_id for e in self._s.events)
+            self._s.append_event(_replace(event, payload={**event.payload, "attempt": attempt}))
+            self._s.release_reconciliation(task, now)
+            return _copy(updated)
 
 
 class InMemoryArtifactRepository:
