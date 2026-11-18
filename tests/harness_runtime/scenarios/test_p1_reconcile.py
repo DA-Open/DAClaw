@@ -218,3 +218,50 @@ async def test_late_reconciliation_cannot_overwrite_manual_decision(case, monkey
     assert (await stored_action(case)).status is ActionStatus.SUCCEEDED
     assert (await case.repos.tasks.get("s1", case.task.id)).status is TaskStatus.QUEUED
     assert case.connector.execute_calls == 0
+
+
+async def test_manual_after_automatic_409(case):
+    case.connector.reconcile_result = ReconcileResult(status="succeeded", receipt_ref="receipt:automatic")
+    await case.recovery.tick(case.clock())
+    response = await case.client.post(case.resolve, headers=AUTH, json={"outcome": "not_happened"})
+    assert response.status_code == 409
+    assert response.json()["current_status"] == "succeeded"
+    assert (await stored_action(case)).status is ActionStatus.SUCCEEDED
+    events = await case.repos.events.list("s1", task_id=case.task.id)
+    assert len([event for event in events if event.type is EventType.TOOL_RECONCILE]) == 1
+
+
+async def test_manual_loses_race_after_api_validation(case, monkeypatch):
+    entered, finish = asyncio.Event(), asyncio.Event()
+    resolve = case.system.gateway.resolve
+
+    async def delayed(task, action, happened, actor):
+        entered.set()
+        await finish.wait()
+        return await resolve(task, action, happened, actor)
+
+    monkeypatch.setattr(case.system.gateway, "resolve", delayed)
+    manual = asyncio.create_task(case.client.post(case.resolve, headers=AUTH, json={"outcome": "not_happened"}))
+    await entered.wait()
+    try:
+        case.connector.reconcile_result = ReconcileResult(status="succeeded", receipt_ref="receipt:automatic")
+        await case.recovery.tick(case.clock())
+    finally:
+        finish.set()
+        response = await manual
+    assert response.status_code == 409
+    assert response.json()["current_status"] == "succeeded"
+    action = await stored_action(case)
+    assert action.status is ActionStatus.SUCCEEDED and action.receipt_ref == "receipt:automatic"
+    task = await case.repos.tasks.get("s1", case.task.id)
+    assert task.status is TaskStatus.QUEUED and task.usage.tool_calls == 1
+    events = await case.repos.events.list("s1", task_id=case.task.id)
+    assert len([event for event in events if event.type is EventType.TOOL_RECONCILE]) == 1
+
+
+async def test_recovery_releases_waiting_task_without_unsettled_actions(case):
+    await case.repos.actions.update(case.action.id, ActionStatus.FAILED, now=case.clock())
+    assert await case.repos.actions.list_unsettled(case.task.id) == []
+    assert await case.recovery.tick(case.clock()) == 0
+    assert (await case.repos.tasks.get("s1", case.task.id)).status is TaskStatus.QUEUED
+    assert case.connector.reconcile_calls == case.connector.execute_calls == 0

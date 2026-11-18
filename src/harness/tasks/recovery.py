@@ -29,12 +29,14 @@ class Recovery:
         reclaimed = await self._tasks.reclaim_expired(now, self._config.max_attempts)
         for task in await self._tasks.list_reconciliation_candidates():
             history = await reconciliation_history(self._events, task)
-            for action in await self._actions.list_unsettled(task.id):
+            actions = await self._actions.list_unsettled(task.id)
+            if not actions:
+                await self._tasks.release_reconciliation(task.scope_id, task.id, now)
+            for action in actions:
                 attempts = [event for event in history if event.payload["action_id"] == action.id]
                 if needs_manual_confirmation(attempts):
                     continue
                 if attempts and now < attempts[-1].occurred_at + timedelta(minutes=2 ** (len(attempts) - 1)):
                     continue
                 await self._gateway.reconcile(task, action)
-            await self._tasks.release_reconciliation(task.scope_id, task.id, now)
         return reclaimed
