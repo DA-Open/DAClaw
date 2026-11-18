@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from harness.contracts import (
-    Action, ActionStatus, Event, EventType, ReconcileResult, TaskOutcome, TaskStatus,
+    Action, ActionStatus, Event, EventType, HarnessError, ReconcileResult, TaskOutcome, TaskStatus,
     ToolStatus, Usage, UsageKind, WaitCondition,
 )
 from harness.storage.memory import InMemoryRepositories
@@ -38,7 +38,7 @@ async def test_reconcile_succeeded_settles(tmp_path):
     repos, gateway, connector, store, clock, task, action = await setup(
         ReconcileResult(status="succeeded", receipt_ref="external:receipt", detail="observed remote result")
     )
-    assert await gateway.reconcile(task, action) is ActionStatus.SUCCEEDED
+    assert await gateway.reconcile(task, action, 1) is ActionStatus.SUCCEEDED
     actual = await repos.actions.get(task.id, action.logical_key)
     assert actual.status is ActionStatus.SUCCEEDED and actual.receipt_ref == "external:receipt"
     assert (await repos.tasks.get(task.scope_id, task.id)).usage.tool_calls == 1
@@ -52,17 +52,33 @@ async def test_reconcile_succeeded_settles(tmp_path):
 
 async def test_reconcile_failed_marks_failed():
     repos, gateway, connector, store, clock, task, action = await setup(ReconcileResult(status="failed"))
-    assert await gateway.reconcile(task, action) is ActionStatus.FAILED
+    assert await gateway.reconcile(task, action, 1) is ActionStatus.FAILED
     assert (await repos.actions.get(task.id, action.logical_key)).status is ActionStatus.FAILED
     assert await repos.usage.open_reservations(task.id) == []
     assert (await repos.tasks.get(task.scope_id, task.id)).usage.tool_calls == 0
     assert connector.execute_calls == 0
 
 
+@pytest.mark.parametrize("error_type", [HarnessError, OSError])
+async def test_reconcile_named_error_is_recorded(error_type):
+    repos, gateway, connector, store, clock, task, action = await setup(ReconcileResult(status="unknown"))
+
+    async def fail(reference):
+        raise error_type("remote unavailable")
+
+    connector.reconcile = fail
+    assert await gateway.reconcile(task, action, 1) is ActionStatus.UNKNOWN
+    (event,) = await reconciliation_history(repos.events, task)
+    assert event.payload["status"] == "unknown"
+    assert event.payload["error"] == {"type": error_type.__name__, "message": "remote unavailable"}
+    assert len(await repos.usage.open_reservations(task.id)) == 1
+    assert connector.execute_calls == 0
+
+
 @pytest.mark.parametrize("status", ["unknown", "unsupported"])
 async def test_reconcile_unsettled_keeps_reservation(status):
     repos, gateway, connector, store, clock, task, action = await setup(ReconcileResult(status=status))
-    assert await gateway.reconcile(task, action) is ActionStatus.UNKNOWN
+    assert await gateway.reconcile(task, action, 1) is ActionStatus.UNKNOWN
     assert (await repos.actions.get(task.id, action.logical_key)).status is ActionStatus.UNKNOWN
     assert len(await repos.usage.open_reservations(task.id)) == 1
     (event,) = await reconciliation_history(repos.events, task)
@@ -74,7 +90,7 @@ async def test_reconcile_unsettled_keeps_reservation(status):
 async def test_resolve_records_actor_and_usage(happened):
     repos, gateway, connector, store, clock, task, action = await setup(ReconcileResult(status="unknown"))
     expected = ActionStatus.SUCCEEDED if happened else ActionStatus.FAILED
-    assert await gateway.resolve(task, action, happened, ACTOR) is expected
+    assert await gateway.resolve(task, action, happened, ACTOR, 1) is expected
     actual = await repos.actions.get(task.id, action.logical_key)
     assert actual.status is expected
     if happened:
@@ -95,7 +111,7 @@ async def test_reconcile_finishes_retry_reservation_only(status):
     retry_id = action.id + ".retry-r_test"
     await repos.usage.reserve(task.id, action.attempt_id, retry_id, UsageKind.TOOL, Usage(tool_calls=1), clock())
     await repos.usage.reserve(task.id, action.attempt_id, "other-action", UsageKind.TOOL, Usage(tool_calls=1), clock())
-    await gateway.reconcile(task, action)
+    await gateway.reconcile(task, action, 1)
     assert [r.call_id for r in await repos.usage.open_reservations(task.id)] == ["other-action"]
     assert (await repos.tasks.get(task.scope_id, task.id)).usage.tool_calls == int(status == "succeeded")
     assert connector.execute_calls == 0
@@ -103,7 +119,7 @@ async def test_reconcile_finishes_retry_reservation_only(status):
 
 async def test_reconcile_no_reservation_is_valid():
     repos, gateway, connector, store, clock, task, action = await setup(ReconcileResult(status="succeeded"), reserve=False)
-    assert await gateway.reconcile(task, action) is ActionStatus.SUCCEEDED
+    assert await gateway.reconcile(task, action, 1) is ActionStatus.SUCCEEDED
     assert (await repos.tasks.get(task.scope_id, task.id)).usage.tool_calls == 0
     assert connector.execute_calls == 0
 
@@ -113,8 +129,8 @@ async def test_history_counts_past_first_page_per_action():
     for _ in range(505):
         await repos.events.append(Event(scope_id=task.scope_id, task_id=task.id,
                                       type=EventType.TOOL_ACTION, payload={}, occurred_at=clock()))
-    await gateway.reconcile(task, action)
-    await gateway.reconcile(task, action)
+    await gateway.reconcile(task, action, 1)
+    await gateway.reconcile(task, action, 2)
     history = await reconciliation_history(repos.events, task)
     assert [event.payload["attempt"] for event in history] == [1, 2]
     assert connector.execute_calls == 0
@@ -123,9 +139,9 @@ async def test_history_counts_past_first_page_per_action():
 @pytest.mark.parametrize("status", ["succeeded", "failed", "unknown", "unsupported"])
 async def test_late_automatic_result_has_no_effect(status):
     repos, gateway, connector, store, clock, task, action = await setup(ReconcileResult(status=status))
-    await gateway.resolve(task, action, True, ACTOR)
+    await gateway.resolve(task, action, True, ACTOR, 1)
     winner = await repos.actions.get(task.id, action.logical_key)
-    assert await gateway.reconcile(task, action) is None
+    assert await gateway.reconcile(task, action, 1) is None
     assert await repos.actions.get(task.id, action.logical_key) == winner
     assert (await repos.tasks.get(task.scope_id, task.id)).usage.tool_calls == 1
     history = await reconciliation_history(repos.events, task)

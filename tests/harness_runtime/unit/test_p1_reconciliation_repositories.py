@@ -7,6 +7,7 @@ import pytest
 from harness.contracts import (
     Action, ActionStatus, Event, EventType, NotFound, Task, TaskStatus, Usage, UsageKind, WaitCondition,
 )
+from harness.storage.repositories import round_attempts
 
 from ..integration.test_postgres import pools
 from .test_repositories import ACTOR, OTHER, T0, make_task, repos
@@ -131,7 +132,7 @@ async def test_release_reconciliation_checks_scope_and_existence(repos):
     assert await repos.tasks.get(task.scope_id, task.id) == task
 
 
-async def decide_action(repos, task, action, status, result_status=None):
+async def decide_action(repos, task, action, status, result_status=None, expected_attempt=1):
     event = Event(
         scope_id=task.scope_id, task_id=task.id, attempt_id=action.attempt_id,
         type=EventType.TOOL_RECONCILE, occurred_at=T0, received_at=T0,
@@ -139,7 +140,7 @@ async def decide_action(repos, task, action, status, result_status=None):
     )
     return await repos.actions.decide(
         task.scope_id, task.id, action.id, status, result_ref="result", receipt_ref="receipt",
-        usage=Usage(tool_calls=1), event=event, now=T0,
+        usage=Usage(tool_calls=1), event=event, now=T0, expected_attempt=expected_attempt,
     )
 
 
@@ -170,8 +171,8 @@ async def test_decide_uncertain_keeps_reservation_and_waiting(repos, status, res
     action = await action_for(repos, task, ActionStatus.RUNNING)
     await repos.usage.reserve(task.id, action.attempt_id, action.id, UsageKind.TOOL, Usage(tool_calls=1), T0)
     before = await repos.usage.open_reservations(task.id)
-    for _ in range(2):
-        assert (await decide_action(repos, task, action, status, result_status)).status is status
+    for attempt in (1, 2):
+        assert (await decide_action(repos, task, action, status, result_status, attempt)).status is status
     assert await repos.usage.open_reservations(task.id) == before
     assert await repos.tasks.get(task.scope_id, task.id) == task
     events = await repos.events.list(task.scope_id, task.id)
@@ -223,3 +224,82 @@ async def test_concurrent_decide_once(pools):
     events = await pools[0].events.list(task.scope_id, task.id)
     assert len([event for event in events if event.type is EventType.TOOL_RECONCILE]) == 1
     assert len([event for event in events if event.type is EventType.TASK_STATUS_CHANGED]) == 1
+
+
+@pytest.mark.parametrize("statuses,expected", [
+    ([], 0), (["unknown"], 1), (["unknown", "unsupported"], 2),
+    (["unknown"] * 5 + ["failed"], 0),
+    (["unknown", "succeeded", "unknown"], 1),
+    (["unknown", "failed", "unsupported", "failed", "unknown", "unknown"], 2),
+])
+async def test_round_attempts_counts_current_round(statuses, expected):
+    assert round_attempts(iter(statuses)) == expected
+
+
+@pytest.mark.parametrize("status,condition", [
+    (TaskStatus.RUNNING, None), (TaskStatus.QUEUED, None), (TaskStatus.CANCELLING, None),
+    (TaskStatus.SUCCEEDED, None), (TaskStatus.FAILED, None),
+    (TaskStatus.WAITING, WaitCondition.INPUT), (TaskStatus.WAITING, WaitCondition.APPROVAL),
+])
+async def test_decide_rejects_running_task(repos, status, condition):
+    task = await task_in_state(repos, "live", status, condition)
+    action = await action_for(repos, task, ActionStatus.RUNNING)
+    await repos.usage.reserve(task.id, action.attempt_id, action.id, UsageKind.TOOL, Usage(tool_calls=1), T0)
+    reservations = await repos.usage.open_reservations(task.id)
+    events = await repos.events.list(task.scope_id, task.id)
+    assert await decide_action(repos, task, action, ActionStatus.FAILED) is None
+    assert await repos.actions.get(task.id, action.logical_key) == action
+    assert await repos.tasks.get(task.scope_id, task.id) == task
+    assert await repos.usage.open_reservations(task.id) == reservations
+    assert await repos.events.list(task.scope_id, task.id) == events
+
+
+async def test_decide_resets_round_after_terminal_event(repos):
+    task = await task_in_state(repos, "waiting", TaskStatus.WAITING, WaitCondition.RECONCILIATION)
+    action = await action_for(repos, task, ActionStatus.UNKNOWN)
+    for status in ["unknown"] * 5 + ["failed"]:
+        await repos.events.append(Event(
+            scope_id=task.scope_id, task_id=task.id, type=EventType.TOOL_RECONCILE,
+            payload={"action_id": action.id, "status": status}, occurred_at=T0, received_at=T0,
+        ))
+    assert (await decide_action(repos, task, action, ActionStatus.UNKNOWN)).status is ActionStatus.UNKNOWN
+    events = await repos.events.list(task.scope_id, task.id)
+    assert events[-1].payload["attempt"] == 1
+
+
+async def test_decide_expected_attempt_mismatch_writes_nothing(repos):
+    task = await task_in_state(repos, "waiting", TaskStatus.WAITING, WaitCondition.RECONCILIATION)
+    action = await action_for(repos, task, ActionStatus.UNKNOWN)
+    await repos.usage.reserve(task.id, action.attempt_id, action.id, UsageKind.TOOL, Usage(tool_calls=1), T0)
+    reservations = await repos.usage.open_reservations(task.id)
+    events = await repos.events.list(task.scope_id, task.id)
+    assert await decide_action(repos, task, action, ActionStatus.SUCCEEDED, expected_attempt=2) is None
+    assert await repos.actions.get(task.id, action.logical_key) == action
+    assert await repos.tasks.get(task.scope_id, task.id) == task
+    assert await repos.usage.open_reservations(task.id) == reservations
+    assert await repos.events.list(task.scope_id, task.id) == events
+
+
+async def assert_concurrent_unknown_once(first, second):
+    task = await task_in_state(first, "waiting", TaskStatus.WAITING, WaitCondition.RECONCILIATION)
+    action = await action_for(first, task, ActionStatus.UNKNOWN)
+    await first.usage.reserve(task.id, action.attempt_id, action.id, UsageKind.TOOL, Usage(tool_calls=1), T0)
+    before = await first.usage.open_reservations(task.id)
+    results = await asyncio.gather(*(
+        decide_action(store, task, action, ActionStatus.UNKNOWN) for store in (first, second)
+    ))
+    assert sum(result is not None for result in results) == 1
+    assert await first.usage.open_reservations(task.id) == before
+    assert await first.tasks.get(task.scope_id, task.id) == task
+    events = await first.events.list(task.scope_id, task.id)
+    decisions = [event for event in events if event.type is EventType.TOOL_RECONCILE]
+    assert len(decisions) == 1 and decisions[0].payload["attempt"] == 1
+
+
+async def test_concurrent_unknown_counted_once(repos):
+    await assert_concurrent_unknown_once(repos, repos)
+
+
+@pytest.mark.integration
+async def test_concurrent_unknown_counted_once_separate_connections(pools):
+    await assert_concurrent_unknown_once(pools[0], pools[1])
