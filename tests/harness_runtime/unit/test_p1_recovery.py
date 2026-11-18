@@ -1,6 +1,7 @@
 """Lease recovery has the same behaviour on memory and PostgreSQL."""
 
 from datetime import timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -37,7 +38,8 @@ async def test_reclaim_requeues_readonly_task(repos):
     await repos.usage.reserve(task.id, lease.attempt_id, "open-tool", UsageKind.TOOL,
                               Usage(tool_calls=1), T0)
     before = await repos.tasks.get(task.scope_id, task.id)
-    recovery = Recovery(repos.tasks, HarnessConfig(), lambda: T0)
+    recovery = Recovery(repos.tasks, HarnessConfig(), lambda: T0,
+                        gateway=AsyncMock(), actions=repos.actions, events=repos.events)
     assert await recovery.tick(EXPIRED) == 1
     got = await repos.tasks.get(task.scope_id, task.id)
     attempt = await repos.tasks.get_attempt(task.scope_id, lease.attempt_id)

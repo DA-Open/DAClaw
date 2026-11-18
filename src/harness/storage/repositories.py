@@ -111,6 +111,12 @@ class TaskRepository(Protocol):
     async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
         """End expired attempts, parking uncertain side effects before retrying."""
 
+    async def list_reconciliation_candidates(self) -> list[Task]:
+        """Cross-scope waiting/reconciliation and dirty cancelled tasks, sorted by scope/id."""
+
+    async def release_reconciliation(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        """Requeue a still-waiting reconciliation task only after all side effects settle."""
+
     async def record_run(
         self,
         lease: AttemptLease,
@@ -187,6 +193,8 @@ class ActionRepository(Protocol):
     ) -> Action: ...
 
     async def list_for_task(self, task_id: str) -> list[Action]: ...
+
+    async def list_unsettled(self, task_id: str) -> list[Action]: ...
 
 
 class ArtifactRepository(Protocol):
