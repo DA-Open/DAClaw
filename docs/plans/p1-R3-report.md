@@ -1,196 +1,132 @@
-# P1 R3 实施与停止报告
+# P1 R3 实施与行数上限停止报告
 
-日期：2026-11-18。状态：**未完成；核心实现已落地，因可复现的并发裁决覆盖问题停止**。
+日期：2026-11-18。状态：**功能测试通过；累计新增源码 316 行，超过 300 行上限，按任务卡停止，R3 尚未交付完成。**
 
-第一次执行（11-17）因缺少待对账任务发现接口停止。11-18 任务卡补充 `TaskRepository.list_reconciliation_candidates()`、Recovery 必传依赖及两项测试后，本次在原 worktree / `feat/harness-p1-reconcile` 的 `260cac06` 上继续。BASE 仍为 R1 最终提交 `0fd199be267f6de894d0a45d39d081c7a195c7fb`。没有新建分支或 rebase。
+第一次执行（11-17）因缺少待对账任务发现接口停止；11-18 的任务卡第 5 条补充 `TaskRepository.list_reconciliation_candidates()` 后继续。第二次执行复现人工 succeeded 被迟到自动 failed 覆盖；11-18 第 6 条和用户明确授权新增原子 `ActionRepository.decide`，并将上限改为 300。本次解决并发问题，保留原回归断言，但触发行数上限停止条件。
 
-## 已实现的部分
+## 分支、提交与范围
 
-- TaskRepository 查询所有 scope 中的 waiting/reconciliation 任务及仍有未决副作用的 cancelled 任务，按 scope/id 排序。PG 为单条无锁查询；不加索引或迁移。
-- `list_unsettled` 仅返回非只读且 planned / running / unknown 的动作。`release_reconciliation` 在任务行锁内重查等待条件和未决动作，全部有结果才回 queued；已取消的任务不重新入队。
-- Gateway 增加 reconcile / resolve：对账只调用 Connector.reconcile；四种结果分别处理；成功结算预留、失败释放预留；人工裁决保存凭据。事件记录 action_id、status、attempt、actor，历史按 seq 分页读取。
-- Recovery 从事件历史计算逐动作退避，unknown 最多自动对账 5 次，unsupported 转人工。取消任务继续清理。
-- API 新增人工裁决入口；从认证取得身份，任务本人以外返回 403，只读或已确定动作返回 409，跨 scope / 不属于任务的动作返回 404。GET 返回未决动作、人工确认提示和取消清理状态。
-- FakeExternalConnector 提供成功、接受后超时、拒绝三种行为及 execute/reconcile 计数。所有 R3 对账场景检查 execute 调用为 0。
-- 更新原 R1 测试中 Recovery 的构造调用，补齐必传依赖；没有修改原断言。
+- Worktree：`E:\Desktop\研0\DAClaw-worktrees\harness-p1-reconcile`。
+- 分支：`feat/harness-p1-reconcile`，沿用原 worktree，没有新建分支或 rebase。
+- 四项检查 BASE：R1 最终提交 `0fd199be267f6de894d0a45d39d081c7a195c7fb`。
+- 本次被测代码提交：`af78765541636cd0f77f9671c26c7f293a005350`；随后仅提交本报告。
+- 没有修改 Runner、ToolGateway.invoke、schema、迁移、Scheduler、#26 或 #23 的业务逻辑；R2、S1、P1 验收、R4 未开始。
 
-`src/` 新增 224 行（上限 250），没有修改 Runner、ToolGateway.invoke、schema、迁移、Scheduler、#26 或 #23 的业务逻辑。
+## 实现内容
 
-## 新阻塞：人工裁决被迟到的对账结果覆盖
+- 跨 scope 发现 waiting/reconciliation 和仍有未决副作用的 cancelled 任务；PG 使用单条 EXISTS 查询，按 scope/id 排序，不加锁、索引或迁移。
+- Gateway 的自动对账四种结果、人工裁决都先存产物，再调用 `ActionRepository.decide`；原来分步修改动作、预留和事件的代码已删除。对账从不调用 execute。
+- 内存实现使用同一临界区；PG 在一个事务内先锁任务，再锁动作和关联预留。动作已不在 planned/running/unknown 时返回 None，动作、预留、事件和任务均不写入。
+- 生效裁决更新动作，成功结算原调用及该动作 retry 的开放预留，失败释放；unknown/unsupported 保持预留。对账事件的 attempt 在锁内从历史事件计算。全部副作用确定后，同一事务将 waiting/reconciliation 改回 queued；cancelled 不重新入队。
+- 自动裁决返回 None 后结束；人工裁决无论在 API 前置检查还是检查后的竞态中落败，都返回 409，响应含 `current_status`。
+- 保留事件分页、指数退避、5 次 unknown 后停止、unsupported 转人工，以及 GET 的取消清理状态和未决动作。
+- `release_reconciliation` 仅为初始没有未决动作的候选保留：此时没有可供 decide 使用的 action_id。它与 decide 复用同一内部释放函数；API 不再调用它，Recovery 对非空动作列表不再单独释放。原空任务测试保留，新增 Recovery 空列表路径测试。
 
-确定性回归：`tests/harness_runtime/scenarios/test_p1_reconcile.py::test_late_reconciliation_cannot_overwrite_manual_decision`，在内存和 PostgreSQL 上各运行一次。
+## 测试先行与复核
 
-1. 自动对账进入 Connector.reconcile，用事件屏障暂停返回。
-2. 本人通过 resolve API 提交 happened，HTTP 200；动作已为 succeeded，任务已 queued。
-3. 放行自动对账，Connector 返回 failed。
-4. Gateway 的现有无条件 `actions.update` 把已成功动作改为 failed。回归断言要求保留 succeeded，两个实现都失败。
+在修改原子实现之前，新仓库测试输出 `29 failed, 16 passed in 7.44s`；Gateway/API 的相关测试输出 `10 failed, 48 deselected in 7.65s`。实现后仓库专项测试 `45 passed in 6.77s`。完整测试见下方原始输出：583 项通过。
 
-这不是超时或环境失败。未修改的 Gateway.invoke 将 failed 视为可重试动作；R2 尚未实现，所以本次测试没有实际再次执行外部工具，但错误的持久状态会把已经人工确认发生的副作用重新放入可重试路径。不能据先前绿色测试将此实现认定为完成。
+原始文件位于 `E:\Desktop\研0\outputs\p1-20261118\`：`R3-atomic-storage-red.txt`、`R3-atomic-gateway-red.txt`、`R3-atomic-storage-focused.txt`、`R3-atomic-pytest-full.txt`。
 
-当前接口无法原子裁决：
+新验证覆盖：既有 `test_late_reconciliation_cannot_overwrite_manual_decision`（断言未改，内存和 PG）；`test_manual_after_automatic_409`；PG 两个独立连接同时裁决只产生一次结算和一条对账事件；人工请求通过检查后输掉竞态；全部四种迟到自动结果无写入；终态 no-op、作用域及动作归属、原调用和 retry 预留隔离、空任务释放。取消测试按更新后的任务卡改为调用 decide，保留任务仍为 cancelled 的断言，并检查原事件不变、仅新增裁决事件。
 
-- `ActionRepository.update` 按 action ID 无条件写入，没有预期状态/决策版本条件。
-- 动作更新、Usage settle/release、Event append 是各自独立的事务。
-- `release_reconciliation(scope_id, task_id, now)` 的行锁仅覆盖该方法，既不接收动作裁决，也不能阻止返回之后迟到的 Gateway 再次覆盖动作。
-- 再读一次状态仍有检查后写入的竞态；进程内锁不覆盖 API / Recovery 的不同进程；持有存储事务等待外部 Connector 又违反 README 的职责规则。
+只读独立审查未发现新的原子裁决正确性缺陷；这不替代下方测试证据，也不豁免行数上限。
 
-需要任务卡明确允许一个**原子裁决提交操作**（或扩展现有写入契约）：在存储锁内拒绝过期结果，协调动作状态、对应用量结算和对账事件，内存与 PG 使用同一组并发回归。当前“允许改 / 改什么”仅列出三个仓库方法，未授权这项写入契约变更。依照用户“补充的接口如果还不够用，同样停下来写报告”的要求，本次停止进一步实现，没有自行扩展接口、加迁移或用重读/进程锁伪装解决。是否仍能满足 250 行上限，需要获准具体契约后再评估，未自行提高上限。
+## 当前停止原因
 
-## 测试先行与证据范围
+任务卡通用约定：`src/ 下新增行数不超过本卡上限（不含 tests/）。超出时停下来报告，不要压缩代码来凑数。`
 
-各部分先写测试再改对应实现：仓库首次 18 项因缺少接口失败；Gateway 首次因缺少 reconciliation_history 导入失败；API/Recovery 首次 34 项因构造函数缺少 gateway 参数报错。随后定向测试分别通过，加入并发回归前完整测试输出为：
+相对 BASE 的新增源码为 **316 行**，上限 **300 行**，超出 **16 行**。发现超限后停止所有代码修改，未压缩格式、删除测试、放宽断言或擅自提高上限。随后仅运行检查、只读审查和保存本地代码及报告。
+
+按文件计数的原始输出：
 
 ```text
-544 passed in 62.28s (0:01:02)
+16	1	src/harness/api/app.py
+45	0	src/harness/api/reconcile.py
+1	0	src/harness/contracts.py
+69	0	src/harness/storage/memory.py
+86	0	src/harness/storage/postgres.py
+14	0	src/harness/storage/repositories.py
+29	4	src/harness/tasks/recovery.py
+56	1	src/harness/tools/gateway.py
 ```
 
-并发复核随后新增上述回归，内存和 PG 均失败；断言保留，未跳过或放宽。下文第一项是包含这两个失败用例的最终完整测试输出，是本次交付状态依据。
-
-所有本次 pytest 命令使用 WSL Ubuntu-22.04 的 `/home/xue/venvs/harness-pg/bin/python`；未用挂载盘的 DAClaw/.venv。PG fixture 自建临时 PostgreSQL 数据库。pytest-asyncio 的现有弃用提示原样保留。
-
-## 飞书与后续阶段
-
-已只读获取飞书开发记录，revision 137，155 个顶层块、6 张原生表格、3 个嵌入表格。读取快照保存在 `E:\Desktop\研0\outputs\p1-20261118\feishu-current-read.json` 和 `feishu-current-outline.json`。
-
-由于 R3 未完成，尚未满足写入 P1 表格的前提。本次没有对飞书作写入，也没有写入后的读回结果。原内容和原表格未修改。不能把只读快照当作写入读回证据。
-
-R1 仍为 `feat/harness-p1-resume` / `0fd199be`。R2、S1、P1 验收、R4 未开始。R1、R3 完成后一起 rebase 到 DaraOS 并开 PR 的后续阶段尚未启动；本次只保留本地提交，没有 push 或开 PR。
+恢复工作需要明确调整该行数约束或给出可删除的功能范围；当前代码不能标为满足任务卡。
 
 ## 四项检查原始输出
 
-以下检查的 BASE 均为 `0fd199be`。它们不支持“R3 已完成”的结论；第一项明确失败。
-
-代码 / 回归测试本地提交：`245eac4879108d794e174da4f7293ba588e729a5`（WIP，明确保留失败回归）。报告在后续文档提交中更新，不改变被测代码。
+环境固定为 WSL Ubuntu-22.04 的 `/home/xue/venvs/harness-pg/bin/python`，未使用挂载盘 DAClaw/.venv。PG 测试按已有 fixture 自建临时库。pytest-asyncio 的既有弃用提示原样保留，没有修改配置。
 
 ### 1. 完整测试
 
-```bash
+等价于在该 worktree 中用上述解释器执行：
+
+```text
 python -m pytest tests/harness_runtime -q -n0 -o addopts=""
 ```
 
-解释器：`/home/xue/venvs/harness-pg/bin/python`。退出码 1。原始输出：
+原始输出（退出码 0）：
 
 ```text
 /home/xue/venvs/harness-pg/lib/python3.11/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
 The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
 
   warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
-........................................................................ [ 13%]
-..............................................FF........................ [ 26%]
-........................................................................ [ 39%]
-........................................................................ [ 52%]
-........................................................................ [ 65%]
-........................................................................ [ 79%]
-........................................................................ [ 92%]
-..........................................                               [100%]
-=================================== FAILURES ===================================
-______ test_late_reconciliation_cannot_overwrite_manual_decision[memory] _______
-
-case = namespace(system=HarnessSystem(config=HarnessConfig({'database_dsn': None, 'artifact_root': '/tmp/pytest-of-xue/pytest...f40f9743', resolve='/tasks/task_1eb6a3ffd6ca4848927fdccef40f9743/actions/act_53b1223f8dc04dcb87c7bd26e0bb784c/resolve')
-monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x740c66b194d0>
-
-    async def test_late_reconciliation_cannot_overwrite_manual_decision(case, monkeypatch):
-        entered, finish = asyncio.Event(), asyncio.Event()
-        reconcile = case.connector.reconcile
-        case.connector.reconcile_result = ReconcileResult(status="failed")
-    
-        async def delayed(action):
-            entered.set()
-            await finish.wait()
-            return await reconcile(action)
-    
-        monkeypatch.setattr(case.connector, "reconcile", delayed)
-        automatic = asyncio.create_task(case.recovery.tick(case.clock()))
-        await entered.wait()
-        try:
-            response = await case.client.post(case.resolve, headers=AUTH, json={"outcome": "happened"})
-            assert response.status_code == 200, response.text
-            assert (await stored_action(case)).status is ActionStatus.SUCCEEDED
-            assert (await case.repos.tasks.get("s1", case.task.id)).status is TaskStatus.QUEUED
-        finally:
-            finish.set()
-            await automatic
->       assert (await stored_action(case)).status is ActionStatus.SUCCEEDED
-E       AssertionError: assert <ActionStatus.FAILED: 'failed'> is <ActionStatus.SUCCEEDED: 'succeeded'>
-E        +  where <ActionStatus.FAILED: 'failed'> = Action(id='act_53b1223f8dc04dcb87c7bd26e0bb784c', task_id='task_1eb6a3ffd6ca4848927fdccef40f9743', attempt_id='att_579...3, 9, 0, tzinfo=datetime.timezone.utc), updated_at=datetime.datetime(2026, 11, 13, 9, 0, tzinfo=datetime.timezone.utc)).status
-E        +  and   <ActionStatus.SUCCEEDED: 'succeeded'> = ActionStatus.SUCCEEDED
-
-tests/harness_runtime/scenarios/test_p1_reconcile.py:218: AssertionError
-_____ test_late_reconciliation_cannot_overwrite_manual_decision[postgres] ______
-
-case = namespace(system=HarnessSystem(config=HarnessConfig({'database_dsn': None, 'artifact_root': '/tmp/pytest-of-xue/pytest...94749fd2', resolve='/tasks/task_f19befd6ee394f0cb966aa4b94749fd2/actions/act_2fd2391628224115a51c1024c2ba6f81/resolve')
-monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x740c66887150>
-
-    async def test_late_reconciliation_cannot_overwrite_manual_decision(case, monkeypatch):
-        entered, finish = asyncio.Event(), asyncio.Event()
-        reconcile = case.connector.reconcile
-        case.connector.reconcile_result = ReconcileResult(status="failed")
-    
-        async def delayed(action):
-            entered.set()
-            await finish.wait()
-            return await reconcile(action)
-    
-        monkeypatch.setattr(case.connector, "reconcile", delayed)
-        automatic = asyncio.create_task(case.recovery.tick(case.clock()))
-        await entered.wait()
-        try:
-            response = await case.client.post(case.resolve, headers=AUTH, json={"outcome": "happened"})
-            assert response.status_code == 200, response.text
-            assert (await stored_action(case)).status is ActionStatus.SUCCEEDED
-            assert (await case.repos.tasks.get("s1", case.task.id)).status is TaskStatus.QUEUED
-        finally:
-            finish.set()
-            await automatic
->       assert (await stored_action(case)).status is ActionStatus.SUCCEEDED
-E       AssertionError: assert <ActionStatus.FAILED: 'failed'> is <ActionStatus.SUCCEEDED: 'succeeded'>
-E        +  where <ActionStatus.FAILED: 'failed'> = Action(id='act_2fd2391628224115a51c1024c2ba6f81', task_id='task_f19befd6ee394f0cb966aa4b94749fd2', attempt_id='att_d4b...3, 9, 0, tzinfo=datetime.timezone.utc), updated_at=datetime.datetime(2026, 11, 13, 9, 0, tzinfo=datetime.timezone.utc)).status
-E        +  and   <ActionStatus.SUCCEEDED: 'succeeded'> = ActionStatus.SUCCEEDED
-
-tests/harness_runtime/scenarios/test_p1_reconcile.py:218: AssertionError
-=========================== short test summary info ============================
-FAILED tests/harness_runtime/scenarios/test_p1_reconcile.py::test_late_reconciliation_cannot_overwrite_manual_decision[memory]
-FAILED tests/harness_runtime/scenarios/test_p1_reconcile.py::test_late_reconciliation_cannot_overwrite_manual_decision[postgres]
-2 failed, 544 passed in 70.71s (0:01:10)
-
+........................................................................ [ 12%]
+........................................................................ [ 24%]
+........................................................................ [ 37%]
+........................................................................ [ 49%]
+........................................................................ [ 61%]
+........................................................................ [ 74%]
+........................................................................ [ 86%]
+........................................................................ [ 98%]
+.......                                                                  [100%]
+583 passed in 60.59s (0:01:00)
 ```
 
 ### 2. 防御性写法检查
 
-```bash
+```text
 git diff 0fd199be -- src/harness | grep -nE '^\+.*(except Exception|except:|getattr\([^)]*,[^)]*,|hasattr\(|self\._\w+ is not None)|^\+\s+\w+=None,$|^\+.*def [^(]*\(.*=None[,)]|^\+ {8,}(from \.|import )'
 ```
 
-使用 Git for Windows 自带 grep，表达式相同。原始输出为空，退出码 1（无匹配）：
+原始标准输出为空：
 
 ```text
 ```
 
-### 3. src/ 新增行数
+grep 退出码 1，表示没有匹配项。Windows 实际使用 `C:\Program Files\Git\usr\bin\grep.exe`，正则和输入不变。`git diff --check 0fd199be -- src/harness tests/harness_runtime` 也没有空白错误。
 
-```bash
+### 3. 源码新增行数
+
+```text
 git diff --numstat 0fd199be -- src/ | awk '{s+=$1} END {print s}'
 ```
 
-新文件已暂存，计入新增 API 文件；使用 Git for Windows 自带 awk。退出码 0，原始输出：
+原始输出（awk 退出码 0；业务门槛失败）：
 
 ```text
-224
+316
 ```
+
+Windows 使用 Git for Windows 的 awk.exe。计数包含所有新增源码，不把删除行抵扣新增行。
 
 ### 4. 与 #26 试合并
 
-```bash
+```text
 git fetch origin pull/26/head:refs/remotes/origin/pr-26 && git merge-tree --write-tree --name-only origin/pr-26 HEAD
 ```
 
-#26 head：`800d2e1d4a62314b627cc682114067bebb8ebd17`。提交前对已暂存 tree 的候选 commit `11b61480333a0cfc83418dc1ae391d3e13030221` 试合并，随后在代码实际提交 HEAD 上执行以上命令；两次退出码均为 0、输出相同，无冲突文件。fetch 无输出，merge-tree 原始输出：
+#26 head 为 `800d2e1d4a62314b627cc682114067bebb8ebd17`。提交前对暂存 tree 的候选提交 `5315c1a5a23336fda6611cafe4eccf4f77f6404c` 检查，提交后对实际 HEAD `af787655` 执行同样检查；两次退出码均为 0，输出一致。fetch 无输出，merge-tree 原始输出：
 
 ```text
-67755df2eadb7e78cb9eba4dd6d44bde897f1ddf
-
+b108ebd370d2db4a2d5724969c81319008e5f8e3
 ```
 
-源代码和测试的 `git diff --check` 无输出。报告保留失败堆栈的原始行尾空格，文档 diff 中相关空白提示属于原始输出。
+没有冲突文件。试合并没有修改 worktree 或分支。
 
-原始文件另存 `E:\Desktop\研0\outputs\p1-20261118\`：`R3-api-recovery-red.txt`、`R3-api-recovery-focused.txt`、`R3-pytest-full.txt`（新增并发回归前）、`R3-decision-race.txt`、`R3-pytest-final.txt`（最终）、`R3-merge-head.txt`。
+## 飞书与后续交付
+
+R3 的行数门槛尚未满足，因此没有向飞书开发记录写入 P1 表格，也没有写入后的读回结果。现有内容、6 张原生表格和 3 个嵌入表格未修改。此前只读快照为 revision 137、155 个顶层块，不能当作写入读回证据。
+
+R1 仍为 `feat/harness-p1-resume` / `0fd199be`，原完整测试为 478 passed in 46.00s；其报告保留四项检查原始输出。R3 当前 583 项测试通过，仍需满足源码行数约束后才能建飞书 P1 表格、读回并更新本报告。后续一起 rebase 到 DaraOS、push 和开 PR 的阶段尚未启动；本次均为本地提交。
