@@ -39,6 +39,7 @@ from ..contracts import (
     new_id,
     Action,
     ActionConflict,
+    ActionRef,
     ActionStatus,
     Actor,
     ArtifactInput,
@@ -49,7 +50,9 @@ from ..contracts import (
     ExecutionContext,
     HarnessError,
     NotFound,
+    ReconcileResult,
     StaleLease,
+    Task,
     TaskError,
     TaskStatus,
     ToolCall,
@@ -62,7 +65,7 @@ from ..contracts import (
     utcnow,
 )
 from ..interfaces import ArtifactStore, Connector
-from ..storage.repositories import Repositories
+from ..storage.repositories import EventRepository, Repositories
 from .policy import WhitelistPolicy
 
 log = logging.getLogger(__name__)
@@ -406,3 +409,61 @@ class ToolGateway:
     async def _read_json(self, scope_id: str, ref: str) -> dict[str, Any]:
         content = await self._artifacts.read(ref, Actor(actor_id="harness", scope_id=scope_id))
         return json.loads(content.content.decode("utf-8"))
+
+    async def reconcile(self, task: Task, action: Action) -> ActionStatus:
+        reference = ActionRef(action_id=action.id, **action.model_dump(include={
+            "task_id", "logical_key", "tool", "request_hash", "receipt_ref",
+        }))
+        result = await self._connectors[action.tool].reconcile(reference)
+        if result.status == "succeeded":
+            status = ActionStatus.SUCCEEDED
+        if result.status == "failed":
+            status = ActionStatus.FAILED
+        if result.status == "unknown":
+            status = ActionStatus.UNKNOWN
+        if result.status == "unsupported":
+            status = action.status
+        return await self._record_reconciliation(task, action, result, status, None)
+
+    async def resolve(self, task: Task, action: Action, happened: bool, actor: Actor) -> ActionStatus:
+        receipt = await self._store_json(task.scope_id, task.id, f"resolution/{action.id}", {
+            "outcome": "happened" if happened else "not_happened", "actor": actor.actor_id,
+        })
+        result = ReconcileResult(status="succeeded" if happened else "failed", receipt_ref=receipt)
+        return await self._record_reconciliation(task, action, result, ActionStatus(result.status), actor.actor_id)
+
+    async def _record_reconciliation(
+        self, task: Task, action: Action, result: ReconcileResult, status: ActionStatus, actor: str | None
+    ) -> ActionStatus:
+        now = self._clock()
+        result_ref = None
+        if status in (ActionStatus.SUCCEEDED, ActionStatus.FAILED):
+            reservations = await self._repos.usage.open_reservations(task.id)
+            for reservation in reservations:
+                if reservation.call_id == action.id or reservation.call_id.startswith(f"{action.id}.retry-"):
+                    if status is ActionStatus.SUCCEEDED:
+                        await self._repos.usage.settle(reservation.call_id, reservation.reserved, now)
+                    if status is ActionStatus.FAILED:
+                        await self._repos.usage.release(reservation.call_id, now)
+            result_ref = await self._store_json(task.scope_id, task.id, f"tool_result/{action.logical_key}", {
+                "status": status.value, "summary": result.detail, "receipt_ref": result.receipt_ref,
+            })
+        await self._repos.actions.update(action.id, status, result_ref=result_ref, receipt_ref=result.receipt_ref, now=now)
+        history = await reconciliation_history(self._repos.events, task)
+        attempt = 1 + sum(event.payload["action_id"] == action.id for event in history)
+        await self._repos.events.append(Event(
+            scope_id=task.scope_id, task_id=task.id, attempt_id=action.attempt_id,
+            type=EventType.TOOL_RECONCILE, occurred_at=now, received_at=now,
+            payload={"action_id": action.id, "status": result.status, "attempt": attempt, "actor": actor},
+        ))
+        return status
+
+
+async def reconciliation_history(events: EventRepository, task: Task) -> list[Event]:
+    history, cursor = [], 0
+    while True:
+        page = await events.list(task.scope_id, task_id=task.id, after_seq=cursor, limit=500)
+        if not page:
+            return history
+        history.extend(event for event in page if event.type is EventType.TOOL_RECONCILE)
+        cursor = page[-1].seq

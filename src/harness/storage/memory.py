@@ -78,6 +78,12 @@ class _Store:
         self.reservations: dict[str, UsageReservation] = {}
         self.reservation_results: dict[str, ReservationResult] = {}
 
+    def unsettled(self, task_id: str) -> list[Action]:
+        return [
+            a for a in self.actions.values() if a.task_id == task_id and not a.read_only
+            and a.status in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN)
+        ]
+
     # -- helpers, call with the lock held ------------------------------------
 
     def append_event(self, event: Event) -> Event:
@@ -320,6 +326,29 @@ class InMemoryTaskRepository:
                 recovered += 1
             return recovered
 
+    async def list_reconciliation_candidates(self) -> list[Task]:
+        found = [
+            task for task in self._s.tasks.values()
+            if (task.status is TaskStatus.WAITING and task.wait_condition is WaitCondition.RECONCILIATION)
+            or (task.status is TaskStatus.CANCELLED and self._s.unsettled(task.id))
+        ]
+        return [_copy(task) for task in sorted(found, key=lambda task: (task.scope_id, task.id))]
+
+    async def release_reconciliation(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        async with self._s.lock:
+            task = self._s.task(task_id)
+            if task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            if task.wait_condition is not WaitCondition.RECONCILIATION or self._s.unsettled(task_id):
+                return _copy(task)
+            updated = _replace(
+                task, status=TaskStatus.QUEUED, wait_condition=None,
+                version=task.version + 1, updated_at=now,
+            )
+            self._s.tasks[task_id] = updated
+            self._s.status_event(updated, task.status, now)
+            return _copy(updated)
+
     async def record_run(
         self,
         lease: AttemptLease,
@@ -524,6 +553,10 @@ class InMemoryActionRepository:
             found = [a for a in self._s.actions.values() if a.task_id == task_id]
             found.sort(key=lambda a: (a.created_at, a.id))
             return [_copy(a) for a in found]
+
+    async def list_unsettled(self, task_id: str) -> list[Action]:
+        async with self._s.lock:
+            return [_copy(a) for a in sorted(self._s.unsettled(task_id), key=lambda a: (a.created_at, a.id))]
 
 
 class InMemoryArtifactRepository:

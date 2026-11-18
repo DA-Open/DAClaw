@@ -52,10 +52,13 @@ from ..contracts import (
     utcnow,
 )
 from ..trace import build_trace
+from ..tasks.recovery import needs_manual_confirmation
+from ..tools.gateway import reconciliation_history
 from . import errors
 from .auth import TokenAuth
 from .errors import ApiError
 from .ranges import byte_range
+from .reconcile import reconciliation_router
 
 MAIN_PROFILE = "main@1"
 # Statuses after which the task does nothing until someone acts.
@@ -170,6 +173,7 @@ def create_app(
         title="DaraOS harness", version="0.1", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
     )
     errors.install(app)
+    app.include_router(reconciliation_router(system))
 
     @app.middleware("http")
     async def _request_id(request: Request, call_next):
@@ -268,7 +272,18 @@ def create_app(
     @app.get("/tasks/{task_id}")
     async def get_task(task_id: str, request: Request) -> dict[str, Any]:
         who = actor(request)
-        return task_view(await own_task(who, task_id))
+        task = await own_task(who, task_id)
+        unsettled = await system.repos.actions.list_unsettled(task.id)
+        history = await reconciliation_history(system.repos.events, task)
+        return task_view(task) | {
+            "cleanup": ("pending_reconciliation" if unsettled else "done") if task.status is TaskStatus.CANCELLED else None,
+            "unsettled_actions": [{
+                "action_id": action.id, "tool": action.tool, "status": action.status.value,
+                "needs_manual_confirmation": needs_manual_confirmation([
+                    event for event in history if event.payload["action_id"] == action.id
+                ]),
+            } for action in unsettled],
+        }
 
     @app.post("/tasks/{task_id}/cancel")
     async def cancel_task(

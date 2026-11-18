@@ -68,6 +68,13 @@ from .repositories import ActionRegistration, CreateResult, Repositories, recove
 _LEASED = (TaskStatus.RUNNING.value, TaskStatus.CANCELLING.value)
 
 
+def _unsettled_actions(task_id):
+    return select(s.actions).where(
+        s.actions.c.task_id == task_id, s.actions.c.read_only.is_(False),
+        s.actions.c.status.in_([ActionStatus.PLANNED.value, ActionStatus.RUNNING.value, ActionStatus.UNKNOWN.value]),
+    )
+
+
 def async_url(dsn: str) -> str:
     """``postgresql://...`` -> ``postgresql+asyncpg://...`` (other forms kept)."""
     for prefix in ("postgresql://", "postgres://"):
@@ -494,6 +501,32 @@ class PgTaskRepository:
                 )
             return len(rows)
 
+    async def list_reconciliation_candidates(self) -> list[Task]:
+        query = select(s.tasks).where(
+            ((s.tasks.c.status == TaskStatus.WAITING.value)
+             & (s.tasks.c.wait_condition == WaitCondition.RECONCILIATION.value))
+            | ((s.tasks.c.status == TaskStatus.CANCELLED.value) & _unsettled_actions(s.tasks.c.id).exists())
+        ).order_by(s.tasks.c.scope_id, s.tasks.c.id)
+        async with self._db.engine.connect() as conn:
+            return [_task(row) for row in (await conn.execute(query)).mappings()]
+
+    async def release_reconciliation(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        async with self._db.engine.begin() as conn:
+            task = await self._db.lock_task(conn, task_id)
+            if task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            if (task.wait_condition is not WaitCondition.RECONCILIATION
+                    or await conn.scalar(select(_unsettled_actions(task_id).exists()))):
+                return task
+            row = (await conn.execute(
+                update(s.tasks).where(s.tasks.c.id == task_id).values(
+                    status=TaskStatus.QUEUED.value, wait_condition=None, version=task.version + 1, updated_at=now,
+                ).returning(*s.tasks.c)
+            )).mappings().one()
+            updated = _task(row)
+            await self._db.status_event(conn, updated, task.status, now)
+            return updated
+
     async def record_run(
         self,
         lease: AttemptLease,
@@ -721,6 +754,13 @@ class PgActionRepository:
                 )
             ).mappings().all()
         return [_action(r) for r in rows]
+
+    async def list_unsettled(self, task_id: str) -> list[Action]:
+        async with self._db.engine.connect() as conn:
+            rows = (await conn.execute(
+                _unsettled_actions(task_id).order_by(s.actions.c.created_at, s.actions.c.id)
+            )).mappings()
+            return [_action(row) for row in rows]
 
 
 class PgArtifactRepository:
