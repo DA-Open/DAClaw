@@ -378,3 +378,94 @@ FAILED tests/harness_runtime/integration/test_processes.py::test_api_and_worker_
 2 failed, 476 passed in 157.24s (0:02:37)
 
 ```
+
+## 11-18 review 修复
+
+本节对应 #27 的 F1，检查基线为 `df286691`；文档修复提交为 `82505ae69e4e9ddcbe95270de64eaa2151745c0a`，本节验证报告随后单独提交。前文的实现、失败和停止记录保留其历史测试数字与结论，本节说明此次修复后的状态。
+
+- 清理本报告历史和新增输出中的本机路径，统一使用 `<venv>`、`<tmp>`、`<stdlib>`；不保留内部文档链接或读回标识。已在组内开发记录中追加 P1 表格并读回核对。
+- README 增加 R1 状态行，说明工具步骤前后 checkpoint、原逻辑键重放、租约回收，以及常驻进程接线仍归 S1；更新已过时的续跑、回收和上下文构建说明。
+- API 只更新顶部模块注释。去掉模块注释后的 Python AST 与基线完全相同；没有新增、修改或削弱测试。
+- F2–F8 仅属于 R3，未在 R1 分支实施。R3 的职责表、状态行和 resolve 路由注释也留给 R3 分支。
+
+全量测试通过。与 #26 的合并检查仅产生 README 文档冲突；当前先完成本地提交，等待这一具体文档冲突的例外确认后再推送。没有对齐 #26 的代码或处理合并冲突。
+
+### 1. 完整测试
+
+测试环境为 WSL Ubuntu 22.04 上的 Python 3.11 虚拟环境（pytest 9.2.0、Pydantic 2.12.5、SQLAlchemy 2.0.48、asyncpg 0.32.0）。命令：
+
+```bash
+python -m pytest tests/harness_runtime -q -n0 -o addopts=""
+```
+
+原始输出仅替换环境路径：
+
+```text
+<venv>/lib/python3.11/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [ 15%]
+........................................................................ [ 30%]
+........................................................................ [ 45%]
+........................................................................ [ 60%]
+........................................................................ [ 75%]
+........................................................................ [ 90%]
+..............................................                           [100%]
+478 passed in 48.42s
+exit_code=0
+```
+
+### 2. 防御性模式检查
+
+```bash
+git diff df286691 -- src/harness | grep -nE '^\+.*(except Exception|except:|getattr\([^)]*,[^)]*,|hasattr\(|self\._\w+ is not None)|^\+\s+\w+=None,$|^\+.*def [^(]*\(.*=None[,)]|^\+ {8,}(from \.|import )'
+```
+
+原始 stdout 为空；退出码 1 表示未匹配：
+
+```text
+exit_code=1
+```
+
+### 3. 新增行数
+
+```bash
+git diff --numstat df286691 -- src/ | awk '{s+=$1} END {print s}'
+```
+
+原始输出：
+
+```text
+33
+exit_code=0
+```
+
+33 行由 README 新增 30 行和 API 模块注释新增 3 行组成，按 F1 约定不计入可执行代码上限；可执行 Python 代码新增 0 行。
+
+### 4. 与 #26 的合并检查
+
+```bash
+git fetch origin pull/26/head:refs/remotes/origin/pr-26
+git merge-tree --write-tree --name-only origin/pr-26 HEAD
+```
+
+fetch 退出码 0、无输出；#26 head 为 `800d2e1d4a62314b627cc682114067bebb8ebd17`。以下 merge-tree 在修复提交 `82505ae6` 上执行，未修改工作树：
+
+```text
+6dde1156924ef5bc723f5b2eb60a3fbd5c624ef7
+src/harness/README.md
+
+Auto-merging src/harness/README.md
+CONFLICT (content): Merge conflict in src/harness/README.md
+Auto-merging src/harness/api/app.py
+Auto-merging src/harness/app.py
+Auto-merging src/harness/config.py
+Auto-merging src/harness/contracts.py
+Auto-merging src/harness/storage/memory.py
+Auto-merging src/harness/storage/postgres.py
+Auto-merging src/harness/storage/repositories.py
+exit_code=1
+```
+
+冲突仅在 `src/harness/README.md`：R1 状态行与 #26 的 P2 状态行相邻；HTTP 说明、过期租约说明和 Open items 同时更新了原有的 P1 待实现表述。F1 明确要求更新这些旧说明，因此保留事实正确的文档修改，并报告这一超出原合并冲突白名单的路径。API 注释及全部运行时代码均自动合并。没有修改 #26 分支，也没有把它合入当前分支。
