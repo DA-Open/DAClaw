@@ -26,6 +26,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
 | `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
 | P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
+| P1 R1: checkpoints, replay and expired leases | done | tool-step checkpoints, `ResumingContextBuilder`, original-key replay and explicit `Recovery.tick`; continuous recovery wiring remains S1 | #27 |
 | `delivery/`, ProactiveController, subscriptions (P2) | types only (#23) | not started | — |
 
 ## Who does what
@@ -132,9 +133,9 @@ tables do not change later; most come from review comments on the spec.
 - Wrap-up turn: `BudgetReminderConfig.reserve_model_calls` (default 1) model
   calls are kept for returning the result. On that turn only `submit_result`
   is offered. Set it to 0 to turn this off.
-- Step numbers (and so `logical_key`s and model usage `call_id`s) continue
-  across attempts, counted from earlier `model_call` events. Replaying a
-  step from a checkpoint with its original number is P1.
+- New model-step numbers continue across attempts, counted from earlier
+  `model_call` events. Checkpoint replay uses the original tool-call keys
+  and step number, without reusing a model-usage `call_id`.
 - `inconclusive` verification ends in `waiting` / `input` without
   `result_ref` (decided 2026-11-12: spec 6.3 "待确认结果" means the user
   confirms); `failed` ends the task (no repair rounds, spec 6.3).
@@ -261,7 +262,7 @@ them or silently fall back to an in-memory store.
 
 ## Tasks and the worker
 
-`TaskService` (`tasks/service.py`) is the only writer of task status. On
+`TaskService` (`tasks/service.py`) owns task submission and worker lifecycle. On
 `create` it checks the limits against the deployment caps, that the
 capability pack and the agent profile exist, and that every
 `acceptance.checks[].id` is a verifier of that pack (`UnknownCheck`
@@ -277,9 +278,25 @@ stores the checkpoint as a JSON artifact and points the task at it.
    run `AgentRunner` with `lease_lost` wired to the heartbeat;
 4. `commit` the outcome. If the lease was lost (`StaleLease` from a
    heartbeat or from the Runner) it commits nothing and reports
-   `lease_lost`; the task stays `running` until the Scheduler (P1) requeues
-   it. A missing profile or a context-build error is committed as `failed`
+   `lease_lost`; explicit `Recovery.tick` calls inspect the expired lease.
+   S1 will connect these ticks to a long-running process. A missing profile
+   or a context-build error is committed as `failed`
    (`internal`) so the task does not hang.
+
+**Checkpoint recovery (P1 R1).** The Runner saves a checkpoint before each
+tool step with its pending calls, then another with the tool results and
+no pending calls. Both update `tasks.checkpoint_ref`. `ResumingContextBuilder`
+rebuilds current system instructions and permissions before restoring the
+saved conversation. The Runner replays pending calls with their original
+keys, so the Gateway reuses earlier successes. An unreadable checkpoint
+fails the task with its reference instead of restarting its work.
+
+`Recovery.tick(now)` reclaims expired running or cancelling attempts in
+memory and PostgreSQL. Cancellation wins; unresolved side effects wait for
+reconciliation; other tasks requeue until `max_attempts` (default 3) is
+reached, then fail with `lease_lost`. Recovery preserves cumulative usage,
+deadline and artifacts. It is not yet called by a continuous scheduler;
+that integration belongs to S1.
 
 ```bash
 python -m harness.worker --once --submit task.json --model-config model.yaml --print-result
@@ -334,7 +351,8 @@ With no file, no scope has any tool.
 | `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
 | `GET /artifacts/{id}` | whole content (200), or a byte range (206); 5 MiB max per call |
 
-Not yet: resume, approvals, `POST /events`, subscriptions (P1/P2).
+Checkpoint replay is implemented in the worker. HTTP resume and approvals
+remain R2 work; `POST /events` and subscriptions are not implemented here.
 
 **Artifact downloads** support `offset` / `length` query parameters or one
 `Range: bytes=start-end` header (open-ended and suffix ranges also work).
@@ -513,21 +531,20 @@ python -m harness.worker --model-config /srv/daraos/model.yaml --lanes foregroun
 
 The API can then read the task, events, trace and artifact content from the
 same stores, including after a normal API restart. A queued task remains
-available to a later worker. This does not add recovery of an attempt whose
-worker died while running: expired leases still need the P1 Scheduler, and
-checkpoint replay/resume is not implemented.
+available to a later worker. R1 also provides explicit expired-lease recovery
+and checkpoint replay for interrupted attempts. Run `Recovery.tick` to reclaim
+expired leases; connecting it to a continuous scheduler remains S1.
 
 ## Open items
 
 | Item | Decided | When |
 |---|---|---|
-| Expired leases go back to `queued` (crashed worker) | Scheduler does it; until then such a task stays `running` | P1 |
-| Checkpoint resume | `TaskService.checkpoint` is available; Runner writes a checkpoint when a tool returns `needs_approval` or `unknown` and the attempt enters waiting. Resume does not read or replay it yet | P1 |
+| Continuous expired-lease recovery | R1 implements `Recovery.tick` and checkpoint replay; scheduler wiring is still pending | S1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
 | ProactiveController, DeliveryService, subscriptions, outbox | Types and Protocols exist (#23); no implementation, no tables | P1/P2 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
-| ContextBuilder token cut, memory, resume from checkpoint | P0 builder lists goal, acceptance, inputs and artifacts only | P1 |
+| ContextBuilder token cut and memory | `ResumingContextBuilder` restores checkpoint history; token cutting and memory remain open | after P1 |
 | Parallel tool calls in one step | Run one after another in P0 | later |
 
 ## Tests
