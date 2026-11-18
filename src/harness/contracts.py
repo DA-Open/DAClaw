@@ -199,8 +199,21 @@ class SubscriptionStatus(StrEnum):
 
 
 class NoticeOutcome(StrEnum):
+    # We just reserved this notice.
     RESERVED = "reserved"
+    # Another path (another channel, or Main's incidental mention) already
+    # reserved it; nothing further is sent for this dedup key.
+    ALREADY_RESERVED = "already_reserved"
+    # Policy said no: quiet hours, quota, expiry or a false claim.
     SUPPRESSED = "suppressed"
+
+
+class ProactivityLevel(StrEnum):
+    """How willing a subscription is to speak up (spec: 主动程度)."""
+
+    QUIET = "quiet"
+    NORMAL = "normal"
+    EAGER = "eager"
 
 
 class OutboxStatus(StrEnum):
@@ -1181,8 +1194,18 @@ class Subscription(_Model):
     grant_ref: str | None = None
     capability_ref: str
     limits: Limits = Field(default_factory=Limits)
+    # Background budget for this subscription alone, per day; the task's own
+    # limits still apply on top of it (spec: 订阅的日预算).
+    daily_budget: Usage = Field(default_factory=Usage)
+    # How willing it is to speak up; DeliveryService still applies the rules.
+    proactivity: ProactivityLevel = ProactivityLevel.NORMAL
     # Four background outcomes: silent / digest / notify / ask (see DeliveryMode).
     delivery_mode: DeliveryMode = "digest"
+    # What the subscription may read: directory or file refs, checked against
+    # the user's grants when a task is created (spec: 订阅要读的资源).
+    resources: list[str] = Field(default_factory=list)
+    # How long a result stays usable; older results are not handed to Main.
+    result_ttl_seconds: int = Field(7 * 24 * 3600, gt=0)
     expires_at: datetime | None = None
     status: SubscriptionStatus = SubscriptionStatus.ACTIVE
     version: int = Field(1, ge=1)
@@ -1194,22 +1217,6 @@ class Subscription(_Model):
         if not self.event_filter and not self.schedule:
             raise ValueError("a subscription needs an event_filter or a schedule")
         return self
-
-
-class SubscriptionEvent(_Model):
-    """One (subscription, event) admission decision.
-
-    Unique on (subscription_id, event_id): the same event arriving twice is a
-    no-op, and one event may be admitted by several subscriptions. A global
-    processed_at would lose that, so the decision is recorded per subscription.
-    """
-
-    subscription_id: str
-    event_id: str
-    decision: str = Field(min_length=1)
-    reason: str = ""
-    task_id: str | None = None
-    processed_at: datetime = Field(default_factory=utcnow)
 
 
 class Approval(_Model):
@@ -1229,7 +1236,11 @@ class Approval(_Model):
 
 
 class Grant(_Model):
-    """What one subject may do to one resource (spec 5, 授权).
+    """What one subject may do to one resource (spec 5, 授权). P1 only.
+
+    The type exists so approvals can be built against it; nothing reads it yet.
+    P0 still authorises with the role whitelist and the user whitelist in
+    tools/policy.py, and there is no grants table until P1.
 
     `key` is `tool:target` (e.g. send_email:ops@company.com); allowing git
     does not allow curl. Written by the trusted API only, never by a model.

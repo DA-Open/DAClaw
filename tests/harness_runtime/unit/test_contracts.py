@@ -37,8 +37,9 @@ from harness.contracts import (
     RemainingBudget,
     RunLane,
     StepKind,
+    AdmissionDecision,
+    ProactivityLevel,
     Subscription,
-    SubscriptionEvent,
     SubscriptionStatus,
     Task,
     TaskError,
@@ -423,6 +424,10 @@ def test_subscription_defaults_are_safe():
     assert sub.version == 1
     assert sub.delivery_mode == "digest"
     assert sub.limits.max_tool_calls > 0
+    assert sub.proactivity is ProactivityLevel.NORMAL
+    assert sub.daily_budget.total_tokens == 0
+    assert sub.resources == []
+    assert sub.result_ttl_seconds > 0
     # A filter alone is a valid trigger too.
     assert subscription(schedule=None, event_filter={"type": "data_updated"}).schedule is None
 
@@ -432,11 +437,19 @@ def test_subscription_rejects_unknown_fields():
         subscription(scope="s1")
 
 
-def test_subscription_event_is_per_subscription():
-    first = SubscriptionEvent(subscription_id="sub_1", event_id="evt_1", decision="admit", task_id="task_1")
-    second = SubscriptionEvent(subscription_id="sub_2", event_id="evt_1", decision="skip", reason="deduped")
-    assert first.task_id != second.task_id
-    assert first.processed_at.tzinfo is not None
+def test_admission_decision_is_the_per_subscription_record():
+    # AdmissionDecision already existed; it doubles as the (subscription, event)
+    # dedup record, so there is no separate SubscriptionEvent type.
+    first = AdmissionDecision(
+        subscription_id="sub_1", event_id="evt_1", decision="admit",
+        reason="changed", policy_version="p1", task_id="task_1",
+    )
+    second = AdmissionDecision(
+        subscription_id="sub_2", event_id="evt_1", decision="skip",
+        reason="deduped", policy_version="p1",
+    )
+    assert first.task_id and second.task_id is None
+    assert first.decided_at.tzinfo is not None
 
 
 def test_approval_binds_action_and_request_hash():
@@ -463,6 +476,7 @@ def test_notice_request_needs_a_dedup_key():
 
 
 def test_notice_reservation_can_be_suppressed():
+    assert NoticeOutcome.ALREADY_RESERVED.value == "already_reserved"
     reservation = NoticeReservation(outcome=NoticeOutcome.SUPPRESSED, dedup_key="d1", reason="quiet hours")
     assert reservation.notice_id is None
     assert reservation.reason

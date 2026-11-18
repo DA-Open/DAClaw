@@ -16,6 +16,7 @@ from typing import Protocol
 
 from .contracts import (
     ActionRef,
+    AdmissionDecision,
     Actor,
     AgentProfile,
     AgentRole,
@@ -30,7 +31,6 @@ from .contracts import (
     NoticeReservation,
     OutboxItem,
     Subscription,
-    SubscriptionEvent,
     SubscriptionStatus,
     AttemptLease,
     AuthorizedCall,
@@ -168,10 +168,14 @@ class SubscriptionRepository(Protocol):
     async def update(self, subscription: Subscription) -> Subscription:
         """Bump `version`; reject a write based on an older version."""
 
-    async def record_event(self, record: SubscriptionEvent) -> SubscriptionEvent:
-        """Insert, or return the earlier row for the same (subscription, event)."""
+    async def record_event(self, record: AdmissionDecision) -> AdmissionDecision:
+        """Insert, or return the earlier row for the same (subscription, event).
 
-    async def consumed(self, subscription_id: str, event_id: str) -> SubscriptionEvent | None: ...
+        `AdmissionDecision` already carries the policy version and the later
+        training label, so there is no separate SubscriptionEvent type.
+        """
+
+    async def consumed(self, subscription_id: str, event_id: str) -> AdmissionDecision | None: ...
 
 
 class OutboxRepository(Protocol):
