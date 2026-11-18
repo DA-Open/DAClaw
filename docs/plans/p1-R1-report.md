@@ -388,7 +388,7 @@ FAILED tests/harness_runtime/integration/test_processes.py::test_api_and_worker_
 - API 只更新顶部模块注释。去掉模块注释后的 Python AST 与基线完全相同；没有新增、修改或削弱测试。
 - F2–F8 仅属于 R3，未在 R1 分支实施。R3 的职责表、状态行和 resolve 路由注释也留给 R3 分支。
 
-全量测试通过。与 #26 的合并检查仅产生 README 文档冲突；当前先完成本地提交，等待这一具体文档冲突的例外确认后再推送。没有对齐 #26 的代码或处理合并冲突。
+全量测试通过。与 #26 的合并检查仅产生 README 文档冲突；11-18 修订的任务卡明确允许这一次 README 文档冲突。没有对齐 #26 的代码或处理合并冲突。
 
 ### 1. 完整测试
 
