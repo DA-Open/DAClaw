@@ -58,6 +58,7 @@ from ..contracts import (
     VerificationRequired,
     VerificationResult,
     VerificationStatus,
+    WaitCondition,
     assert_transition,
     new_id,
 )
@@ -441,6 +442,53 @@ class PgTaskRepository:
                 )
             ).mappings().one()
             return _task(row)
+
+    async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
+        async with self._db.engine.begin() as conn:
+            rows = (await conn.execute(
+                select(s.tasks)
+                .join(s.attempts, s.attempts.c.id == s.tasks.c.current_attempt_id)
+                .where(s.tasks.c.status.in_(_LEASED), s.attempts.c.lease_expires_at <= now)
+                .order_by(s.tasks.c.scope_id, s.tasks.c.id)
+                .with_for_update(skip_locked=True)
+            )).mappings().all()
+            for row in rows:
+                task = _task(row)
+                unsettled = await conn.scalar(select(select(s.actions.c.id).where(
+                    s.actions.c.attempt_id == task.current_attempt_id,
+                    s.actions.c.read_only.is_(False),
+                    s.actions.c.status.in_([
+                        ActionStatus.PLANNED.value, ActionStatus.RUNNING.value, ActionStatus.UNKNOWN.value,
+                    ]),
+                ).exists()))
+                attempts = await conn.scalar(select(func.count()).select_from(s.attempts).where(
+                    s.attempts.c.task_id == task.id
+                ))
+                if task.status is TaskStatus.CANCELLING:
+                    status = TaskStatus.CANCELLED
+                elif unsettled:
+                    status = TaskStatus.WAITING
+                elif attempts >= max_attempts:
+                    status = TaskStatus.FAILED
+                else:
+                    status = TaskStatus.QUEUED
+                assert_transition(task.status, status)
+                error = TaskError(code=ErrorCode.LEASE_LOST, message="maximum attempts reached")
+                updated = (await conn.execute(
+                    update(s.tasks).where(s.tasks.c.id == task.id).values(
+                        status=status.value, current_attempt_id=None,
+                        wait_condition=WaitCondition.RECONCILIATION.value if status is TaskStatus.WAITING else None,
+                        error=_dump(error) if status is TaskStatus.FAILED else None,
+                        version=task.version + 1, updated_at=now,
+                    ).returning(*s.tasks.c)
+                )).mappings().one()
+                await conn.execute(update(s.attempts).where(
+                    s.attempts.c.id == task.current_attempt_id
+                ).values(ended_at=now, exit_reason="lease_expired"))
+                await self._db.status_event(
+                    conn, _task(updated), task.status, now, attempt_id=task.current_attempt_id
+                )
+            return len(rows)
 
     async def record_run(
         self,

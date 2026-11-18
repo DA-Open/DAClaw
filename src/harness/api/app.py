@@ -9,7 +9,9 @@
 | ``GET /tasks/{id}/trace`` | the task's timeline (``trace.build_trace``) |
 | ``GET /artifacts/{id}`` | an artifact's content, by byte range |
 
-Not here (P1/P2): resume, approvals, POST /events, subscriptions.
+Checkpoint replay and explicit Recovery ticks are implemented. HTTP resume
+and approvals remain R2 work; POST /events and subscriptions are not here.
+S1 will connect recovery to a long-running process.
 
 The API never runs model or tool calls in a request (spec 2): it only talks
 to TaskService and the stores. Workers run tasks, in this process
