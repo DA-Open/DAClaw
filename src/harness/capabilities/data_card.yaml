@@ -1,0 +1,8 @@
+id: data_card
+version: "1"
+instructions_ref: ../prompts/data_card.md
+tools: [data.profile, data.query_readonly, artifacts.read, artifacts.write]
+result_schema: schemas/data_card_result.json
+result_artifact: data_card
+verifiers: [artifact_readable, data_card_schema, stats_replay]
+default_mode: draft_only

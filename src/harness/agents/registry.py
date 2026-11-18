@@ -50,8 +50,9 @@ class AgentRegistry:
     @classmethod
     def builtin(cls) -> AgentRegistry:
         from .main import MAIN_PROFILE
+        from .proactive import PROACTIVE_PROFILE
 
-        return cls([MAIN_PROFILE])
+        return cls([MAIN_PROFILE, PROACTIVE_PROFILE])
 
 
 class PackageInstructions:
@@ -81,7 +82,8 @@ def main_role_whitelist() -> dict[str, frozenset[str]]:
     the Main role may call. Users and capability packs can only narrow it."""
     from .main import MAIN_PROFILE, MAIN_TOOLS
 
-    return {MAIN_PROFILE.tool_policy_ref: MAIN_TOOLS}
+    from .proactive import PROACTIVE_PROFILE, PROACTIVE_TOOLS
+    return {MAIN_PROFILE.tool_policy_ref: MAIN_TOOLS, PROACTIVE_PROFILE.tool_policy_ref: PROACTIVE_TOOLS}
 
 
 __all__ = ["AgentRegistry", "PackageInstructions", "main_role_whitelist", "RunLane"]

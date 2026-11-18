@@ -3,7 +3,7 @@ import typing
 
 from harness import interfaces
 
-# Methods spec 5.2 lists for each module (P0 only).
+# Methods spec 5.2 lists for each module (P0), plus the P1/P2 entry points.
 SPEC_METHODS = {
     "TaskService": {"create", "claim", "heartbeat", "checkpoint", "commit"},
     "AgentRegistry": {"resolve"},
@@ -14,6 +14,12 @@ SPEC_METHODS = {
     "Connector": {"execute", "reconcile"},
     "ArtifactStore": {"put", "read"},
     "Verifier": {"verify"},
+    # P1/P2: types only for now, so the implementations can be written against them.
+    "SubscriptionRepository": {"create", "get", "list_for_scope", "admit", "decisions", "pending_events"},
+    "OutboxRepository": {"enqueue", "get", "list_due", "update", "cancel_for_task"},
+    "MemoryStore": {"put", "get", "search", "supersede"},
+    "DeliveryService": {"reserve_notice", "prepare", "inbox", "read"},
+    "ProactiveController": {"on_event"},
 }
 
 
