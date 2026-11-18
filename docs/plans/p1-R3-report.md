@@ -1,6 +1,6 @@
 # P1 R3 完成报告
 
-日期：2026-11-18。状态：**R3 实现与四项检查完成；完整测试 583 项通过，源码新增 316 行，符合用户最新授权。**
+首版 R3 完整测试通过 583 项，源码新增 316 行。11-18 review 修复的完整测试通过 633 项；本轮因源码行数与试合并两项门槛停止，详见文末。
 
 第一次执行（11-17）因缺少待对账任务发现接口停止；11-18 的任务卡第 5 条补充 `TaskRepository.list_reconciliation_candidates()` 后继续。随后复现人工 succeeded 被迟到自动 failed 覆盖；第 6 条授权原子 `ActionRepository.decide` 后修复，原回归断言未改。因内存和 PG 两份 decide 实现使累计新增源码达到 316 行，曾按 300 行上限停止；11-18 用户明确将上限调整为 316，并要求源码不再修改。本次仅完成报告和交付收尾。
 
@@ -158,3 +158,100 @@ rebase 后对两分支再次执行 `git merge-tree --write-tree --name-only orig
 GitHub 连接器创建 PR 返回集成权限 403，随后使用本机已认证的 gh 完成创建，再由连接器读回确认两个 PR 均 open、draft、未合并。没有修改认证配置。
 
 组内发布记录已追加两个草稿 PR 并读回核对。
+
+## 11-18 review 修复
+
+#27 推送 `e47de9bf` 后，执行 `git rebase feat/harness-p1-resume` 无冲突。刚 rebase 完的 R3 为 `2b863a6c`，本地被测提交为 `c682e2e9`。因以下两项门槛均触发任务卡停止条件，本轮改动保存在本地，尚未推送至 #28。
+
+| 项 | 实现与验证 |
+|---|---|
+| F1 | 清理历史报告的环境路径与内部链接。README 增加 R3 状态，明确 `decide` 和 `release_reconciliation` 在同一事务写状态与事件。API 模块路由表补齐 resolve。 |
+| F2 | API 返回 409 和 `task_status`，两个后端在事务内重查任务状态。`test_resolve_rejected_while_task_running`、`test_resolve_rejected_while_waiting_for_input` 和 `test_decide_rejects_running_task` 覆盖动作、用量和事件不变。 |
+| F3 | 首次对账从动作的 `updated_at` 起等待 `reconcile_grace_sec`，默认 60 秒，支持环境配置并要求正值。`test_first_reconcile_waits_for_grace` 和 `test_grace_uses_config` 验证时间边界。 |
+| F4 | 缺失 Connector 记录 unsupported 和 `reason=connector_missing`。`HarnessError`、`TimeoutError` 和 `OSError` 记录 unknown 及异常类型和消息。两任务场景验证后一个任务仍被处理，意外 `RuntimeError` 继续抛出。 |
+| F5 | `round_attempts` 统计最近一次 succeeded/failed 后的事件数。内存、PG、退避判断和人工提示共用此函数。`test_attempts_reset_after_decision` 覆盖人工裁决后新一轮从 1 开始。 |
+| F6 | 自动与人工调用传入 `expected_attempt`，两个仓库在锁内比较，号数不符时零写入。`test_concurrent_unknown_counted_once` 及 PG 独立连接用例验证只有一条事件。 |
+| F7 | 自动对账最多六次，第一次等 grace，此后等 1、2、4、8、16 分钟。`test_backoff_schedule` 核对每次到点前一秒、到点和再次 tick 的计数。 |
+| F8 | API 模块说明只读访问仓库的原因，任务状态变更及状态事件由仓库事务负责。职责表与该边界一致。 |
+
+**旧测试的时间和断言调整。** 下列场景以前立即执行第一次自动 tick，现先将时钟推进默认 grace 60 秒：`test_reconcile_succeeded_settles_and_requeues`、`test_reconcile_failed_marks_failed`、`test_reconcile_unknown_backs_off`、`test_reconcile_gives_up_after_six`、`test_unsupported_needs_manual`、`test_cancelled_task_cleanup_pending_then_done`、`test_reconcile_history_after_many_events`、`test_reconcile_never_executes`、`test_late_reconciliation_cannot_overwrite_manual_decision`、`test_manual_after_automatic_409`、`test_manual_loses_race_after_api_validation`。`test_reconcile_unknown_backs_off` 保留第 59 秒计数 1、第 60 秒计数 2 的原断言。原 `test_reconcile_gives_up_after_five` 更名为 `test_reconcile_gives_up_after_six`，末段的间隔从 `(60,120,240,480)` 改为 `(60,120,240,480,960)` 秒，到达上限时和长时间后两处调用数从 5 改为 6。竞态测试及直接调用按新接口传入序号，保留原裁决断言。
+
+测试先行。原 R3 源码上的场景红测为 `21 failed, 2 passed, 40 deselected in 11.33s`，仓库用例首先因缺少共享函数无法导入。实现后仓库专项 `72 passed in 7.65s`，场景 `63 passed in 14.91s`，网关 `20 passed in 0.87s`。以下给出完整门槛输出。
+
+### 1. 全量测试
+
+WSL Ubuntu 22.04 上的 Python 3.11 虚拟环境，pytest 9.2.0。`python -m pytest tests/harness_runtime -q -n0 -o addopts=""`，退出码 0。仅替换环境路径。
+
+```text
+<venv>/lib/python3.11/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [ 11%]
+........................................................................ [ 22%]
+........................................................................ [ 34%]
+........................................................................ [ 45%]
+........................................................................ [ 56%]
+........................................................................ [ 68%]
+........................................................................ [ 79%]
+........................................................................ [ 90%]
+.........................................................                [100%]
+633 passed in 75.29s (0:01:15)
+```
+
+### 2. 防御性检查
+
+沿用上文完整 grep 正则，对 `git diff e47de9bf -- src/harness` 执行。标准输出为空，grep 退出码 1（无命中）。`git diff --cached --check` 无输出。
+
+```text
+```
+
+### 3. 新增行数
+
+下列三条命令均退出 0，依次统计本轮 `.py`、相对 R1 的累计 `.py`、相对 R1 的整个 `src/`。Git 两点 diff 的累计结果按最终文件内容计算，不能直接相加两轮的 added。
+
+```text
+$ git diff --numstat 2b863a6c HEAD -- 'src/*.py' | awk '{s+=$1} END {print s}'
+91
+$ git diff --numstat e47de9bf HEAD -- 'src/*.py' | awk '{s+=$1} END {print s}'
+378
+$ git diff --numstat e47de9bf HEAD -- src/ | awk '{s+=$1} END {print s}'
+381
+```
+
+按更正后的公式从 91 行扣除 F1 路由注释 1 行，得到 **90 行**，比 80 行多 10 行。即使按“模块注释不计”再扣除 F8 模块说明 4 行，仍为 **86 行**。按卡停止编码，未为行数压缩源码。逐文件原始输出如下。
+
+```text
+1	0	src/harness/api/app.py
+22	8	src/harness/api/reconcile.py
+5	0	src/harness/config.py
+10	4	src/harness/storage/memory.py
+11	6	src/harness/storage/postgres.py
+10	2	src/harness/storage/repositories.py
+12	4	src/harness/tasks/recovery.py
+20	8	src/harness/tools/gateway.py
+```
+
+### 4. 与 #26 试合并
+
+对被测提交 `c682e2e9` 执行 `git fetch origin pull/26/head:refs/remotes/origin/pr-26`（退出 0，无输出）、`git merge-tree --write-tree --name-only origin/pr-26 HEAD`（退出 1）。#26 为 `800d2e1d`。
+
+```text
+af91280a75f7395b546372d34fb9d0e0c169a706
+src/harness/README.md
+src/harness/config.py
+
+Auto-merging src/harness/README.md
+CONFLICT (content): Merge conflict in src/harness/README.md
+Auto-merging src/harness/api/app.py
+Auto-merging src/harness/app.py
+Auto-merging src/harness/config.py
+CONFLICT (content): Merge conflict in src/harness/config.py
+Auto-merging src/harness/contracts.py
+Auto-merging src/harness/storage/memory.py
+Auto-merging src/harness/storage/postgres.py
+Auto-merging src/harness/storage/repositories.py
+Auto-merging src/harness/tools/gateway.py
+```
+
+README 冲突获准。另一个冲突在 `HarnessConfig.from_env`：#26 的 `background_scope_limit` 和本轮的 `reconcile_grace_sec` 都插入 `lease_ttl_sec` 与 `heartbeat_interval_sec` 两行之间。该文件不在本次试合并冲突白名单内，按卡停止。这里的冲突出自与 #26 的试合并，实际 R3 rebase 无冲突。
