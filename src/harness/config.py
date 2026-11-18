@@ -71,7 +71,6 @@ class HarnessConfig:
     # Permissions YAML (user whitelist, deployment deny list); see app.py.
     policy_file: Path | None = None
     lease_ttl_sec: int = 60
-    reconcile_grace_sec: int = 60
     heartbeat_interval_sec: int = 15
     max_attempts: int = 3
     sse_max_connections: int = 64
@@ -79,18 +78,19 @@ class HarnessConfig:
     default_limits: Limits = field(default_factory=Limits)
     caps: DeploymentCaps = field(default_factory=DeploymentCaps)
     budget_reminder: BudgetReminderConfig = field(default_factory=BudgetReminderConfig)
+    reconcile_grace_sec: int = 60
 
     def __post_init__(self) -> None:
         if self.lease_ttl_sec <= 0 or self.heartbeat_interval_sec <= 0:
             raise ValueError("lease_ttl_sec and heartbeat_interval_sec must be positive")
         if self.max_attempts < 1:
             raise ValueError("max_attempts must be >= 1")
-        if self.reconcile_grace_sec <= 0:
-            raise ValueError("reconcile_grace_sec must be positive")
         if self.heartbeat_interval_sec >= self.lease_ttl_sec:
             raise ValueError("heartbeat_interval_sec must be shorter than lease_ttl_sec")
         if self.sse_max_connections <= 0 or self.sse_max_connections_per_scope <= 0:
             raise ValueError("SSE connection limits must be positive")
+        if self.reconcile_grace_sec <= 0:
+            raise ValueError("reconcile_grace_sec must be positive")
         self.caps.check(self.default_limits)
 
     def __repr__(self) -> str:
@@ -103,7 +103,6 @@ class HarnessConfig:
             "artifact_root": str(self.artifact_root),
             "policy_file": str(self.policy_file) if self.policy_file else None,
             "lease_ttl_sec": self.lease_ttl_sec,
-            "reconcile_grace_sec": self.reconcile_grace_sec,
             "heartbeat_interval_sec": self.heartbeat_interval_sec,
             "max_attempts": self.max_attempts,
             "sse_max_connections": self.sse_max_connections,
@@ -116,6 +115,7 @@ class HarnessConfig:
                 "final_turn": self.budget_reminder.final_turn,
                 "reserve_model_calls": self.budget_reminder.reserve_model_calls,
             },
+            "reconcile_grace_sec": self.reconcile_grace_sec,
         }
 
     @classmethod
@@ -166,7 +166,6 @@ class HarnessConfig:
             artifact_root=Path(get("ARTIFACT_ROOT") or "./harness_artifacts"),
             policy_file=Path(get("POLICY_FILE")) if get("POLICY_FILE") else None,
             lease_ttl_sec=get_int("LEASE_TTL_SEC", 60),
-            reconcile_grace_sec=get_int("RECONCILE_GRACE_SEC", 60),
             heartbeat_interval_sec=get_int("HEARTBEAT_INTERVAL_SEC", 15),
             max_attempts=get_int("MAX_ATTEMPTS", 3),
             sse_max_connections=get_int("SSE_MAX_CONNECTIONS", 64),
@@ -191,4 +190,5 @@ class HarnessConfig:
                     "BUDGET_REMINDER_RESERVE_MODEL_CALLS", base_reminder.reserve_model_calls
                 ),
             ),
+            reconcile_grace_sec=get_int("RECONCILE_GRACE_SEC", 60),
         )
