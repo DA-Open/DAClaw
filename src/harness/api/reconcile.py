@@ -1,4 +1,7 @@
-"""Manual decisions for uncertain side effects."""
+"""Manual decisions for uncertain side effects.
+
+Repository access here only reads state; the gateway delegates mutations to atomic decide.
+"""
 
 from typing import Literal
 
@@ -7,7 +10,9 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..app import HarnessSystem
-from ..contracts import ActionStatus, ErrorCode, NotFound
+from ..contracts import ActionStatus, ErrorCode, NotFound, TaskStatus, WaitCondition
+from ..storage.repositories import round_attempts
+from ..tools.gateway import reconciliation_history
 from .errors import ApiError, body
 
 
@@ -16,9 +21,9 @@ class ResolveAction(BaseModel):
     outcome: Literal["happened", "not_happened"]
 
 
-def _conflict(request: Request, status: ActionStatus) -> JSONResponse:
-    content = body(request, ErrorCode.INVALID_TRANSITION, "action is not an unsettled side effect")
-    return JSONResponse(content | {"current_status": status.value}, status_code=409)
+def _conflict(request: Request, status: ActionStatus, task_status: TaskStatus) -> JSONResponse:
+    content = body(request, ErrorCode.INVALID_TRANSITION, "task or action is not awaiting reconciliation")
+    return JSONResponse(content | {"current_status": status.value, "task_status": task_status.value}, status_code=409)
 
 
 def reconciliation_router(system: HarnessSystem) -> APIRouter:
@@ -34,12 +39,21 @@ def reconciliation_router(system: HarnessSystem) -> APIRouter:
         action = next((action for action in actions if action.id == action_id), None)
         if action is None:
             raise NotFound(f"action {action_id} not found")
+        if task.status is not TaskStatus.CANCELLED and (
+            task.status is not TaskStatus.WAITING or task.wait_condition is not WaitCondition.RECONCILIATION
+        ):
+            return _conflict(request, action.status, task.status)
         if action.read_only or action.status not in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN):
-            return _conflict(request, action.status)
-        status = await system.gateway.resolve(task, action, payload.outcome == "happened", actor)
+            return _conflict(request, action.status, task.status)
+        history = await reconciliation_history(system.repos.events, task)
+        expected_attempt = round_attempts(
+            event.payload["status"] for event in history if event.payload["action_id"] == action.id
+        ) + 1
+        status = await system.gateway.resolve(task, action, payload.outcome == "happened", actor, expected_attempt)
         if status is None:
             current = await system.repos.actions.get(task.id, action.logical_key)
-            return _conflict(request, current.status)
+            current_task = await system.repos.tasks.get(task.scope_id, task.id)
+            return _conflict(request, current.status, current_task.status)
         return {"action_id": action.id, "status": status.value}
 
     return router

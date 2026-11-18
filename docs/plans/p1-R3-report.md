@@ -6,7 +6,6 @@
 
 ## 分支、提交与范围
 
-- Worktree：`E:\Desktop\研0\DAClaw-worktrees\harness-p1-reconcile`。
 - 分支：`feat/harness-p1-reconcile`，沿用原 worktree。实现及本地验证阶段没有新建分支或 rebase；R1、R3 均完成后，按用户后续指令进入文末记录的发布阶段。
 - 四项检查 BASE：R1 最终提交 `0fd199be267f6de894d0a45d39d081c7a195c7fb`。
 - 本次被测代码提交：`af78765541636cd0f77f9671c26c7f293a005350`；随后仅提交本报告。
@@ -26,7 +25,6 @@
 
 在修改原子实现之前，新仓库测试输出 `29 failed, 16 passed in 7.44s`；Gateway/API 的相关测试输出 `10 failed, 48 deselected in 7.65s`。实现后仓库专项测试 `45 passed in 6.77s`。完整测试见下方原始输出：583 项通过。
 
-原始文件位于 `E:\Desktop\研0\outputs\p1-20261118\`：`R3-atomic-storage-red.txt`、`R3-atomic-gateway-red.txt`、`R3-atomic-storage-focused.txt`、`R3-atomic-pytest-full.txt`。
 
 新验证覆盖：既有 `test_late_reconciliation_cannot_overwrite_manual_decision`（断言未改，内存和 PG）；`test_manual_after_automatic_409`；PG 两个独立连接同时裁决只产生一次结算和一条对账事件；人工请求通过检查后输掉竞态；全部四种迟到自动结果无写入；终态 no-op、作用域及动作归属、原调用和 retry 预留隔离、空任务释放。取消测试按更新后的任务卡改为调用 decide，保留任务仍为 cancelled 的断言，并检查原事件不变、仅新增裁决事件。
 
@@ -57,7 +55,7 @@
 
 ## 四项检查原始输出
 
-环境固定为 WSL Ubuntu-22.04 的 `/home/xue/venvs/harness-pg/bin/python`，未使用挂载盘 DAClaw/.venv。PG 测试按已有 fixture 自建临时库。pytest-asyncio 的既有弃用提示原样保留，没有修改配置。
+测试环境为 WSL Ubuntu 22.04 上的 Python 3.11 虚拟环境（pytest 9.2.0）。PG 测试按已有 fixture 自建临时库。pytest-asyncio 的既有弃用提示原样保留，没有修改配置。
 
 ### 1. 完整测试
 
@@ -70,7 +68,7 @@ python -m pytest tests/harness_runtime -q -n0 -o addopts=""
 原始输出（退出码 0）：
 
 ```text
-/home/xue/venvs/harness-pg/lib/python3.11/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+<venv>/lib/python3.11/site-packages/pytest_asyncio/plugin.py:306: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
 The event loop scope for asynchronous fixtures will default to the fixture scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session". Set it to "fixture-scope" to keep the current behavior.
 
   warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
@@ -97,7 +95,7 @@ git diff 0fd199be -- src/harness | grep -nE '^\+.*(except Exception|except:|geta
 ```text
 ```
 
-grep 退出码 1，表示没有匹配项。Windows 实际使用 `C:\Program Files\Git\usr\bin\grep.exe`，正则和输入不变。`git diff --check 0fd199be -- src/harness tests/harness_runtime` 也没有空白错误。
+grep 退出码 1，表示没有匹配项。Windows 实际使用 `grep`，正则和输入不变。`git diff --check 0fd199be -- src/harness tests/harness_runtime` 也没有空白错误。
 
 ### 3. 源码新增行数
 
@@ -127,34 +125,9 @@ b108ebd370d2db4a2d5724969c81319008e5f8e3
 
 没有冲突文件。试合并没有修改 worktree 或分支。
 
-## 飞书写入与读回
+## 组内记录
 
-已在[飞书开发记录](https://my.feishu.cn/wiki/FpxWwLLfMiD1ytkmRbUcUwx8nbc)文末追加“P1 可靠执行（2026-11-18）”标题、说明和一张 6 列原生表格。六行分别为 R1、R3、R2、S1、P1 验收、R4，后四行均标为“未开始，等待 …”。R1、R3 的提交号为 rebase 前的实际验证版本；表前说明了后续发布会产生新提交号。
-
-写入使用 `docs +update --command append --revision-id 137`，服务返回 success、revision 138、warnings 空。随后用 `docs +fetch --detail full --doc-format xml` 读回；原 155 个顶层块按原顺序逐块 OuterXml 比对全部相同，原 6 张原生表格和 3 个嵌入表格没有修改，仅增加 3 个顶层块及 1 张原生表格。新表每行 6 列，表头和六个任务标签逐项核对。
-
-[新表直达链接](https://my.feishu.cn/wiki/FpxWwLLfMiD1ytkmRbUcUwx8nbc#doxcndkYe7ehNa70h46mBj5zaXg)。写入前、写入响应、读回和比较输出分别保存在 `E:\Desktop\研0\outputs\p1-20261118\feishu-p1-before.json`、`feishu-p1-append.json`、`feishu-p1-after.json`、`feishu-p1-readback.txt`。原文全文快照仅保存在本地输出目录，没有加入 Git 提交。
-
-读回比较原始输出：
-
-```text
-before_revision=137
-after_revision=138
-original_top_level_blocks=155
-unchanged_original_top_level_blocks=155
-new_top_level_blocks=3
-native_tables=6->7
-embedded_sheets=3->3
-new_table_id=doxcndkYe7ehNa70h46mBj5zaXg
-table_rows=7
-PR | 状态 | 分支 | 提交号 | 测试结果 | 依赖
-R1 | 已完成，本地验证通过 | feat/harness-p1-resume | 0fd199be267f6de894d0a45d39d081c7a195c7fb | 478 passed in 46.00s；防御性检查无命中；src 新增 210/350 行；#26 试合并无冲突。四项原始输出见 docs/plans/p1-R1-report.md。 | 基于 #22 head 2929550e；#22 已合入 DaraOS。后续与 R3 一起 rebase 后开 PR。
-R3 | 已完成，本地验证通过 | feat/harness-p1-reconcile | af78765541636cd0f77f9671c26c7f293a005350 | 583 passed in 60.59s；防御性检查无命中；src 新增 316/316 行；#26 试合并无冲突。含内存/PG 并发裁决回归；原覆盖竞态断言未改。四项原始输出见 docs/plans/p1-R3-report.md。 | 基于 R1 最终提交 0fd199be。原子裁决接口及 316 行上限已获授权；不依赖 R2，无真实飞书调用。
-R2 | 未开始，等待 R1、#26 合入及 #23 去留确定 | feat/harness-p1-approvals（计划） | — | 未运行 | DaraOS 必须已有 Approval 类型和 0003 迁移；#23 去留已定。本次不实施。
-S1 | 未开始，等待 R1 和 #26 合入 | chore/harness-unify-reclaim（计划） | — | 未运行 | 接通 Scheduler 与 Recovery；保留 #26 原测试断言。本次不实施。
-P1 验收 | 未开始，等待 R1、R2、R3、S1 全部合入 | test/harness-p1-acceptance（计划） | — | 未运行 | 在 DaraOS 上验证真实 API/Worker/PG 五个场景；只加测试和文档。本次不实施。
-R4 | 未开始，等待 P1 验收合入及真实飞书测试凭据 | feat/harness-feishu-send（计划） | — | 未运行 | 先实测同一 uuid 连续发送两次的响应，再按证据实现 Connector。本次不实施。
-```
+已在组内开发记录中追加 P1 表格并读回核对。
 
 ## 发布阶段与最终读回
 
@@ -184,16 +157,4 @@ rebase 后对两分支再次执行 `git merge-tree --write-tree --name-only orig
 
 GitHub 连接器创建 PR 返回集成权限 403，随后使用本机已认证的 gh 完成创建，再由连接器读回确认两个 PR 均 open、draft、未合并。没有修改认证配置。
 
-飞书原 P1 表格保留 rebase 前验证提交，另在文末追加上述 PR 发布记录。再次读回并逐块比较，追加前 158 个顶层块全部相同，表格未修改。原始比较输出：
-
-```text
-revision=138->139
-unchanged_existing_blocks=158
-total_blocks=159
-native_tables=7
-embedded_sheets=3
-publication_block_id=doxcnBLWbLVozcXUKdrKYXVT9pK
-P1 发布记录（2026-11-18）：R1 已开 PR #27，目标 DaraOS，提交 df286691；R3 已开 PR #28，目标 feat/harness-p1-resume，原子裁决代码提交 625f7a4e。两者均为草稿 PR，未合入。R1 合入后需将 R3 的目标分支调整为 DaraOS。rebase 前后 harness 源码、测试及 pyproject.toml 完全一致；上表保留原验证提交和测试输出。
-```
-
-追加及读回原始响应保存在本地输出目录的 `feishu-p1-publish-before.json`、`feishu-p1-publish-append.json`、`feishu-p1-publish-after.json`、`feishu-p1-publish-readback.txt`。R2、S1、P1 验收、R4 均未实施。
+组内发布记录已追加两个草稿 PR 并读回核对。

@@ -6,6 +6,7 @@
 | ``GET /tasks/{id}`` | status, wait reason, usage, result, error |
 | ``GET /tasks/{id}/events`` | SSE progress; ``Last-Event-ID`` resumes; ``final`` once the task stops |
 | ``POST /tasks/{id}/cancel`` | idempotent cancel request |
+| ``POST /tasks/{id}/actions/{action_id}/resolve`` | record the owner's decision about an uncertain side effect |
 | ``GET /tasks/{id}/trace`` | the task's timeline (``trace.build_trace``) |
 | ``GET /artifacts/{id}`` | an artifact's content, by byte range |
 

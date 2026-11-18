@@ -63,7 +63,7 @@ from ..contracts import (
     new_id,
 )
 from . import schema as s
-from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status
+from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
 
 _LEASED = (TaskStatus.RUNNING.value, TaskStatus.CANCELLING.value)
 
@@ -767,7 +767,7 @@ class PgActionRepository:
 
     async def decide(
         self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
-        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime, expected_attempt: int,
     ) -> Action | None:
         async with self._db.engine.begin() as conn:
             task = await self._db.lock_task(conn, task_id)
@@ -777,6 +777,15 @@ class PgActionRepository:
             if task.scope_id != scope_id or row is None:
                 raise NotFound(f"action {action_id} not found")
             if row["status"] not in (ActionStatus.PLANNED.value, ActionStatus.RUNNING.value, ActionStatus.UNKNOWN.value):
+                return None
+            if task.status is not TaskStatus.CANCELLED and task.wait_condition is not WaitCondition.RECONCILIATION:
+                return None
+            statuses = (await conn.execute(select(s.events.c.payload["status"].astext).where(
+                s.events.c.task_id == task_id, s.events.c.type == EventType.TOOL_RECONCILE.value,
+                s.events.c.payload["action_id"].astext == action_id,
+            ).order_by(s.events.c.seq))).scalars()
+            attempt = 1 + round_attempts(statuses)
+            if expected_attempt != attempt:
                 return None
             updated = (await conn.execute(update(s.actions).where(s.actions.c.id == action_id).values(
                 status=status.value, updated_at=now, result_ref=func.coalesce(result_ref, s.actions.c.result_ref),
@@ -800,10 +809,6 @@ class PgActionRepository:
                         await conn.execute(update(s.tasks).where(s.tasks.c.id == task_id).values(
                             usage=_dump(task.usage), updated_at=now,
                         ))
-            attempt = 1 + await conn.scalar(select(func.count()).select_from(s.events).where(
-                s.events.c.task_id == task_id, s.events.c.type == EventType.TOOL_RECONCILE.value,
-                s.events.c.payload["action_id"].astext == action_id,
-            ))
             await self._db.append_event(conn, event.model_copy(update={"payload": {**event.payload, "attempt": attempt}}))
             await self._db.release_reconciliation(conn, task, now)
             return _action(updated)

@@ -45,7 +45,7 @@ from ..contracts import (
     assert_transition,
     new_id,
 )
-from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status
+from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -563,7 +563,7 @@ class InMemoryActionRepository:
 
     async def decide(
         self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
-        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime, expected_attempt: int,
     ) -> Action | None:
         async with self._s.lock:
             task = self._s.task(task_id)
@@ -571,6 +571,14 @@ class InMemoryActionRepository:
             if task.scope_id != scope_id or action is None or action.task_id != task_id:
                 raise NotFound(f"action {action_id} not found")
             if action.status not in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN):
+                return None
+            if task.status is not TaskStatus.CANCELLED and task.wait_condition is not WaitCondition.RECONCILIATION:
+                return None
+            attempt = 1 + round_attempts(
+                e.payload["status"] for e in self._s.events if e.type is EventType.TOOL_RECONCILE
+                and e.task_id == task_id and e.payload["action_id"] == action_id
+            )
+            if expected_attempt != attempt:
                 return None
             updated = _replace(action, status=status, updated_at=now,
                                result_ref=action.result_ref if result_ref is None else result_ref,
@@ -588,8 +596,6 @@ class InMemoryActionRepository:
                             task = _replace(task, usage=task.usage + usage, updated_at=now)
             self._s.tasks[task_id] = task
             self._s.actions[action_id] = updated
-            attempt = 1 + sum(e.type is EventType.TOOL_RECONCILE and e.task_id == task_id
-                              and e.payload["action_id"] == action_id for e in self._s.events)
             self._s.append_event(_replace(event, payload={**event.payload, "attempt": attempt}))
             self._s.release_reconciliation(task, now)
             return _copy(updated)

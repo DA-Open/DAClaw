@@ -410,11 +410,20 @@ class ToolGateway:
         content = await self._artifacts.read(ref, Actor(actor_id="harness", scope_id=scope_id))
         return json.loads(content.content.decode("utf-8"))
 
-    async def reconcile(self, task: Task, action: Action) -> ActionStatus | None:
+    async def reconcile(self, task: Task, action: Action, expected_attempt: int) -> ActionStatus | None:
         reference = ActionRef(action_id=action.id, **action.model_dump(include={
             "task_id", "logical_key", "tool", "request_hash", "receipt_ref",
         }))
-        result = await self._connectors[action.tool].reconcile(reference)
+        details = {}
+        if action.tool not in self._connectors:
+            result = ReconcileResult(status="unsupported")
+            details["reason"] = "connector_missing"
+        else:
+            try:
+                result = await self._connectors[action.tool].reconcile(reference)
+            except (HarnessError, TimeoutError, OSError) as exc:
+                result = ReconcileResult(status="unknown")
+                details["error"] = {"type": type(exc).__name__, "message": str(exc)}
         if result.status == "succeeded":
             status = ActionStatus.SUCCEEDED
         if result.status == "failed":
@@ -423,17 +432,20 @@ class ToolGateway:
             status = ActionStatus.UNKNOWN
         if result.status == "unsupported":
             status = action.status
-        return await self._record_reconciliation(task, action, result, status, None)
+        return await self._record_reconciliation(task, action, result, status, None, expected_attempt, details)
 
-    async def resolve(self, task: Task, action: Action, happened: bool, actor: Actor) -> ActionStatus | None:
+    async def resolve(self, task: Task, action: Action, happened: bool, actor: Actor, expected_attempt: int) -> ActionStatus | None:
         receipt = await self._store_json(task.scope_id, task.id, f"resolution/{action.id}", {
             "outcome": "happened" if happened else "not_happened", "actor": actor.actor_id,
         })
         result = ReconcileResult(status="succeeded" if happened else "failed", receipt_ref=receipt)
-        return await self._record_reconciliation(task, action, result, ActionStatus(result.status), actor.actor_id)
+        return await self._record_reconciliation(
+            task, action, result, ActionStatus(result.status), actor.actor_id, expected_attempt, {},
+        )
 
     async def _record_reconciliation(
-        self, task: Task, action: Action, result: ReconcileResult, status: ActionStatus, actor: str | None
+        self, task: Task, action: Action, result: ReconcileResult, status: ActionStatus, actor: str | None,
+        expected_attempt: int, details: dict[str, Any],
     ) -> ActionStatus | None:
         now = self._clock()
         result_ref = None
@@ -444,11 +456,11 @@ class ToolGateway:
         event = Event(
             scope_id=task.scope_id, task_id=task.id, attempt_id=action.attempt_id,
             type=EventType.TOOL_RECONCILE, occurred_at=now, received_at=now,
-            payload={"action_id": action.id, "status": result.status, "actor": actor},
+            payload={"action_id": action.id, "status": result.status, "actor": actor, **details},
         )
         decided = await self._repos.actions.decide(
             task.scope_id, task.id, action.id, status, result_ref=result_ref, receipt_ref=result.receipt_ref,
-            usage=TOOL_CALL, event=event, now=now,
+            usage=TOOL_CALL, event=event, now=now, expected_attempt=expected_attempt,
         )
         return decided.status if decided is not None else None
 
