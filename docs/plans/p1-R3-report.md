@@ -1,6 +1,6 @@
 # P1 R3 完成报告
 
-首版 R3 完整测试通过 583 项，源码新增 316 行。11-18 review 修复的完整测试通过 633 项；本轮因源码行数与试合并两项门槛停止，详见文末。
+首版 R3 完整测试通过 583 项，源码新增 316 行。11-18 review 修复及配置项移位后，完整测试 633 项通过（71.32 秒），本轮计入上限 86/90 行。与 #26 试合并只剩任务卡允许的 README 冲突。详见文末四项原始输出。
 
 第一次执行（11-17）因缺少待对账任务发现接口停止；11-18 的任务卡第 5 条补充 `TaskRepository.list_reconciliation_candidates()` 后继续。随后复现人工 succeeded 被迟到自动 failed 覆盖；第 6 条授权原子 `ActionRepository.decide` 后修复，原回归断言未改。因内存和 PG 两份 decide 实现使累计新增源码达到 316 行，曾按 300 行上限停止；11-18 用户明确将上限调整为 316，并要求源码不再修改。本次仅完成报告和交付收尾。
 
@@ -161,7 +161,7 @@ GitHub 连接器创建 PR 返回集成权限 403，随后使用本机已认证�
 
 ## 11-18 review 修复
 
-#27 推送 `e47de9bf` 后，执行 `git rebase feat/harness-p1-resume` 无冲突。刚 rebase 完的 R3 为 `2b863a6c`，本地被测提交为 `c682e2e9`。因以下两项门槛均触发任务卡停止条件，本轮改动保存在本地，尚未推送至 #28。
+#27 推送 `e47de9bf` 后，执行 `git rebase feat/harness-p1-resume` 无冲突。刚 rebase 完的 R3 为 `2b863a6c`，移位前的提交 `c682e2e9` 完整测试为 `633 passed in 75.29s`，但超过当时的 80 行限制，与 #26 试合并也同时在 README 和配置文件发生冲突，故在 `8ab13419` 记录停止。随后用户批准本轮上限 90 行，限定只移动本分支的 `reconcile_grace_sec`。最终被测提交 `d90b3fd4` 仅在 `config.py` 移动相同的五行，完整测试与四项检查在移动后重新执行。
 
 | 项 | 实现与验证 |
 |---|---|
@@ -196,12 +196,12 @@ The event loop scope for asynchronous fixtures will default to the fixture scope
 ........................................................................ [ 79%]
 ........................................................................ [ 90%]
 .........................................................                [100%]
-633 passed in 75.29s (0:01:15)
+633 passed in 71.32s (0:01:11)
 ```
 
 ### 2. 防御性检查
 
-沿用上文完整 grep 正则，对 `git diff e47de9bf -- src/harness` 执行。标准输出为空，grep 退出码 1（无命中）。`git diff --cached --check` 无输出。
+沿用上文完整 grep 正则，对 `git diff e47de9bf -- src/harness` 执行。标准输出为空，grep 退出码 1（无命中）。`git diff --check 2b863a6c HEAD -- src tests` 无输出，退出码 0。
 
 ```text
 ```
@@ -219,7 +219,7 @@ $ git diff --numstat e47de9bf HEAD -- src/ | awk '{s+=$1} END {print s}'
 381
 ```
 
-按更正后的公式从 91 行扣除 F1 路由注释 1 行，得到 **90 行**，比 80 行多 10 行。即使按“模块注释不计”再扣除 F8 模块说明 4 行，仍为 **86 行**。按卡停止编码，未为行数压缩源码。逐文件原始输出如下。
+用户将本轮上限调整为 **90 行**。本轮 Python 新增 **91 行**，减去 F1 路由注释 **1 行**和 F8 模块注释 **4 行**，最终计入 **86 行**。`config.py` 的 5 行分别用于 `reconcile_grace_sec` 字段（1 行）、正值校验（2 行）、序列化（1 行）和环境变量读取（1 行）。四处的位置避开了 #26 的新增项。逐文件原始输出如下。
 
 ```text
 1	0	src/harness/api/app.py
@@ -234,19 +234,17 @@ $ git diff --numstat e47de9bf HEAD -- src/ | awk '{s+=$1} END {print s}'
 
 ### 4. 与 #26 试合并
 
-对被测提交 `c682e2e9` 执行 `git fetch origin pull/26/head:refs/remotes/origin/pr-26`（退出 0，无输出）、`git merge-tree --write-tree --name-only origin/pr-26 HEAD`（退出 1）。#26 为 `800d2e1d`。
+对最终被测提交 `d90b3fd4` 执行 `git fetch origin pull/26/head:refs/remotes/origin/pr-26`（退出 0，无输出），再执行 `git merge-tree --write-tree --name-only origin/pr-26 HEAD`（退出 1）。#26 head 为 `800d2e1d`。
 
 ```text
-af91280a75f7395b546372d34fb9d0e0c169a706
+3898ee87a4b97951a0b2913b846dbec642dec288
 src/harness/README.md
-src/harness/config.py
 
 Auto-merging src/harness/README.md
 CONFLICT (content): Merge conflict in src/harness/README.md
 Auto-merging src/harness/api/app.py
 Auto-merging src/harness/app.py
 Auto-merging src/harness/config.py
-CONFLICT (content): Merge conflict in src/harness/config.py
 Auto-merging src/harness/contracts.py
 Auto-merging src/harness/storage/memory.py
 Auto-merging src/harness/storage/postgres.py
@@ -254,4 +252,4 @@ Auto-merging src/harness/storage/repositories.py
 Auto-merging src/harness/tools/gateway.py
 ```
 
-README 冲突获准。另一个冲突在 `HarnessConfig.from_env`：#26 的 `background_scope_limit` 和本轮的 `reconcile_grace_sec` 都插入 `lease_ttl_sec` 与 `heartbeat_interval_sec` 两行之间。该文件不在本次试合并冲突白名单内，按卡停止。这里的冲突出自与 #26 的试合并，实际 R3 rebase 无冲突。
+唯一冲突文件是任务卡允许的 `src/harness/README.md`。`src/harness/config.py` 自动合并。原先两项配置在 `from_env` 中的插入位置重叠，移动本分支的配置后已消除这一冲突。
