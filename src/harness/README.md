@@ -27,6 +27,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
 | P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
 | P1 R1: checkpoints, replay and expired leases | done | tool-step checkpoints, `ResumingContextBuilder`, original-key replay and explicit `Recovery.tick`; continuous recovery wiring remains S1 | #27 |
+| P1 R3: reconciliation and manual decisions | done | Reconcile uncertain side effects, record the decision and settle reservations atomically, and expose cancellation cleanup through the API | #28 |
 | `delivery/`, ProactiveController, subscriptions (P2) | not yet | not started | — |
 
 ## Who does what
@@ -35,7 +36,7 @@ Each row has exactly one owner. A module that is not the owner does not do it.
 
 | Responsibility | Owner | Not |
 |---|---|---|
-| Change task status | `TaskService` via `TaskRepository` | Runner, Gateway, API |
+| Change task status | `TaskRepository` owns lifecycle transitions, including `release_reconciliation` for empty waiting tasks. `ActionRepository.decide` may requeue a waiting task when it settles the last unresolved side effect. Both repositories write the status event in the same transaction. | Runner, Gateway, API |
 | Attempt lifecycle (`worker_id`, lease, profile/capability versions, `ended_at`, `exit_reason`) | `TaskRepository.claim` / `commit` | Runner |
 | Attempt run record (`model_version`, `context_ref`) | Runner, via `TaskRepository.record_run` (spec 3: "Runner 提交运行记录") | TaskService, ModelAdapter |
 | Choose `agent_role`, `run_lane`, trigger | Trusted entry (API, ProactiveController) via `TaskOrigin` | `TaskRequest`, the model |
@@ -48,7 +49,7 @@ Each row has exactly one owner. A module that is not the owner does not do it.
 | Call external services | Connector, only from an `AuthorizedCall` | anything else |
 | Write `model_call`, `context_built` and `budget_reminder` events | Runner | ModelAdapter |
 | Write `tool_action` events, update `actions` | ToolGateway | Runner |
-| Write `task_created` / `task_status_changed` events | `TaskRepository`, in the same transaction as the status change | anyone else |
+| Write `task_created` / `task_status_changed` events | The repository that creates the task or changes its status, in the same transaction | Runner, Gateway, API |
 | Decide passed / failed / inconclusive | Verifier | the model, Runner |
 | Store content | ArtifactStore (file first, then row); everyone else keeps refs | database rows, events |
 

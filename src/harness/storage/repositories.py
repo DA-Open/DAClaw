@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Iterable, Protocol
 
 from ..contracts import (
     Action,
@@ -44,6 +44,14 @@ from ..contracts import (
     UsageReservation,
     VerificationResult,
 )
+
+
+def round_attempts(statuses: Iterable[str]) -> int:
+    """Count one action's chronological events since its last terminal decision."""
+    count = 0
+    for status in statuses:
+        count = 0 if status in ("succeeded", "failed") else count + 1
+    return count
 
 
 @dataclass(frozen=True)
@@ -110,6 +118,12 @@ class TaskRepository(Protocol):
 
     async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
         """End expired attempts, parking uncertain side effects before retrying."""
+
+    async def list_reconciliation_candidates(self) -> list[Task]:
+        """Cross-scope waiting/reconciliation and dirty cancelled tasks, sorted by scope/id."""
+
+    async def release_reconciliation(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        """Requeue a still-waiting reconciliation task only after all side effects settle."""
 
     async def record_run(
         self,
@@ -187,6 +201,14 @@ class ActionRepository(Protocol):
     ) -> Action: ...
 
     async def list_for_task(self, task_id: str) -> list[Action]: ...
+
+    async def list_unsettled(self, task_id: str) -> list[Action]: ...
+
+    async def decide(
+        self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime, expected_attempt: int,
+    ) -> Action | None:
+        """Atomically decide an unsettled action, account usage, record its event and release the task."""
 
 
 class ArtifactRepository(Protocol):

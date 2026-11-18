@@ -10,6 +10,7 @@ real gateway will give.
 from __future__ import annotations
 
 import hashlib
+import asyncio
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -30,6 +31,7 @@ from harness.contracts import (
     ErrorCode,
     ExecutionContext,
     Limits,
+    ReconcileResult,
     RunLane,
     Task,
     TaskError,
@@ -37,6 +39,7 @@ from harness.contracts import (
     TaskRequest,
     ToolCall,
     ToolOutcome,
+    ToolResult,
     ToolSpec,
     ToolStatus,
     TriggerType,
@@ -253,3 +256,37 @@ class FakeVerifier:
             checks=[check],
         )
         return await self._repos.verifications.add(verification)
+
+
+class FakeExternalConnector:
+    """An external writer; reconciliation never delegates to execute."""
+
+    spec = ToolSpec(
+        name="external.write", description="Write outside the task", input_schema={},
+        read_only=False, side_effects=True, supports_reconcile=True,
+    )
+
+    def __init__(self, reconcile_result: ReconcileResult, *, execute_behavior: str = "success") -> None:
+        self.reconcile_result = reconcile_result
+        self.execute_behavior = execute_behavior
+        self.execute_calls = 0
+        self.reconcile_calls = 0
+        self.accepted_calls = 0
+        self.reconciled_actions = []
+
+    async def execute(self, call):
+        self.execute_calls += 1
+        if self.execute_behavior == "accepted_timeout":
+            self.accepted_calls += 1
+            raise asyncio.TimeoutError("remote accepted request before timeout")
+        if self.execute_behavior == "reject":
+            return ToolResult(status=ToolStatus.FAILED, error=TaskError(code=ErrorCode.TOOL_ERROR, message="rejected"))
+        if self.execute_behavior == "success":
+            self.accepted_calls += 1
+            return ToolResult(status=ToolStatus.SUCCEEDED, receipt_ref="external:receipt")
+        raise ValueError(f"unknown fake execute behavior {self.execute_behavior}")
+
+    async def reconcile(self, action):
+        self.reconcile_calls += 1
+        self.reconciled_actions.append(action)
+        return self.reconcile_result
