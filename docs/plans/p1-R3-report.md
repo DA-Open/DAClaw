@@ -7,7 +7,7 @@
 ## 分支、提交与范围
 
 - Worktree：`E:\Desktop\研0\DAClaw-worktrees\harness-p1-reconcile`。
-- 分支：`feat/harness-p1-reconcile`，沿用原 worktree，没有新建分支或 rebase。
+- 分支：`feat/harness-p1-reconcile`，沿用原 worktree。实现及本地验证阶段没有新建分支或 rebase；R1、R3 均完成后，按用户后续指令进入文末记录的发布阶段。
 - 四项检查 BASE：R1 最终提交 `0fd199be267f6de894d0a45d39d081c7a195c7fb`。
 - 本次被测代码提交：`af78765541636cd0f77f9671c26c7f293a005350`；随后仅提交本报告。
 - 没有修改 Runner、ToolGateway.invoke、schema、迁移、Scheduler、#26 或 #23 的业务逻辑；R2、S1、P1 验收、R4 未开始。
@@ -156,8 +156,44 @@ P1 验收 | 未开始，等待 R1、R2、R3、S1 全部合入 | test/harness-p1-
 R4 | 未开始，等待 P1 验收合入及真实飞书测试凭据 | feat/harness-feishu-send（计划） | — | 未运行 | 先实测同一 uuid 连续发送两次的响应，再按证据实现 Connector。本次不实施。
 ```
 
-## 后续发布阶段
+## 发布阶段与最终读回
 
-R1 仍为 `feat/harness-p1-resume` / `0fd199be`，原完整测试为 478 passed in 46.00s，其报告保留四项检查原始输出。R3 本次 583 项测试通过，316 行上限和保留 release_reconciliation 已获用户明确授权，飞书追加及读回已完成。
+R1 原验证提交为 `0fd199be`，完整测试 478 passed in 46.00s，其报告保留四项检查原始输出。R3 原验证代码提交 `af787655` 的 583 项测试通过，316 行上限和保留 release_reconciliation 已获用户明确授权，飞书追加及读回完成后，按用户“R1 和 R3 都做完以后，再一起 rebase 到 DaraOS 上开 PR”的指令发布。
 
-截至本报告收尾提交，均为本地提交，没有 push 或开 PR。接下来按用户“R1 和 R3 都做完以后，再一起 rebase 到 DaraOS 上开 PR”的明确指令进入发布阶段；R2、S1、P1 验收、R4 不启动。
+最新 DaraOS 为 `62b431ce9af534b64692e3843b1cf1cceff24d7d`，#22 已合入。R1 执行 `git rebase --onto origin/DaraOS 2929550e`；R3 执行 `git rebase --onto feat/harness-p1-resume 0fd199be`，保留 R1 → R3 的依赖顺序。两次均无冲突，无任何手工源码修改。
+
+| 版本 | rebase 前 | rebase 后 |
+|---|---|---|
+| R1 完成提交 | `0fd199be` | `df2866910f3a5071813d838099699a1195781b50` |
+| R3 原子裁决代码 | `af787655` | `625f7a4e` |
+| R3 首次完成报告 | `49879961` | `83adbcd62677ed031d100666cc98762d8b4b0630` |
+
+分别用 `git diff --exit-code 0fd199be df286691 -- src/harness tests/harness_runtime pyproject.toml` 和 `git diff --exit-code 49879961 83adbcd6 -- src/harness tests/harness_runtime pyproject.toml` 验证，标准输出均为空、退出码均为 0。因此保留原完整测试证据，没有把它表述为 rebase 后重跑；后续提交仅更新报告。相对各自 PR 基线，源码新增仍为 R1 210 行、R3 316 行，diff --check 无错误。
+
+rebase 后对两分支再次执行 `git merge-tree --write-tree --name-only origin/pr-26 HEAD`，均退出 0，无冲突文件，原始输出分别为：
+
+```text
+97525ab30e18f7c825f3e5489c47ae35f02279cf
+8b0c11f77949b7609674a57ba808e22248c79473
+```
+
+两个分支已推送到 `DA-Open/DAClaw`，创建并读回确认的草稿 PR：
+
+- [R1 #27](https://github.com/DA-Open/DAClaw/pull/27)：`feat/harness-p1-resume` → `DaraOS`。
+- [R3 #28](https://github.com/DA-Open/DAClaw/pull/28)：`feat/harness-p1-reconcile` → `feat/harness-p1-resume`，因此 diff 仅包含 R3。R1 合入后需将 R3 目标改为 DaraOS；本次没有合并任何 PR。
+
+GitHub 连接器创建 PR 返回集成权限 403，随后使用本机已认证的 gh 完成创建，再由连接器读回确认两个 PR 均 open、draft、未合并。没有修改认证配置。
+
+飞书原 P1 表格保留 rebase 前验证提交，另在文末追加上述 PR 发布记录。再次读回并逐块比较，追加前 158 个顶层块全部相同，表格未修改。原始比较输出：
+
+```text
+revision=138->139
+unchanged_existing_blocks=158
+total_blocks=159
+native_tables=7
+embedded_sheets=3
+publication_block_id=doxcnBLWbLVozcXUKdrKYXVT9pK
+P1 发布记录（2026-11-18）：R1 已开 PR #27，目标 DaraOS，提交 df286691；R3 已开 PR #28，目标 feat/harness-p1-resume，原子裁决代码提交 625f7a4e。两者均为草稿 PR，未合入。R1 合入后需将 R3 的目标分支调整为 DaraOS。rebase 前后 harness 源码、测试及 pyproject.toml 完全一致；上表保留原验证提交和测试输出。
+```
+
+追加及读回原始响应保存在本地输出目录的 `feishu-p1-publish-before.json`、`feishu-p1-publish-append.json`、`feishu-p1-publish-after.json`、`feishu-p1-publish-readback.txt`。R2、S1、P1 验收、R4 均未实施。
