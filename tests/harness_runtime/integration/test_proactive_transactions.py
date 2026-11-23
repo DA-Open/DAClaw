@@ -1,4 +1,6 @@
 """A database failure must not publish half an admission or completion."""
+from datetime import timedelta
+
 import pytest
 import pytest_asyncio
 from sqlalchemy import select, text, func
@@ -51,7 +53,7 @@ async def test_admission_rolls_back_task_when_decision_insert_fails(repos, tmp_p
 
 async def test_loads_subscriptions_saved_by_the_earlier_draft(repos, tmp_path):
     path = dataset(tmp_path)
-    s = system(tmp_path, repos)
+    s = system(tmp_path, repos, model=scripted(path))
     sub = await subscribe(s, path)
     body = sub.model_dump(mode="json", exclude={"daily_budget", "result_ttl_seconds"})
     body.update({
@@ -67,10 +69,31 @@ async def test_loads_subscriptions_saved_by_the_earlier_draft(repos, tmp_path):
     assert restored.result_ttl_seconds == 90
     assert await repos.subscriptions.list_for_scope(sub.scope_id) == [restored]
     assert await repos.subscriptions.list_all() == [restored]
-    duplicate = await s.proactive.on_event(event(path))
-    assert len(duplicate) == 1
+    admitted = await s.proactive.on_event(event(path))
+    assert len(admitted) == 1
     records = await repos.subscriptions.decisions(sub.scope_id, sub.id)
-    assert records[0].task_id == duplicate[0].task_id
+    assert records[0].task_id == admitted[0].task_id
+    report = await s.worker(lanes=["background"]).run_once()
+    assert report.committed and report.status == "succeeded"
+    item, = await s.delivery.inbox(sub.scope_id)
+    assert item.valid_until - item.created_at == timedelta(seconds=90)
+    assert (await s.delivery.read(sub.scope_id, item.id, explicit=True))["card"]["profile"]["tables"][0]["row_count"] == 3
+
+    assert await s.proactive.on_event(event(path, "v2")) == []
+    before = await repos.subscriptions.decisions(sub.scope_id, sub.id)
+    deferred = next(record for record in before if record.input_snapshot["data_version"] == "v2")
+    assert deferred.reason == "daily_budget"
+    new_budget = Usage(model_calls=10, tool_calls=12, input_tokens=6000)
+    updated = restored.model_copy(update={"daily_budget": new_budget, "version": 2})
+    async with repos.engine.begin() as connection:
+        await connection.execute(tables.subscriptions.update().where(tables.subscriptions.c.id == sub.id)
+                                 .values(body=updated.model_dump(mode="json")))
+    await s.scheduler.tick()
+    after = await repos.subscriptions.decisions(sub.scope_id, sub.id)
+    retried = next(record for record in after if record.event_id == deferred.event_id)
+    assert retried.decision == "admit" and retried.task_id
+    assert retried.input_snapshot["subscription_version"] == 2
+    assert retried.evaluations[0]["reason"] == "daily_budget"
 
 
 async def test_completion_rolls_back_status_when_inbox_insert_fails(repos, tmp_path):

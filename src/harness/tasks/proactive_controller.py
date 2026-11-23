@@ -43,7 +43,7 @@ def retain_evaluations(record, prior):
     return record
 
 
-def daily_budget_reached(used, budget):
+def daily_budget_reached(used: Usage, budget: Usage) -> bool:
     # The shared contract uses zero for a missing limit. Usage is settled
     # by UTC day, and the token ceiling is total input plus output.
     return any(limit and count >= limit for count, limit in (

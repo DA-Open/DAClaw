@@ -88,6 +88,8 @@ API 和 Scheduler 不调用模型。真实模型 Worker 尚未作为本次验收
 }
 ```
 
+省略 `result_ttl_seconds` 时有效期为 7 天。日预算默认是每日 50 次模型调用、150 次工具调用和 250,000 个 token。日使用量按 UTC 日期统计，token 计算输入与输出之和。`daily_budget` 某项为 0 时，该项只受单任务预算约束。原订阅记录中已保存的有效期和各项上限按原值读取。
+
 2. `POST /events` 发送数据源版本事件：
 
 ```json
@@ -102,6 +104,8 @@ API 和 Scheduler 不调用模型。真实模型 Worker 尚未作为本次验收
 返回已准入任务列表；同一 `source + source_event_id + scope` 重发不重复建任务。
 更新时使用新的事件 ID、`kind=data_updated`、版本和数据指纹。
 Scheduler 的 `schedule` 事件不能从该 API 伪造。
+
+升级前留下的 `data.query_readonly` 待重放调用会收到工具拒绝，已有调用结果仍可从该任务的历史记录读取。恢复执行时可继续用 `data.profile`，CSV、TSV、Parquet、DuckDB 查询可重新使用 `data.connect` 与 `data.query`。SQLite、Excel 仍可生成数据卡。
 
 3. `GET /tasks/{task_id}`、`GET /tasks/{task_id}/trace` 查看执行及核验；
    `GET /inbox` 查看当前可用数据卡。`notify` 仍是站内待看项。
