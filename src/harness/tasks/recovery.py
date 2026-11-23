@@ -1,4 +1,4 @@
-"""Explicit recovery ticks; scheduler wiring belongs to S1."""
+"""Reclaim expired attempts and reconcile known side effects."""
 
 from collections.abc import Callable
 from datetime import datetime, timedelta

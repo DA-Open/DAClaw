@@ -18,12 +18,12 @@ Rules every implementation follows:
   Heartbeats and usage settlement do not change it.
 * Returned objects are copies; changing them changes nothing stored.
 
-Not here yet: putting tasks whose lease expired back in the queue. That is
-the Scheduler's job in P1; until then such a task stays ``running``.
+Recovery reclaims expired leases through the same repository.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Protocol
@@ -31,13 +31,17 @@ from typing import Iterable, Protocol
 from ..contracts import (
     Action,
     ActionStatus,
+    AdmissionDecision,
     Artifact,
     Attempt,
     AttemptLease,
     ErrorCode,
     Event,
+    NoticeReservation,
     ReservationResult,
     RunLane,
+    Subscription,
+    SubscriptionStatus,
     Task,
     TaskError,
     TaskOutcome,
@@ -47,6 +51,7 @@ from ..contracts import (
     UsageReservation,
     VerificationResult,
 )
+from ..proactive_types import InboxItem
 
 
 def round_attempts(statuses: Iterable[str]) -> int:
@@ -96,6 +101,10 @@ def recovery_status(
 
 
 class TaskRepository(Protocol):
+    async def recent_conversation(self, scope_id: str, conversation_id: str) -> list[Task]: ...
+
+    async def revoke_subscription(self, scope_id: str, subscription_id: str, now: datetime) -> Subscription: ...
+
     async def create(self, task: Task) -> CreateResult:
         """Insert a task and its ``task_created`` event.
 
@@ -113,6 +122,8 @@ class TaskRepository(Protocol):
         lanes: list[RunLane],
         lease_ttl_sec: int,
         now: datetime,
+        *,
+        background_scope_limit: int = 2,
     ) -> AttemptLease | None:
         """Take one queued task on ``lanes``: highest priority, then oldest.
 
@@ -164,7 +175,9 @@ class TaskRepository(Protocol):
     async def get_attempt(self, scope_id: str, attempt_id: str) -> Attempt:
         """Raise ``NotFound`` when absent or the task is in another scope."""
 
-    async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
+    async def commit(
+        self, lease: AttemptLease, outcome: TaskOutcome, now: datetime, *, inbox: InboxItem | None = None
+    ) -> Task:
         """End the attempt and move the task to ``outcome.status``.
 
         If cancellation was accepted first, atomically finish as ``cancelled``
@@ -281,6 +294,43 @@ class UsageRepository(Protocol):
     async def open_reservations(self, task_id: str) -> list[UsageReservation]: ...
 
 
+class ProactiveSubscriptionRepository(Protocol):
+    """Subscription reads and admission that records a decision and task together."""
+
+    async def create(self, subscription: Subscription) -> Subscription: ...
+
+    async def get(self, scope_id: str, subscription_id: str) -> Subscription: ...
+
+    async def list_for_scope(
+        self, scope_id: str, *, status: SubscriptionStatus | None = None
+    ) -> list[Subscription]: ...
+
+    async def list_all(self) -> list[Subscription]: ...
+
+    async def decisions(self, scope_id: str, subscription_id: str) -> list[AdmissionDecision]: ...
+
+    async def event(self, scope_id: str, event_id: str) -> Event: ...
+
+    async def latest_event(self, scope_id: str, subject_ref: str) -> Event | None: ...
+
+    async def pending_events(self) -> list[Event]: ...
+
+    async def mark_processed(self, scope_id: str, event_id: str, now: datetime) -> None: ...
+
+    async def admit(
+        self, event: Event, subscription_id: str,
+        evaluate: Callable[[Subscription, list[Task], list[AdmissionDecision], Usage], tuple[AdmissionDecision, Task | None]],
+        now: datetime,
+    ) -> AdmissionDecision: ...
+
+
+class DeliveryRepository(Protocol):
+    async def list(self, scope_id: str) -> list[InboxItem]: ...
+    async def get(self, scope_id: str, item_id: str) -> InboxItem: ...
+    async def reserve_notice(self, item: InboxItem, channel: str, now: datetime) -> NoticeReservation: ...
+    async def ack(self, scope_id: str, item_id: str, status: str, label: str | None, now: datetime) -> InboxItem: ...
+
+
 @dataclass(frozen=True)
 class Repositories:
     tasks: TaskRepository
@@ -289,3 +339,5 @@ class Repositories:
     artifacts: ArtifactRepository
     verifications: VerificationRepository
     usage: UsageRepository
+    subscriptions: ProactiveSubscriptionRepository | None = None
+    delivery: DeliveryRepository | None = None

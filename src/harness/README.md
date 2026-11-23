@@ -15,7 +15,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | `contracts.py` shared types, task state machine | — | done | PR-A |
 | `config.py` (env `DARAOS_HARNESS_*`) | — | done | PR-A |
 | `interfaces.py` module Protocols (spec 5.2) | done | — | PR-A |
-| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migration `0001`); selected by `build_system` from `database_dsn` | PR-A / PR-B (2a, 2b) |
+| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migrations `0001`–`0003`); selected by `build_system` from `database_dsn` | PR-A / PR-B / Proactive Q1–Q3 |
 | `tasks/` TaskService + worker | done | `python -m harness.worker`; PostgreSQL workers can claim tasks submitted by a separate API process | PR-C / PR-B (2b) |
 | `app.py` wiring, permissions file | — | `build_system`, `HarnessSystem.lifespan`, `DARAOS_HARNESS_POLICY_FILE` | PR-C / PR-B (2b) |
 | `trace.py` task timeline | — | done (`--trace`) | PR-C |
@@ -26,9 +26,9 @@ rule here and the code disagree, fix one of them in the same PR.
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
 | `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
 | P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
-| P1 R1: checkpoints, replay and expired leases | done | tool-step checkpoints, `ResumingContextBuilder`, original-key replay and explicit `Recovery.tick`; continuous recovery wiring remains S1 | #27 |
+| P1 R1: checkpoints, replay and expired leases | done | tool-step checkpoints, `ResumingContextBuilder`, original-key replay and expired-lease recovery | #27 |
 | P1 R3: reconciliation and manual decisions | done | Reconcile uncertain side effects, record the decision and settle reservations atomically, and expose cancellation cleanup through the API | #28 |
-| `delivery/`, ProactiveController, subscriptions (P2) | types only (#23) | not started | — |
+| `delivery/`, ProactiveController, subscriptions (P2) | done for Q1–Q3 | trusted events/subscriptions, rules-only admission, scheduler, verified data cards, inbox and Main handoff; [runbook and acceptance](../../docs/plans/2026-11-17-proactive-agent-implementation.md) | `feat/proactive-agent` |
 
 ## Who does what
 
@@ -384,8 +384,14 @@ With no file, no scope has any tool.
 | `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
 | `GET /artifacts/{id}` | whole content (200), or a byte range (206); 5 MiB max per call |
 
+Proactive Q1–Q3 also exposes `POST/GET /subscriptions`,
+`DELETE /subscriptions/{id}`, `GET /subscriptions/{id}/decisions` (JSONL),
+`POST /events`, `GET /inbox`, and `POST /inbox/{id}/ack`.
+These use the same bearer-token identity and scope isolation. See the
+[Proactive runbook](../../docs/plans/2026-11-17-proactive-agent-implementation.md)
+for event payloads, permissions, the scheduler and separate background workers.
 Checkpoint replay is implemented in the worker. HTTP resume and approvals
-remain R2 work; `POST /events` and subscriptions are not implemented here.
+remain R2 work.
 
 **Artifact downloads** support `offset` / `length` query parameters or one
 `Range: bytes=start-end` header (open-ended and suffix ranges also work).
@@ -564,17 +570,16 @@ python -m harness.worker --model-config /srv/daraos/model.yaml --lanes foregroun
 
 The API can then read the task, events, trace and artifact content from the
 same stores, including after a normal API restart. A queued task remains
-available to a later worker. R1 also provides explicit expired-lease recovery
-and checkpoint replay for interrupted attempts. Run `Recovery.tick` to reclaim
-expired leases; connecting it to a continuous scheduler remains S1.
+available to a later worker. Run `python -m harness.scheduler` to schedule
+subscriptions, revisit deferred events and run the shared `Recovery.tick` for
+expired leases and actions awaiting reconciliation.
 
 ## Open items
 
 | Item | Decided | When |
 |---|---|---|
-| Continuous expired-lease recovery | R1 implements `Recovery.tick` and checkpoint replay; scheduler wiring is still pending | S1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
-| ProactiveController, DeliveryService, subscriptions, outbox | Types and Protocols exist (#23); no implementation, no tables | P1/P2 |
+| Proactive external delivery / outbox | Q1–Q3 subscriptions, scheduler, verified data cards and inbox are implemented; external sends, receipts, unknown reconciliation and notification quotas remain unimplemented | Q4 / P1 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
 | ContextBuilder token cut and memory | `ResumingContextBuilder` restores checkpoint history; token cutting and memory remain open | after P1 |

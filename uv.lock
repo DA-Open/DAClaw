@@ -1029,6 +1029,7 @@ feishu = [
 harness = [
     { name = "alembic" },
     { name = "asyncpg" },
+    { name = "croniter" },
     { name = "duckdb" },
     { name = "fastapi" },
     { name = "jsonschema" },
@@ -1122,6 +1123,7 @@ requires-dist = [
     { name = "atroposlib", marker = "extra == 'rl'", git = "https://github.com/NousResearch/atropos.git?rev=c20c85256e5a45ad31edf8b7276e9c5ee1995a30" },
     { name = "boto3", marker = "extra == 'bedrock'", specifier = ">=1.35.0,<2" },
     { name = "croniter", marker = "extra == 'cron'", specifier = ">=6.0.0,<7" },
+    { name = "croniter", marker = "extra == 'harness'", specifier = ">=6.0.0,<7" },
     { name = "daclaw-agent", extras = ["acp"], marker = "extra == 'all'" },
     { name = "daclaw-agent", extras = ["acp"], marker = "extra == 'termux'" },
     { name = "daclaw-agent", extras = ["bedrock"], marker = "extra == 'all'" },

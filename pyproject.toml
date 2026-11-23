@@ -89,6 +89,7 @@ harness = [
   "asyncpg>=0.29,<1",
   "sqlalchemy[asyncio]>=2.0,<2.1",
   "alembic>=1.13,<2",
+  "croniter>=6.0.0,<7",
   "duckdb>=1.4,<2",
   "jsonschema>=4,<5",
 ]

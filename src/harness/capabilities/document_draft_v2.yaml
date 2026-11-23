@@ -1,0 +1,9 @@
+id: document_draft
+version: "2"
+description: Draft a document with optional verified background data cards.
+instructions_ref: ../prompts/document_draft_v2.md
+tools: [files.read, artifacts.read, artifacts.write, background_results.read]
+result_schema: schemas/document_result.json
+result_artifact: draft
+verifiers: [artifact_readable, required_sections]
+default_mode: draft_only

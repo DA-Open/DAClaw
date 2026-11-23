@@ -193,18 +193,19 @@ def _looks_numeric(v: "object") -> bool:
 class DataEngine:
     """A DuckDB connection with helpers to attach heterogeneous sources."""
 
-    def __init__(self):
+    def __init__(self, *, restore_sources: bool = True, connection: duckdb.DuckDBPyConnection | None = None):
         if not _DUCKDB_OK:
             raise DataEngineError(
                 "duckdb is not installed. Install with: pip install duckdb"
             )
-        self.con = duckdb.connect(database=":memory:")
+        self.con = connection if connection is not None else duckdb.connect(database=":memory:")
         self._lock = threading.RLock()
         # slug -> {path, kind, tables:[names]}
         self.sources: Dict[str, Dict[str, Any]] = {}
         # table name -> source slug
         self._table_source: Dict[str, str] = {}
-        self._restore_file_sources()
+        if restore_sources:
+            self._restore_file_sources()
 
     def _reserve_table(self, preferred: str) -> str:
         """Return a table name that doesn't collide with an existing one."""
@@ -372,7 +373,7 @@ class DataEngine:
                 "Reading SQLite needs pandas (pip install pandas)"
             ) from exc
 
-        conn = sqlite3.connect(str(path))
+        conn = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
         try:
             names = [
                 r[0]
@@ -383,7 +384,8 @@ class DataEngine:
             ]
             tables: List[str] = []
             for tbl in names:
-                df = pd.read_sql_query(f'SELECT * FROM "{tbl}"', conn)
+                quoted_table = tbl.replace('"', '""')
+                df = pd.read_sql_query(f'SELECT * FROM "{quoted_table}"', conn)
                 tname = self._reserve_table(tbl)
                 self.con.register(f"_tmp_{tname}", df)
                 self.con.execute(
@@ -701,7 +703,7 @@ class DataEngine:
         for col in schema:
             name = col["name"]
             ctype = col["type"].lower()
-            qname = f'"{name}"'
+            qname = '"' + name.replace('"', '""') + '"'
             try:
                 with self._lock:
                     nulls, distinct = self.con.execute(

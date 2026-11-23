@@ -254,7 +254,7 @@ async def test_event_cursor_does_not_skip_a_late_commit(pools, second_kind):
 
 def test_one_migration_head():
     # Two people branching from the same revision give two heads; merge them.
-    assert heads() == ["0001"]
+    assert heads() == ["0003"]
 
 
 @pytest.mark.asyncio
@@ -307,14 +307,16 @@ async def test_generate_and_run_a_revision(pools, tmp_path, monkeypatch):
     copied = tmp_path / "migrations"
     shutil.copytree(migrate.MIGRATIONS, copied)
     monkeypatch.setattr(migrate, "MIGRATIONS", copied)
+    existing = {path.name for path in (copied / "versions").glob("*.py")}
+    previous_head = migrate.heads()[0]
     await migrate.run(pools[0].engine, "revision", message="test revision", autogenerate=True)
-    generated = [path for path in (copied / "versions").glob("*.py") if path.name not in {"0001_initial.py", "__init__.py"}]
+    generated = [path for path in (copied / "versions").glob("*.py") if path.name not in existing]
     assert len(generated) == 1
-    assert migrate.heads() != ["0001"]
+    assert migrate.heads() != [previous_head]
     await migrate.run(pools[0].engine, "upgrade", "head")
     async with pools[0].engine.connect() as conn:
         assert (await conn.execute(text("SELECT version_num FROM alembic_version"))).scalar_one() == migrate.heads()[0]
-    await migrate.run(pools[0].engine, "downgrade", "0001")
+    await migrate.run(pools[0].engine, "downgrade", previous_head)
 
 
 def test_async_url():

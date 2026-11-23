@@ -35,6 +35,7 @@ from ..contracts import (
     TaskError,
     TaskOutcome,
     TaskStatus,
+    SubscriptionStatus,
     Usage,
     UsageKind,
     UsageReservation,
@@ -195,6 +196,12 @@ class InMemoryTaskRepository:
     def __init__(self, store: _Store) -> None:
         self._s = store
 
+    async def recent_conversation(self, scope_id, conversation_id):
+        async with self._s.lock:
+            tasks = [t for t in self._s.tasks.values() if t.scope_id == scope_id
+                     and t.conversation_id == conversation_id and t.agent_role == "main"]
+            return [_copy(t) for t in sorted(tasks, key=lambda t: t.created_at, reverse=True)[:3]]
+
     async def create(self, task: Task) -> CreateResult:
         async with self._s.lock:
             key = (task.scope_id, task.request_key)
@@ -241,12 +248,16 @@ class InMemoryTaskRepository:
         lanes: list[RunLane],
         lease_ttl_sec: int,
         now: datetime,
+        *, background_scope_limit: int = 2,
     ) -> AttemptLease | None:
         async with self._s.lock:
             candidates = [
                 t
                 for t in self._s.tasks.values()
                 if t.status is TaskStatus.QUEUED and t.run_lane in lanes
+                and (t.agent_role != "proactive" or sum(
+                    running.agent_role == "proactive" and running.scope_id == t.scope_id
+                    and running.status in _LEASED for running in self._s.tasks.values()) < background_scope_limit)
             ]
             if not candidates:
                 return None
@@ -379,7 +390,7 @@ class InMemoryTaskRepository:
                 raise NotFound(f"attempt {attempt_id} not found")
             return _copy(attempt)
 
-    async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime) -> Task:
+    async def commit(self, lease: AttemptLease, outcome: TaskOutcome, now: datetime, *, inbox=None) -> Task:
         async with self._s.lock:
             task, attempt = self._s.check_lease(lease, now)
             # Cancellation and completion race for this same lock. A cancel
@@ -434,6 +445,11 @@ class InMemoryTaskRepository:
             if outcome.artifact_refs:
                 extra["artifact_refs"] = list(outcome.artifact_refs)
             self._s.status_event(updated, old, now, attempt_id=attempt.id, **extra)
+            if inbox is not None and updated.status == TaskStatus.SUCCEEDED:
+                from .memory_delivery import publish
+                publish(self._s, inbox, now)
+                updated = _replace(updated, result_expires_at=inbox.valid_until)
+                self._s.tasks[task.id] = updated
             return _copy(updated)
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str, now: datetime) -> Task:
@@ -462,6 +478,28 @@ class InMemoryTaskRepository:
             self._s.status_event(updated, old, now, reason=reason)
             return _copy(updated)
 
+
+    async def revoke_subscription(self, scope_id, subscription_id, now):
+        async with self._s.lock:
+            sub = self._s.subscriptions.get(subscription_id)
+            if sub is None or sub.scope_id != scope_id:
+                raise NotFound("subscription not found")
+            if sub.status == SubscriptionStatus.REVOKED:
+                return _copy(sub)
+            sub = _replace(sub, status=SubscriptionStatus.REVOKED, version=sub.version + 1, updated_at=now)
+            self._s.subscriptions[sub.id] = sub
+            for task in list(self._s.tasks.values()):
+                if task.subscription_id != sub.id or task.status in (TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED):
+                    continue
+                status = TaskStatus.CANCELLING if task.current_attempt_id else TaskStatus.CANCELLED
+                changed = _replace(task, status=status, wait_condition=None, cancel_requested_at=now,
+                                   cancel_reason="subscription revoked", version=task.version + 1, updated_at=now)
+                self._s.tasks[task.id] = changed
+                self._s.status_event(changed, task.status, now)
+            for item in getattr(self._s, "inbox", {}).values():
+                if item.subscription_id == sub.id and item.status == "pending":
+                    item.status = "cancelled"
+            return _copy(sub)
 
 class InMemoryEventRepository:
     def __init__(self, store: _Store) -> None:
@@ -719,6 +757,8 @@ class InMemoryRepositories(Repositories):
 
     def __init__(self) -> None:
         store = _Store()
+        from .memory_proactive import InMemorySubscriptionRepository
+        from .memory_delivery import InMemoryDeliveryRepository
         super().__init__(
             tasks=InMemoryTaskRepository(store),
             events=InMemoryEventRepository(store),
@@ -726,4 +766,6 @@ class InMemoryRepositories(Repositories):
             artifacts=InMemoryArtifactRepository(store),
             verifications=InMemoryVerificationRepository(store),
             usage=InMemoryUsageRepository(store),
+            subscriptions=InMemorySubscriptionRepository(store),
+            delivery=InMemoryDeliveryRepository(store),
         )

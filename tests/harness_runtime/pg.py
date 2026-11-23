@@ -25,7 +25,7 @@ import uuid
 import pytest
 
 IMAGE = os.environ.get("DARAOS_HARNESS_TEST_PG_IMAGE", "postgres:16")
-TABLES = ("usage_reservations", "verifications", "artifacts", "actions", "events", "attempts", "tasks")
+TABLES = ("delivery_counters", "inbox_items", "subscription_events", "subscriptions", "usage_reservations", "verifications", "artifacts", "actions", "events", "attempts", "tasks")
 
 
 def _free_port() -> int:

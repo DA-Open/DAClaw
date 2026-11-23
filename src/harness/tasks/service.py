@@ -58,6 +58,7 @@ class TaskService:
         capabilities=None,
         agents=None,
         clock: Callable[[], datetime] = utcnow,
+        delivery=None,
     ) -> None:
         self._tasks = tasks
         self._config = config
@@ -65,15 +66,20 @@ class TaskService:
         self._capabilities = capabilities
         self._agents = agents
         self._clock = clock
+        self._delivery = delivery
 
     # -- create --------------------------------------------------------------
 
     async def create(self, request: TaskRequest, actor: Actor, origin: TaskOrigin) -> Task:
+        result = await self._tasks.create(self.prepare(request, actor, origin))
+        return result.task
+
+    def prepare(self, request: TaskRequest, actor: Actor, origin: TaskOrigin) -> Task:
+        """Validate a task without IO; admission inserts it with its decision."""
         self._config.caps.check(request.limits)
         self._check_capability(request)
         self._check_profile(origin)
-        result = await self._tasks.create(Task.new(request, actor, origin, now=self._clock()))
-        return result.task
+        return Task.new(request, actor, origin, now=self._clock())
 
     def _check_capability(self, request: TaskRequest) -> None:
         if self._capabilities is None:
@@ -101,7 +107,8 @@ class TaskService:
         lanes = [RunLane(l) for l in allowed_lanes]
         if not lanes:
             raise ValueError("a worker must serve at least one lane")
-        return await self._tasks.claim(worker_id, lanes, self._config.lease_ttl_sec, self._clock())
+        return await self._tasks.claim(worker_id, lanes, self._config.lease_ttl_sec, self._clock(),
+                                       background_scope_limit=self._config.background_scope_limit)
 
     async def heartbeat(self, lease: AttemptLease) -> Task:
         return await self._tasks.heartbeat(lease, self._config.lease_ttl_sec, self._clock())
@@ -122,7 +129,15 @@ class TaskService:
         await self._tasks.checkpoint(lease, ref.id, self._clock())
 
     async def commit(self, lease: AttemptLease, outcome: TaskOutcome) -> Task:
+        if self._delivery is not None:
+            task = await self._tasks.get(lease.scope_id, lease.task_id)
+            inbox = await self._delivery.prepare(task, outcome)
+            if inbox is not None:
+                return await self._tasks.commit(lease, outcome, self._clock(), inbox=inbox)
         return await self._tasks.commit(lease, outcome, self._clock())
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str) -> Task:
         return await self._tasks.request_cancel(scope_id, task_id, reason, self._clock())
+
+    async def revoke_subscription(self, scope_id: str, subscription_id: str):
+        return await self._tasks.revoke_subscription(scope_id, subscription_id, self._clock())

@@ -415,6 +415,8 @@ def create_app(
             headers=headers,
         )
 
+    from .proactive import routes
+    app.include_router(routes(system))
     return app
 
 
