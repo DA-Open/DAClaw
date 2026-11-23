@@ -411,7 +411,11 @@ def test_main_profile_registry():
     assert reg.tool_policies() == {"main@1": "main_tools@1"}
     with pytest.raises(NotFound):
         reg.resolve(AgentRole.PROACTIVE, "1")
-    assert main_role_whitelist() == {"main_tools@1": {"files.read", "artifacts.read", "artifacts.write"}}
+    assert main_role_whitelist() == {
+        "main_tools@1": {
+            "files.read", "artifacts.read", "artifacts.write", "data.list", "data.connect", "data.query"
+        }
+    }
 
 
 @pytest.mark.asyncio

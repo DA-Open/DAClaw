@@ -48,7 +48,7 @@ from .storage.memory import InMemoryRepositories
 from .storage.repositories import Repositories
 from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
-from .tools.connectors import p0_connectors
+from .tools.connectors import DataConnector, data_connectors, p0_connectors
 
 if TYPE_CHECKING:
     from .storage.postgres import PgRepositories
@@ -143,6 +143,7 @@ class HarnessSystem:
     builder: ResumingContextBuilder
     runner: AgentRunner
     tasks: TaskService
+    _data: DataConnector
     _owned_pg: PgRepositories | None = field(default=None, repr=False)
 
     @asynccontextmanager
@@ -158,6 +159,7 @@ class HarnessSystem:
                 await self._owned_pg.check_ready()
             yield self
         finally:
+            self._data.close()
             if self._owned_pg is not None:
                 await self._owned_pg.close()
 
@@ -169,6 +171,7 @@ class HarnessSystem:
             self.agents,
             lanes=lanes,
             heartbeat_interval_sec=self.config.heartbeat_interval_sec,
+            release_attempt=self._data.release,
             worker_id=worker_id,
             grant_refs=lambda task: [
                 g.ref
@@ -210,8 +213,15 @@ def build_system(
         else:
             repos = InMemoryRepositories()
     artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
+    data = data_connectors(artifacts)
     gateway = ToolGateway(
-        repos, artifacts, policy, p0_connectors(artifacts), profiles=agents.tool_policies(), clock=clock
+        repos,
+        artifacts,
+        policy,
+        [*p0_connectors(artifacts), *data],
+        profiles=agents.tool_policies(),
+        clock=clock,
+        data_sessions=data[0],
     )
     verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock)
     builder = SimpleContextBuilder(
@@ -238,5 +248,6 @@ def build_system(
         builder=builder,
         runner=runner,
         tasks=tasks,
+        _data=data[0],
         _owned_pg=owned_pg,
     )

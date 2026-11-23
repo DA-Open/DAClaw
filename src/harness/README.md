@@ -261,6 +261,38 @@ owned by its caller, which must manage its initialization and closure.
 Database migrations are a separate deployment step; startup does not apply
 them or silently fall back to an in-memory store.
 
+## Data analysis pack
+
+`capabilities/data_analysis.yaml` is the second pack: connect a local table,
+query it with read-only SQL, report the numbers with the queries that produced
+them. It adds three tools and one checker; no core module changes.
+The `harness` extra installs DuckDB and the JSON Schema validator.
+
+| Tool | Does |
+|---|---|
+| `data.list` | List the data files under the directories the user allows (path, size, mtime), optionally filtered by `pattern`. The gateway fills `AuthorizedCall.allowed_paths` from the user grant; the model never supplies the directories. |
+| `data.connect` | Register a CSV / TSV / Parquet / DuckDB file as a view in this task's DuckDB session; returns the table name, columns and row count. The path goes through the same policy check as `files.read` (`gateway.PATH_ARGS`). |
+| `data.query` | Run one SELECT over those views. Returns the exact row count and a bounded preview, and stores `query/<id>.json` (SQL, columns, row_count) plus `query/<id>.csv` (up to 10k rows) as artifacts. The summary starts with `query_ref: <id>`, which is what the result cites as evidence. |
+
+Safety rules in `tools/connectors/data.py`:
+
+* Each task attempt owns a session. The worker closes it when the attempt ends.
+  DuckDB disables external access and allows only the files registered in this
+  session, including the read-only log sidecar for a DuckDB database.
+* The SQL must parse as exactly one `SELECT`. Refused before it runs: other
+  statement types, multi-statement text, `PRAGMA` / `SET` / `ATTACH` / `COPY`,
+  file-reading table functions (`read_csv`, `read_parquet`, `read_text`, `*_scan`
+  ...) and string literals that look like paths. The model queries the tables
+  `data.connect` registered and nothing else.
+* At most 10k rows are materialised per query; `row_count` is the exact count
+  (the preview is truncated, the count is not).
+
+`query_evidence` (`results/checkers/__init__.py`) is the checker behind
+"numbers must come from real queries": every `evidence_refs` entry must be a
+stored query record in this scope with a SQL text that only reads, and a result
+that cites nothing fails. It cannot prove the prose used the number; it proves
+the evidence exists and is a read, which is the part a machine can check.
+
 ## Tasks and the worker
 
 `TaskService` (`tasks/service.py`) owns task submission and worker lifecycle. On

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from ..contracts import AgentProfile, AgentRole, RunLane
 
-MAIN_TOOLS = frozenset({"files.read", "artifacts.read", "artifacts.write"})
+MAIN_TOOLS = frozenset(
+    {"files.read", "artifacts.read", "artifacts.write", "data.list", "data.connect", "data.query"}
+)
 
 MAIN_PROFILE = AgentProfile(
     role=AgentRole.MAIN,
