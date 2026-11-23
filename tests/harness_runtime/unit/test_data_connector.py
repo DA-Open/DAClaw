@@ -202,3 +202,53 @@ async def test_list_with_no_data_files_says_so(tmp_path):
     out = await lister.execute(listing([root]))
     assert out.data["files"] == [] and "No CSV" in out.summary
 
+
+async def test_adding_a_second_source_retains_views_and_limits_engine_files(tmp_path):
+    path, _store, connect, query = session(tmp_path)
+    other = tmp_path / "orders.csv"
+    other.write_text("region,orders\nnorth,2\n", encoding="utf-8")
+    first = await connect.execute(call("data.connect", path=str(path)))
+    second = await connect.execute(call("data.connect", path=str(other)))
+    assert first.status is second.status is ToolStatus.SUCCEEDED
+    connection, views = connect.source(call("data.query"), first.data["table"])
+    assert views == {"sales": "sales"}
+    external, allowed = connection.execute(
+        "SELECT current_setting('enable_external_access'), current_setting('allowed_paths')"
+    ).fetchone()
+    assert not external and set(allowed) == {str(path), str(other)}
+    result = await query.execute(call("data.query", sql="select * from sales join orders using (region)"))
+    assert result.status is ToolStatus.SUCCEEDED and result.data["row_count"] == 2
+    assert (await query.execute(call("data.query", sql="select 1").model_copy(
+        update={"attempt_id": "another_attempt"}))).status is ToolStatus.FAILED
+
+
+async def test_duckdb_source_exposes_registered_view_names(tmp_path):
+    import duckdb
+
+    db = tmp_path / "metrics.duckdb"
+    with duckdb.connect(str(db)) as conn:
+        conn.execute('CREATE TABLE "first table" AS SELECT 1 AS n')
+        conn.execute('CREATE TABLE "second table" AS SELECT 2 AS n')
+    store = MemoryArtifactStore(InMemoryRepositories())
+    connect, query, _list = data_connectors(store)
+    registered = await connect.execute(call("data.connect", path=str(db)))
+    assert registered.status is ToolStatus.SUCCEEDED
+    conn, names = connect.source(call("data.query"), registered.data["table"])
+    assert names == {"first table": "metrics", "second table": "metrics_second_table"}
+    assert conn.execute("SELECT * FROM metrics_second_table").fetchall() == [(2,)]
+    connect.close()
+
+
+async def test_listing_ignores_symlinks_outside_user_directory(tmp_path):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    outside_file = other / "scores.csv"
+    outside_file.write_text("score\n7\n", encoding="utf-8")
+    (allowed / "linked.csv").symlink_to(outside_file)
+    (allowed / "linked_directory").symlink_to(other, target_is_directory=True)
+    store = MemoryArtifactStore(InMemoryRepositories())
+    _connect, _query, lister = data_connectors(store)
+    result = await lister.execute(listing([allowed]))
+    assert result.data["files"] == []

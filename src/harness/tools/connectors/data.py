@@ -1,6 +1,8 @@
 """Data connectors: connect local tabular files and query them with read-only SQL.
 
-Two tools:
+Three tools:
+
+* `data.list` finds tabular files within a user grant.
 
 * `data.connect` registers one CSV / TSV / Parquet / DuckDB file as a view in
   this task's DuckDB session and reports its columns.
@@ -12,12 +14,12 @@ Scope and safety:
 
 * The path is checked by ToolGateway before this runs (`data.connect` is in
   `PATH_ARGS`); the connector re-checks that it is a regular file.
-* A session is per (scope_id, task_id): one task cannot see another task's
+* A session is per task attempt: one task cannot see another task's
   sources, and a worker restart simply loses the views (the model reconnects).
 * SQL must parse as exactly one SELECT and may not name a file: file-reading
   table functions (`read_csv`, `read_parquet`, `read_text`, `*_scan` ...),
   extension loading and path literals are refused before the query runs. The
-  sources are the views `data.connect` registered, nothing else.
+  engine independently restricts external access to the files registered by data.connect.
 * At most `MAX_ROWS` rows are materialised; the reported `row_count` is the
   exact count when the query allows it, and `row_count_capped` says so.
 
@@ -45,6 +47,7 @@ from ...contracts import (
     ArtifactInput,
     ArtifactRef,
     AuthorizedCall,
+    AttemptLease,
     ErrorCode,
     ReconcileResult,
     TaskError,
@@ -61,10 +64,6 @@ MAX_ROWS = 10_000
 INLINE_CHARS = 6_000
 MAX_SQL_CHARS = 20_000
 MAX_SOURCE_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB, a sanity bound only
-# data.list: how deep to walk a user directory and how many entries to look at.
-LIST_DEPTH = 3
-LIST_LIMIT = 50
-LIST_MAX_SCAN = 5000
 # data.list: how deep to walk a user directory and how many entries to look at.
 LIST_DEPTH = 3
 LIST_LIMIT = 50
@@ -111,6 +110,21 @@ def _identifier(text: str) -> str:
     if name[0].isdigit():
         name = "t_" + name
     return name[:48]
+
+
+def _quoted(identifier: str) -> str:
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _view_name(label: str, used: set[str]) -> str:
+    base = _identifier(label)
+    name = base
+    index = 2
+    while name in used:
+        name = f"{base}_{index}"
+        index += 1
+    used.add(name)
+    return name
 
 
 def _literal(path: Path) -> str:
@@ -217,28 +231,22 @@ class DataConnector(_Base):
 
     def __init__(self, artifacts: ArtifactStore) -> None:
         self._artifacts = artifacts
-        self._sessions: dict[tuple[str, str], _Session] = {}
+        self._sessions: dict[tuple[str, str, str], _Session] = {}
 
     # -- session -----------------------------------------------------------
 
-    def _session(self, call: AuthorizedCall) -> _Session:
-        key = (call.scope_id, call.task_id)
-        session = self._sessions.get(key)
-        if session is None:
-            con = duckdb.connect(":memory:")
-            con.execute("SET memory_limit='2GB'")
-            # File access stays on so the registered views can lazily scan their
-            # source; the SQL gate (_check_select) refuses any other path.
-            session = _Session(connection=con)
-            self._sessions[key] = session
-        return session
+    def source(self, call: AuthorizedCall, name: str) -> tuple[duckdb.DuckDBPyConnection, dict[str, str]]:
+        session = self._sessions[call.scope_id, call.task_id, call.attempt_id]
+        return session.connection, session.views[name]["tables"]
+
+    def release(self, lease: AttemptLease) -> None:
+        session = self._sessions.pop((lease.scope_id, lease.task_id, lease.attempt_id), None)
+        if session is not None:
+            session.connection.close()
 
     def close(self) -> None:
         for session in self._sessions.values():
-            try:
-                session.connection.close()
-            except Exception:  # pragma: no cover - best effort
-                pass
+            session.connection.close()
         self._sessions.clear()
 
     # -- one entry point for both tools ------------------------------------
@@ -260,60 +268,66 @@ class DataConnector(_Base):
             )
         if path.stat().st_size > MAX_SOURCE_BYTES:
             return _failed(ErrorCode.INVALID_REQUEST, f"file is larger than {MAX_SOURCE_BYTES} bytes")
-        session = self._session(call)
-        wanted = str(call.args.get("name") or path.stem)
-        name = _identifier(wanted)
-        # Reconnecting the same file is idempotent: reuse the earlier view.
-        for existing, meta in session.views.items():
+        key = (call.scope_id, call.task_id, call.attempt_id)
+        previous = self._sessions.get(key)
+        sources = previous.views if previous else {}
+        for name, meta in sources.items():
             if meta["path"] == str(path):
-                return _connected(existing, meta, reused=True)
-        base, i = name, 2
-        while name in session.views:
-            name = f"{base}_{i}"
-            i += 1
+                return _connected(name, meta, reused=True)
+
+        # DuckDB freezes the allow-list when external access is disabled. Rebuild
+        # the catalog when a new authorized file arrives, replaying only trusted
+        # view definitions. Existing source data and statistics are not recopied.
+        paths = [meta["path"] for meta in sources.values()] + [str(path)]
+        allowed = paths + [p + ".wal" for p in paths if Path(p).suffix.lower() in (".duckdb", ".ddb")]
+        con = duckdb.connect(":memory:", config={"threads": "2", "memory_limit": "2GB",
+                                                "allow_persistent_secrets": "false"})
         try:
-            meta = self._register(session, name, path, kind)
+            con.execute("SET allowed_paths = ?", [allowed])
+            con.execute("SET enable_external_access = false")
+            for meta in sources.values():
+                for statement in meta["setup"]:
+                    con.execute(statement)
+            used = {view for meta in sources.values() for view in meta["tables"].values()}
+            name = _view_name(str(call.args.get("name") or path.stem), used)
+            meta = self._register(con, name, path, kind, used, len(sources))
         except duckdb.Error as exc:
-            return _failed(ErrorCode.INVALID_REQUEST, _short(f"cannot read {path.name}: {exc}"))
-        session.views[name] = meta
+            con.close()
+            return _failed(ErrorCode.INVALID_REQUEST, _short(f"cannot connect {path.name}: {exc}"))
+        self._sessions[key] = _Session(con, {**sources, name: meta})
+        if previous is not None:
+            previous.connection.close()
         return _connected(name, meta, reused=False)
 
-    def _register(self, session: _Session, name: str, path: Path, kind: str) -> dict[str, Any]:
-        """Create the view(s) for one source. Raises duckdb.Error on a bad file."""
-        con = session.connection
+    def _register(self, con, name: str, path: Path, kind: str, used: set[str], index: int) -> dict[str, Any]:
+        setup = []
+        tables = {}
         if kind == "duckdb":
-            return self._register_database(con, name, path)
-        reader = {"csv": "read_csv_auto", "tsv": "read_csv_auto", "parquet": "read_parquet"}[kind]
-        options = ", delim='\t'" if kind == "tsv" else ""
-        con.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {reader}({_literal(path)}{options})")
+            alias = f"source_db_{index}"
+            attach = f"ATTACH {_literal(path)} AS {alias} (READ_ONLY)"
+            con.execute(attach)
+            setup.append(attach)
+            rows = con.execute("SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = ? "
+                               "ORDER BY schema_name, table_name", [alias]).fetchall()
+            if not rows:
+                raise duckdb.Error("the database has no tables")
+            for schema, table in rows:
+                label = table if schema == "main" else f"{schema}.{table}"
+                view = _view_name(f"{name}_{label}", used) if tables else name
+                tables[label] = view
+                setup.append(f"CREATE VIEW {_quoted(view)} AS SELECT * FROM {alias}.{_quoted(schema)}.{_quoted(table)}")
+            view_statements = setup[1:]
+        else:
+            reader = {"csv": "read_csv_auto", "tsv": "read_csv_auto", "parquet": "read_parquet"}[kind]
+            options = ", delim='\t'" if kind == "tsv" else ""
+            tables[name] = name
+            setup.append(f"CREATE VIEW {_quoted(name)} AS SELECT * FROM {reader}({_literal(path)}{options})")
+            view_statements = setup
+        for statement in view_statements:
+            con.execute(statement)
         columns, rows = _describe(con, name)
-        if not columns:
-            raise duckdb.Error("file has no columns")
-        return {"path": str(path), "kind": kind, "tables": [name], "primary": name,
-                "columns": columns, "row_count": rows}
-
-    def _register_database(self, con: duckdb.DuckDBPyConnection, name: str, path: Path) -> dict[str, Any]:
-        """Attach a DuckDB file read-only and expose its tables as views."""
-        alias = _identifier(name + "_db")
-        con.execute(f"ATTACH {_literal(path)} AS {alias} (READ_ONLY)")
-        tables = [
-            row[0]
-            for row in con.execute(
-                "SELECT table_name FROM duckdb_tables() WHERE database_name = ? ORDER BY table_name",
-                [alias],
-            ).fetchall()
-        ]
-        if not tables:
-            raise duckdb.Error("the database has no tables")
-        primary = tables[0]
-        con.execute(f"CREATE OR REPLACE VIEW {name} AS SELECT * FROM {alias}.main.{primary}")
-        for table in tables[1:]:
-            con.execute(
-                f"CREATE OR REPLACE VIEW {_identifier(name + '_' + table)} AS SELECT * FROM {alias}.main.{table}"
-            )
-        columns, rows = _describe(con, name)
-        return {"path": str(path), "kind": "duckdb", "tables": tables, "primary": name,
-                "columns": columns, "row_count": rows}
+        return {"path": str(path), "kind": kind, "tables": tables, "primary": name,
+                "columns": columns, "row_count": rows, "setup": setup}
 
     # -- data.query --------------------------------------------------------
 
@@ -323,7 +337,7 @@ class DataConnector(_Base):
             limit = _int_arg(call.args, "limit", INLINE_ROWS, 1, 200)
         except ValueError as exc:
             return _failed(ErrorCode.INVALID_REQUEST, str(exc))
-        session = self._sessions.get((call.scope_id, call.task_id))
+        session = self._sessions.get((call.scope_id, call.task_id, call.attempt_id))
         if session is None or not session.views:
             return _failed(ErrorCode.INVALID_REQUEST, "connect a table with data.connect before querying")
         problem = _check_select(session.connection, sql)
@@ -457,9 +471,9 @@ def data_connectors(artifacts: ArtifactStore) -> list:
 def _describe(con: duckdb.DuckDBPyConnection, name: str) -> tuple[list[dict[str, str]], int]:
     columns = [
         {"name": str(row[0]), "type": str(row[1])}
-        for row in con.execute(f"DESCRIBE {name}").fetchall()
+        for row in con.execute(f"DESCRIBE {_quoted(name)}").fetchall()
     ]
-    rows = int(con.execute(f"SELECT count(*) FROM {name}").fetchone()[0]) if columns else 0
+    rows = int(con.execute(f"SELECT count(*) FROM {_quoted(name)}").fetchone()[0]) if columns else 0
     return columns, rows
 
 
@@ -544,7 +558,7 @@ def _connected(name: str, meta: dict[str, Any], *, reused: bool) -> ToolResult:
     if reused:
         head += " -- already connected"
     body = ", ".join(f"{c['name']} {c['type']}" for c in columns) or "(no columns)"
-    tables = meta.get("tables") or []
+    tables = meta["tables"].values()
     if len(tables) > 1:
         body += f"\nAlso registered from this file: {', '.join(t for t in tables if t != meta['primary'])}"
     return ToolResult(
@@ -568,13 +582,13 @@ def _scan(roots: list[Path], pattern: str, limit: int) -> tuple[list[tuple[Path,
                 while stack and scanned < LIST_MAX_SCAN:
                     current, depth = stack.pop()
                     for entry in sorted(current.iterdir(), key=lambda e: e.name):
-                        if entry.name.startswith("."):
+                        if entry.name.startswith(".") or entry.is_symlink():
                             continue
                         scanned += 1
                         if entry.is_dir():
                             if depth + 1 <= LIST_DEPTH:
                                 stack.append((entry, depth + 1))
-                        elif entry.suffix.lower() in _SUFFIXES:
+                        elif entry.suffix.lower() in _SUFFIXES and entry.is_file():
                             candidates.append(entry)
                         if scanned >= LIST_MAX_SCAN:
                             break

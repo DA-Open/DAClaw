@@ -97,6 +97,7 @@ class Worker:
         heartbeat_interval_sec: float = 15.0,
         worker_id: str | None = None,
         grant_refs: Callable[[Task], list[str]] | None = None,
+        release_attempt: Callable[[AttemptLease], None] | None = None,
         clock: Callable[[], datetime] = utcnow,
     ) -> None:
         self.tasks = tasks
@@ -109,6 +110,7 @@ class Worker:
         self.heartbeat_interval_sec = heartbeat_interval_sec
         self.worker_id = worker_id or f"worker-{uuid.uuid4().hex[:8]}"
         self._grant_refs = grant_refs or (lambda task: [])
+        self._release_attempt = release_attempt
         self._clock = clock
 
     async def run_once(self) -> AttemptReport | None:
@@ -116,7 +118,11 @@ class Worker:
         lease = await self.tasks.claim(self.worker_id, self.lanes)
         if lease is None:
             return None
-        return await self._run(lease)
+        try:
+            return await self._run(lease)
+        finally:
+            if self._release_attempt is not None:
+                self._release_attempt(lease)
 
     async def run_forever(self, *, idle_sleep_sec: float = 1.0, stop: asyncio.Event | None = None) -> None:
         """Keep claiming until ``stop`` is set. Errors in one attempt do not
