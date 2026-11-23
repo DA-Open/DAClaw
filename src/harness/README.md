@@ -26,6 +26,8 @@ rule here and the code disagree, fix one of them in the same PR.
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
 | `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
 | P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
+| P1 R1: checkpoints, replay and expired leases | done | tool-step checkpoints, `ResumingContextBuilder`, original-key replay and expired-lease recovery | #27 |
+| P1 R3: reconciliation and manual decisions | done | Reconcile uncertain side effects, record the decision and settle reservations atomically, and expose cancellation cleanup through the API | #28 |
 | `delivery/`, ProactiveController, subscriptions (P2) | done for Q1–Q3 | trusted events/subscriptions, rules-only admission, scheduler, verified data cards, inbox and Main handoff; [runbook and acceptance](../../docs/plans/2026-11-17-proactive-agent-implementation.md) | `feat/proactive-agent` |
 
 ## Who does what
@@ -34,7 +36,7 @@ Each row has exactly one owner. A module that is not the owner does not do it.
 
 | Responsibility | Owner | Not |
 |---|---|---|
-| Change task status | `TaskService` via `TaskRepository` | Runner, Gateway, API |
+| Change task status | `TaskRepository` owns lifecycle transitions, including `release_reconciliation` for empty waiting tasks. `ActionRepository.decide` may requeue a waiting task when it settles the last unresolved side effect. Both repositories write the status event in the same transaction. | Runner, Gateway, API |
 | Attempt lifecycle (`worker_id`, lease, profile/capability versions, `ended_at`, `exit_reason`) | `TaskRepository.claim` / `commit` | Runner |
 | Attempt run record (`model_version`, `context_ref`) | Runner, via `TaskRepository.record_run` (spec 3: "Runner 提交运行记录") | TaskService, ModelAdapter |
 | Choose `agent_role`, `run_lane`, trigger | Trusted entry (API, ProactiveController) via `TaskOrigin` | `TaskRequest`, the model |
@@ -47,7 +49,7 @@ Each row has exactly one owner. A module that is not the owner does not do it.
 | Call external services | Connector, only from an `AuthorizedCall` | anything else |
 | Write `model_call`, `context_built` and `budget_reminder` events | Runner | ModelAdapter |
 | Write `tool_action` events, update `actions` | ToolGateway | Runner |
-| Write `task_created` / `task_status_changed` events | `TaskRepository`, in the same transaction as the status change | anyone else |
+| Write `task_created` / `task_status_changed` events | The repository that creates the task or changes its status, in the same transaction | Runner, Gateway, API |
 | Decide passed / failed / inconclusive | Verifier | the model, Runner |
 | Store content | ArtifactStore (file first, then row); everyone else keeps refs | database rows, events |
 
@@ -132,9 +134,9 @@ tables do not change later; most come from review comments on the spec.
 - Wrap-up turn: `BudgetReminderConfig.reserve_model_calls` (default 1) model
   calls are kept for returning the result. On that turn only `submit_result`
   is offered. Set it to 0 to turn this off.
-- Step numbers (and so `logical_key`s and model usage `call_id`s) continue
-  across attempts, counted from earlier `model_call` events. Replaying a
-  step from a checkpoint with its original number is P1.
+- New model-step numbers continue across attempts, counted from earlier
+  `model_call` events. Checkpoint replay uses the original tool-call keys
+  and step number, without reusing a model-usage `call_id`.
 - `inconclusive` verification ends in `waiting` / `input` without
   `result_ref` (decided 2026-11-12: spec 6.3 "待确认结果" means the user
   confirms); `failed` ends the task (no repair rounds, spec 6.3).
@@ -292,7 +294,7 @@ the evidence exists and is a read, which is the part a machine can check.
 
 ## Tasks and the worker
 
-`TaskService` (`tasks/service.py`) is the only writer of task status. On
+`TaskService` (`tasks/service.py`) owns task submission and worker lifecycle. On
 `create` it checks the limits against the deployment caps, that the
 capability pack and the agent profile exist, and that every
 `acceptance.checks[].id` is a verifier of that pack (`UnknownCheck`
@@ -308,9 +310,25 @@ stores the checkpoint as a JSON artifact and points the task at it.
    run `AgentRunner` with `lease_lost` wired to the heartbeat;
 4. `commit` the outcome. If the lease was lost (`StaleLease` from a
    heartbeat or from the Runner) it commits nothing and reports
-   `lease_lost`; the task stays `running` until the Scheduler (P1) requeues
-   it. A missing profile or a context-build error is committed as `failed`
+   `lease_lost`; explicit `Recovery.tick` calls inspect the expired lease.
+   S1 will connect these ticks to a long-running process. A missing profile
+   or a context-build error is committed as `failed`
    (`internal`) so the task does not hang.
+
+**Checkpoint recovery (P1 R1).** The Runner saves a checkpoint before each
+tool step with its pending calls, then another with the tool results and
+no pending calls. Both update `tasks.checkpoint_ref`. `ResumingContextBuilder`
+rebuilds current system instructions and permissions before restoring the
+saved conversation. The Runner replays pending calls with their original
+keys, so the Gateway reuses earlier successes. An unreadable checkpoint
+fails the task with its reference instead of restarting its work.
+
+`Recovery.tick(now)` reclaims expired running or cancelling attempts in
+memory and PostgreSQL. Cancellation wins; unresolved side effects wait for
+reconciliation; other tasks requeue until `max_attempts` (default 3) is
+reached, then fail with `lease_lost`. Recovery preserves cumulative usage,
+deadline and artifacts. It is not yet called by a continuous scheduler;
+that integration belongs to S1.
 
 ```bash
 python -m harness.worker --once --submit task.json --model-config model.yaml --print-result
@@ -371,7 +389,8 @@ Proactive Q1–Q3 also exposes `POST/GET /subscriptions`,
 These use the same bearer-token identity and scope isolation. See the
 [Proactive runbook](../../docs/plans/2026-11-17-proactive-agent-implementation.md)
 for event payloads, permissions, the scheduler and separate background workers.
-Resume and approvals remain P1 work.
+Checkpoint replay is implemented in the worker. HTTP resume and approvals
+remain R2 work.
 
 **Artifact downloads** support `offset` / `length` query parameters or one
 `Range: bytes=start-end` header (open-ended and suffix ranges also work).
@@ -550,22 +569,19 @@ python -m harness.worker --model-config /srv/daraos/model.yaml --lanes foregroun
 
 The API can then read the task, events, trace and artifact content from the
 same stores, including after a normal API restart. A queued task remains
-available to a later worker. `python -m harness.scheduler` recovers expired
-leases only for `proactive@1` / `data_card@1` tasks, retaining cumulative
-usage and the original deadline. General recovery and checkpoint replay/resume
-remain P1 work.
+available to a later worker. Run `python -m harness.scheduler` to schedule
+subscriptions, revisit deferred events and run the shared `Recovery.tick` for
+expired leases and actions awaiting reconciliation.
 
 ## Open items
 
 | Item | Decided | When |
 |---|---|---|
-| General expired-lease recovery (crashed worker) | Q1 Scheduler covers read-only Proactive data-card tasks; other profiles still need P1 recovery | P1 |
-| Checkpoint resume | `TaskService.checkpoint` is available; Runner writes a checkpoint when a tool returns `needs_approval` or `unknown` and the attempt enters waiting. Resume does not read or replay it yet | P1 |
 | `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
 | Proactive external delivery / outbox | Q1–Q3 subscriptions, scheduler, verified data cards and inbox are implemented; external sends, receipts, unknown reconciliation and notification quotas remain unimplemented | Q4 / P1 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |
-| ContextBuilder token cut, memory, resume from checkpoint | P0 builder lists goal, acceptance, inputs and artifacts only | P1 |
+| ContextBuilder token cut and memory | `ResumingContextBuilder` restores checkpoint history; token cutting and memory remain open | after P1 |
 | Parallel tool calls in one step | Run one after another in P0 | later |
 
 ## Tests

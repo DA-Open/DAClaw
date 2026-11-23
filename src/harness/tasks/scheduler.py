@@ -1,18 +1,19 @@
-"""UTC cron triggers, durable deferred-event replay and read-only lease recovery."""
+"""UTC cron triggers, durable deferred events and the shared recovery tick."""
 import asyncio
 from datetime import timedelta
 
 from ..contracts import Event, EventType, utcnow
 from .proactive_controller import active
+from .recovery import Recovery
 
 
 class Scheduler:
-    def __init__(self, repos, controller, *, clock=utcnow):
-        self.repos, self.controller, self.clock = repos, controller, clock
+    def __init__(self, repos, controller, recovery: Recovery, *, clock=utcnow):
+        self.repos, self.controller, self.recovery, self.clock = repos, controller, recovery, clock
 
     async def tick(self):
         now = self.clock()
-        recovered = await self.controller.tasks.reclaim_readonly()
+        recovered = await self.recovery.tick(now)
         for sub in await self.repos.subscriptions.list_all():
             if not sub.schedule or not active(sub, now):
                 continue

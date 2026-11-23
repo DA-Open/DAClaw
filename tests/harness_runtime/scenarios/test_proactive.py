@@ -120,8 +120,9 @@ async def test_defer_recovery_and_foreground_capacity(repos, tmp_path):
     main = await main_task(s)
     assert (await s.tasks.claim("foreground", [RunLane.FOREGROUND])).task_id == main.id
     clock.advance(61)
-    assert await s.scheduler.tick() == 1
+    assert await s.scheduler.tick() == 2
     assert (await s.tasks.get("s1", first)).status == "queued"
+    assert (await s.tasks.get("s1", main.id)).status == "queued"
     with pytest.raises(StaleLease):
         await s.tasks.heartbeat(lease)
     await s.tasks.request_cancel("s1", first, "test complete")
@@ -251,10 +252,12 @@ async def test_data_profile_and_query_share_an_authorized_session(tmp_path):
     ctx = ExecutionContext(lease=lease, actor=ACTOR, agent_role="proactive", run_lane="background")
     profiled = await s.gateway.invoke(ctx, ToolCall(tool="data.profile", args={"path": str(path)}, logical_key="profile"))
     assert profiled.status == "succeeded", profiled
-    assert profiled.data["profile"]["tables"][0]["row_count"] == 2
+    assert json.loads(profiled.summary)["profile"]["tables"][0]["row_count"] == 2
     queried = await s.gateway.invoke(ctx, ToolCall(tool="data.query", args={"sql": "SELECT * FROM sales"}, logical_key="query"))
     assert queried.status == "succeeded", queried
-    assert queried.data["row_count"] == 2 and queried.data["query_ref"]
+    assert len(queried.artifact_refs) == 2
+    evidence = await s.artifacts.read(queried.artifact_refs[0], ACTOR)
+    assert json.loads(evidence.content)["row_count"] == 2
     blocked = await s.gateway.invoke(ctx, ToolCall(
         tool="data.connect", args={"path": str(tmp_path / "unsubscribed.csv")}, logical_key="other"
     ))

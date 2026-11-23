@@ -141,6 +141,3 @@ class TaskService:
 
     async def revoke_subscription(self, scope_id: str, subscription_id: str):
         return await self._tasks.revoke_subscription(scope_id, subscription_id, self._clock())
-
-    async def reclaim_readonly(self) -> int:
-        return await self._tasks.reclaim_readonly(self._clock())

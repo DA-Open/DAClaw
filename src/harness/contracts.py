@@ -152,6 +152,7 @@ class EventType(StrEnum):
     TASK_CREATED = "task_created"
     TASK_STATUS_CHANGED = "task_status_changed"
     TOOL_ACTION = "tool_action"
+    TOOL_RECONCILE = "tool_reconcile"
     VERIFICATION_RECORDED = "verification_recorded"
     BACKGROUND_RESULT_READY = "background_result_ready"
     EXTERNAL = "external"
@@ -706,6 +707,7 @@ class Checkpoint(_Model):
     completed_action_ids: list[str] = Field(default_factory=list)
     artifact_refs: list[str] = Field(default_factory=list)
     pending_action_ids: list[str] = Field(default_factory=list)
+    pending_calls: list[ToolCall] = Field(default_factory=list)
     environment_ref: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
 

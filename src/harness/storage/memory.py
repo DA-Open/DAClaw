@@ -42,10 +42,11 @@ from ..contracts import (
     VerificationRequired,
     VerificationResult,
     VerificationStatus,
+    WaitCondition,
     assert_transition,
     new_id,
 )
-from .repositories import ActionRegistration, CreateResult, Repositories
+from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -78,7 +79,24 @@ class _Store:
         self.reservations: dict[str, UsageReservation] = {}
         self.reservation_results: dict[str, ReservationResult] = {}
 
+    def unsettled(self, task_id: str) -> list[Action]:
+        return [
+            a for a in self.actions.values() if a.task_id == task_id and not a.read_only
+            and a.status in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN)
+        ]
+
     # -- helpers, call with the lock held ------------------------------------
+
+    def release_reconciliation(self, task: Task, now: datetime) -> Task:
+        if task.wait_condition is not WaitCondition.RECONCILIATION or self.unsettled(task.id):
+            return task
+        updated = _replace(
+            task, status=TaskStatus.QUEUED, wait_condition=None,
+            version=task.version + 1, updated_at=now,
+        )
+        self.tasks[task.id] = updated
+        self.status_event(updated, task.status, now)
+        return updated
 
     def append_event(self, event: Event) -> Event:
         if event.source_event_id is not None:
@@ -299,6 +317,52 @@ class InMemoryTaskRepository:
             self._s.tasks[task.id] = updated
             return _copy(updated)
 
+    async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
+        async with self._s.lock:
+            attempts = {(a.task_id, a.lease_epoch): a for a in self._s.attempts.values()}
+            recovered = 0
+            for task in self._s.tasks.values():
+                if task.status not in _LEASED:
+                    continue
+                attempt = attempts.get((task.id, task.lease_epoch))
+                if (attempt is not None and attempt.id == task.current_attempt_id
+                        and attempt.ended_at is None and attempt.lease_expires_at > now):
+                    continue
+                unsettled = any(
+                    action.task_id == task.id and (attempt is None or action.attempt_id == attempt.id)
+                    and not action.read_only
+                    and action.status in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN)
+                    for action in self._s.actions.values()
+                )
+                status, error = recovery_status(task, now, max_attempts, unsettled)
+                assert_transition(task.status, status)
+                updated = _replace(
+                    task, status=status, current_attempt_id=None,
+                    wait_condition=WaitCondition.RECONCILIATION if status is TaskStatus.WAITING else None,
+                    error=error, version=task.version + 1, updated_at=now,
+                )
+                if attempt is not None and attempt.ended_at is None:
+                    self._s.attempts[attempt.id] = _replace(attempt, ended_at=now, exit_reason="lease_expired")
+                self._s.tasks[task.id] = updated
+                self._s.status_event(updated, task.status, now, attempt_id=attempt.id if attempt else None)
+                recovered += 1
+            return recovered
+
+    async def list_reconciliation_candidates(self) -> list[Task]:
+        found = [
+            task for task in self._s.tasks.values()
+            if (task.status is TaskStatus.WAITING and task.wait_condition is WaitCondition.RECONCILIATION)
+            or (task.status is TaskStatus.CANCELLED and self._s.unsettled(task.id))
+        ]
+        return [_copy(task) for task in sorted(found, key=lambda task: (task.scope_id, task.id))]
+
+    async def release_reconciliation(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        async with self._s.lock:
+            task = self._s.task(task_id)
+            if task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            return _copy(self._s.release_reconciliation(task, now))
+
     async def record_run(
         self,
         lease: AttemptLease,
@@ -437,24 +501,6 @@ class InMemoryTaskRepository:
                     item.status = "cancelled"
             return _copy(sub)
 
-    async def reclaim_readonly(self, now):
-        """Only this revision's isolated data-card tasks are safe to restart."""
-        async with self._s.lock:
-            count = 0
-            for task in list(self._s.tasks.values()):
-                if task.agent_profile_ref != "proactive@1" or task.capability_ref != "data_card@1" or not task.current_attempt_id:
-                    continue
-                attempt = self._s.attempts[task.current_attempt_id]
-                if attempt.lease_expires_at > now:
-                    continue
-                status = TaskStatus.CANCELLED if task.status == TaskStatus.CANCELLING else TaskStatus.QUEUED
-                changed = _replace(task, status=status, current_attempt_id=None, version=task.version + 1, updated_at=now)
-                self._s.tasks[task.id] = changed
-                self._s.attempts[attempt.id] = _replace(attempt, ended_at=now, exit_reason="lease_expired")
-                self._s.status_event(changed, task.status, now, attempt_id=attempt.id)
-                count += 1
-            return count
-
 class InMemoryEventRepository:
     def __init__(self, store: _Store) -> None:
         self._s = store
@@ -548,6 +594,49 @@ class InMemoryActionRepository:
             found = [a for a in self._s.actions.values() if a.task_id == task_id]
             found.sort(key=lambda a: (a.created_at, a.id))
             return [_copy(a) for a in found]
+
+    async def list_unsettled(self, task_id: str) -> list[Action]:
+        async with self._s.lock:
+            return [_copy(a) for a in sorted(self._s.unsettled(task_id), key=lambda a: (a.created_at, a.id))]
+
+    async def decide(
+        self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime, expected_attempt: int,
+    ) -> Action | None:
+        async with self._s.lock:
+            task = self._s.task(task_id)
+            action = self._s.actions.get(action_id)
+            if task.scope_id != scope_id or action is None or action.task_id != task_id:
+                raise NotFound(f"action {action_id} not found")
+            if action.status not in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN):
+                return None
+            if task.status is not TaskStatus.CANCELLED and task.wait_condition is not WaitCondition.RECONCILIATION:
+                return None
+            attempt = 1 + round_attempts(
+                e.payload["status"] for e in self._s.events if e.type is EventType.TOOL_RECONCILE
+                and e.task_id == task_id and e.payload["action_id"] == action_id
+            )
+            if expected_attempt != attempt:
+                return None
+            updated = _replace(action, status=status, updated_at=now,
+                               result_ref=action.result_ref if result_ref is None else result_ref,
+                               receipt_ref=action.receipt_ref if receipt_ref is None else receipt_ref)
+            if status in (ActionStatus.SUCCEEDED, ActionStatus.FAILED):
+                for reservation in self._s.reservations.values():
+                    if (reservation.task_id == task_id and reservation.status is ReservationStatus.RESERVED
+                            and (reservation.call_id == action_id or reservation.call_id.startswith(f"{action_id}.retry-"))):
+                        settled = status is ActionStatus.SUCCEEDED
+                        self._s.reservations[reservation.call_id] = _replace(
+                            reservation, status=ReservationStatus.SETTLED if settled else ReservationStatus.RELEASED,
+                            settled=usage if settled else reservation.settled, settled_at=now,
+                        )
+                        if settled:
+                            task = _replace(task, usage=task.usage + usage, updated_at=now)
+            self._s.tasks[task_id] = task
+            self._s.actions[action_id] = updated
+            self._s.append_event(_replace(event, payload={**event.payload, "attempt": attempt}))
+            self._s.release_reconciliation(task, now)
+            return _copy(updated)
 
 
 class InMemoryArtifactRepository:

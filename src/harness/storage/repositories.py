@@ -18,8 +18,7 @@ Rules every implementation follows:
   Heartbeats and usage settlement do not change it.
 * Returned objects are copies; changing them changes nothing stored.
 
-Not here yet: putting tasks whose lease expired back in the queue. That is
-the Scheduler's job in P1; until then such a task stays ``running``.
+Recovery reclaims expired leases through the same repository.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Iterable, Protocol
 
 from ..contracts import (
     Action,
@@ -36,6 +35,7 @@ from ..contracts import (
     Artifact,
     Attempt,
     AttemptLease,
+    ErrorCode,
     Event,
     NoticeReservation,
     ReservationResult,
@@ -43,13 +43,23 @@ from ..contracts import (
     Subscription,
     SubscriptionStatus,
     Task,
+    TaskError,
     TaskOutcome,
+    TaskStatus,
     Usage,
     UsageKind,
     UsageReservation,
     VerificationResult,
 )
 from ..proactive_types import InboxItem
+
+
+def round_attempts(statuses: Iterable[str]) -> int:
+    """Count one action's chronological events since its last terminal decision."""
+    count = 0
+    for status in statuses:
+        count = 0 if status in ("succeeded", "failed") else count + 1
+    return count
 
 
 @dataclass(frozen=True)
@@ -73,12 +83,27 @@ class ActionRegistration:
     budget: ReservationResult | None = None
 
 
+def recovery_status(
+    task: Task, now: datetime, max_attempts: int, unsettled: bool,
+) -> tuple[TaskStatus, TaskError | None]:
+    if task.status is TaskStatus.CANCELLING:
+        return TaskStatus.CANCELLED, None
+    # Preserve reconciliation even when the task can no longer run.
+    if unsettled:
+        return TaskStatus.WAITING, None
+    if task.deadline is not None and task.deadline <= now:
+        return TaskStatus.FAILED, TaskError(
+            code=ErrorCode.DEADLINE_EXCEEDED, message="the task deadline has passed",
+        )
+    if task.lease_epoch >= max_attempts:
+        return TaskStatus.FAILED, TaskError(code=ErrorCode.LEASE_LOST, message="maximum attempts reached")
+    return TaskStatus.QUEUED, None
+
+
 class TaskRepository(Protocol):
     async def recent_conversation(self, scope_id: str, conversation_id: str) -> list[Task]: ...
 
     async def revoke_subscription(self, scope_id: str, subscription_id: str, now: datetime) -> Subscription: ...
-
-    async def reclaim_readonly(self, now: datetime) -> int: ...
 
     async def create(self, task: Task) -> CreateResult:
         """Insert a task and its ``task_created`` event.
@@ -121,6 +146,15 @@ class TaskRepository(Protocol):
 
         Raise ``StaleLease`` for an old lease. ``version`` does not change.
         """
+
+    async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
+        """Recover expired or missing leases, parking uncertain side effects before retrying."""
+
+    async def list_reconciliation_candidates(self) -> list[Task]:
+        """Cross-scope waiting/reconciliation and dirty cancelled tasks, sorted by scope/id."""
+
+    async def release_reconciliation(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        """Requeue a still-waiting reconciliation task only after all side effects settle."""
 
     async def record_run(
         self,
@@ -200,6 +234,14 @@ class ActionRepository(Protocol):
     ) -> Action: ...
 
     async def list_for_task(self, task_id: str) -> list[Action]: ...
+
+    async def list_unsettled(self, task_id: str) -> list[Action]: ...
+
+    async def decide(
+        self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime, expected_attempt: int,
+    ) -> Action | None:
+        """Atomically decide an unsettled action, account usage, record its event and release the task."""
 
 
 class ArtifactRepository(Protocol):

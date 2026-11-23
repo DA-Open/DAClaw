@@ -19,7 +19,7 @@
 |---|---|---|
 | Q1 订阅与事件 | token 身份绑定 scope；订阅资源是用户白名单的子集；事件去重；每订阅/事件一条决策；准入与建任务同一事务 | 不自动订阅；不实现 grants 表；外部来源签名验证留到接入对应来源时 |
 | Q1 P 门与资源 | `skip/defer/admit`、baseline/diff、订阅日用量、scope 容量、较小单任务预算 | 日用量按 UTC 已结算用量做准入，任务自身预算独立执行；不是日额度的硬预留 |
-| Q1 Scheduler | 五字段 UTC cron、持久化 defer 重评、只读 Proactive 过期租约回收 | 需先收到数据源事件；恢复只覆盖 `proactive@1` + `data_card@1`，不覆盖通用 P1 恢复 |
+| Q1 Scheduler | 五字段 UTC cron、持久化 defer 重评，并调用共用的 `Recovery.tick` | 数据卡定时触发需先收到数据源事件；过期租约与未结算副作用走同一套恢复逻辑 |
 | Q2 数据卡 | 独立 Proactive 上下文；`data.profile`、共享 `data.connect` / `data.query`；`data_card@1`；统计绑定 action 并重放核对 | CSV、TSV、Parquet、DuckDB 复用同一连接器；SQLite、Excel 保留原有独立统计路径；语义推断只允许 grain/meaning/unit 并附置信度 |
 | Q2 隔离 | 角色/用户/能力工具交集 + 订阅资源约束；共享查询的 SQL 门禁和证据留存；前后台分 Worker | `artifacts.write` 只写本任务产物；不开放外部写工具；生产应配置共享、可读取的数据文件与产物目录 |
 | Q3 待看区 | `2R+I+U`、三档主动程度、UTC 静默时段、有效窗口、原子发布 inbox 与 ready 事件 | `notify` 是站内优先级，不发送飞书消息；当前质量发现是空值、候选键重复和空表，不能等同于业务缺陷 |

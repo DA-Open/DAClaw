@@ -39,6 +39,7 @@ from .agents import AgentRegistry, PackageInstructions, main_role_whitelist
 from .capabilities import CapabilityRegistry
 from .config import HarnessConfig
 from .context.builder import SimpleContextBuilder
+from .context.resume import ResumingContextBuilder
 from .contracts import AgentRole, RunLane, utcnow
 from .interfaces import ModelAdapter
 from .results import CapabilityVerifier, FileArtifactStore
@@ -54,6 +55,7 @@ from .results.checks.data_card import DataCardChecks
 from .results.verifier import DEFAULT_CHECKERS
 from .delivery.service import DeliveryService
 from .tasks.proactive_controller import ProactiveController
+from .tasks.recovery import Recovery
 from .tasks.scheduler import Scheduler
 
 if TYPE_CHECKING:
@@ -146,7 +148,7 @@ class HarnessSystem:
     policy: WhitelistPolicy
     gateway: ToolGateway
     verifier: CapabilityVerifier
-    builder: SimpleContextBuilder
+    builder: ResumingContextBuilder
     runner: AgentRunner
     tasks: TaskService
     proactive: ProactiveController
@@ -252,11 +254,13 @@ def build_system(
         clock=clock,
         delivery=delivery,
     )
+    builder = ResumingContextBuilder(builder, artifacts)
     runner = AgentRunner(repos, model, gateway, verifier, artifacts, reminders=config.budget_reminder, clock=clock)
     tasks = TaskService(
         repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock, delivery=delivery
     )
     proactive = ProactiveController(repos, tasks, policy, scope_limit=config.background_scope_limit, clock=clock)
+    recovery = Recovery(repos.tasks, config, clock, gateway=gateway, actions=repos.actions, events=repos.events)
     return HarnessSystem(
         config=config,
         repos=repos,
@@ -271,7 +275,7 @@ def build_system(
         tasks=tasks,
         proactive=proactive,
         delivery=delivery,
-        scheduler=Scheduler(repos, proactive, clock=clock),
+        scheduler=Scheduler(repos, proactive, recovery, clock=clock),
         _data=connect,
         _owned_pg=owned_pg,
     )
