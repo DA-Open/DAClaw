@@ -266,6 +266,7 @@ them or silently fall back to an in-memory store.
 `capabilities/data_analysis.yaml` is the second pack: connect a local table,
 query it with read-only SQL, report the numbers with the queries that produced
 them. It adds three tools and one checker; no core module changes.
+The `harness` extra installs DuckDB and the JSON Schema validator.
 
 | Tool | Does |
 |---|---|
