@@ -1,5 +1,6 @@
-"""Manual decisions for uncertain side effects.
+"""Manual decisions for uncertain side effects by the original task actor.
 
+CLI and web tokens can both resolve the action when they identify the same scope and actor.
 Repository access here only reads state; the gateway delegates mutations to atomic decide.
 """
 

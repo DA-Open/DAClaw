@@ -424,14 +424,7 @@ class ToolGateway:
             except (HarnessError, TimeoutError, OSError) as exc:
                 result = ReconcileResult(status="unknown")
                 details["error"] = {"type": type(exc).__name__, "message": str(exc)}
-        if result.status == "succeeded":
-            status = ActionStatus.SUCCEEDED
-        if result.status == "failed":
-            status = ActionStatus.FAILED
-        if result.status == "unknown":
-            status = ActionStatus.UNKNOWN
-        if result.status == "unsupported":
-            status = action.status
+        status = action.status if result.status == "unsupported" else ActionStatus(result.status)
         return await self._record_reconciliation(task, action, result, status, None, expected_attempt, details)
 
     async def resolve(self, task: Task, action: Action, happened: bool, actor: Actor, expected_attempt: int) -> ActionStatus | None:

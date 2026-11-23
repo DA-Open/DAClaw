@@ -41,6 +41,7 @@ async def case(repos, tmp_path):
     ), clock())
     auth = TokenAuth([
         {"sha256": token_digest("owner"), "scope_id": "s1", "actor_id": "u1"},
+        {"sha256": token_digest("owner-web"), "scope_id": "s1", "actor_id": "u1"},
         {"sha256": token_digest("other"), "scope_id": "s1", "actor_id": "u2"},
         {"sha256": token_digest("foreign"), "scope_id": "s2", "actor_id": "u1"},
     ])
@@ -121,12 +122,14 @@ async def test_unsupported_needs_manual(case):
 
 @pytest.mark.parametrize("outcome,expected", [("happened", ActionStatus.SUCCEEDED), ("not_happened", ActionStatus.FAILED)])
 async def test_resolve_happened_or_not_happened(case, outcome, expected):
-    response = await case.client.post(case.resolve, headers=AUTH, json={"outcome": outcome})
+    response = await case.client.post(case.resolve, headers={"Authorization": "Bearer owner-web"}, json={"outcome": outcome})
     assert response.status_code == 200, response.text
     action = await stored_action(case)
     assert action.status is expected
-    if outcome == "happened":
-        assert action.receipt_ref
+    assert action.receipt_ref
+    receipt = await case.client.get(f"/artifacts/{action.receipt_ref}", headers=AUTH)
+    assert receipt.status_code == 200
+    assert receipt.json() == {"actor": ACTOR.actor_id, "outcome": outcome}
     assert (await case.repos.tasks.get("s1", case.task.id)).status is TaskStatus.QUEUED
     events = await case.repos.events.list("s1", task_id=case.task.id)
     event = [e for e in events if e.type is EventType.TOOL_RECONCILE][-1]
