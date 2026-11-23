@@ -6,9 +6,10 @@ import pytest
 
 from harness.config import HarnessConfig
 from harness.contracts import (
-    Action, ActionStatus, Artifact, ErrorCode, EventType, RunLane,
+    Action, ActionStatus, Artifact, ErrorCode, EventType, Limits, RunLane,
     StaleLease, TaskStatus, Usage, UsageKind, WaitCondition,
 )
+from harness.storage.memory import InMemoryRepositories
 from harness.tasks.recovery import Recovery
 
 from .test_repositories import T0, TTL, claimed, created, failed_outcome, repos
@@ -130,6 +131,68 @@ async def test_reclaim_ignores_live_lease(repos):
     assert got.status is TaskStatus.RUNNING
     assert got.current_attempt_id == lease.attempt_id
     assert (await repos.tasks.get_attempt(task.scope_id, lease.attempt_id)).ended_at is None
+
+
+@pytest.mark.parametrize("pointer", [None, "missing-attempt-id"])
+async def test_reclaim_repairs_missing_attempt_pointer(repos, pointer):
+    task, lease = await claimed(repos)
+    await add_action(repos, task, lease, ActionStatus.UNKNOWN, False)
+    if isinstance(repos, InMemoryRepositories):
+        repos.tasks._s.tasks[task.id].current_attempt_id = pointer
+    else:
+        from sqlalchemy import update
+
+        from harness.storage import schema
+
+        async with repos.engine.begin() as conn:
+            await conn.execute(update(schema.tasks).where(schema.tasks.c.id == task.id)
+                               .values(current_attempt_id=pointer))
+    now = T0 + timedelta(seconds=1)
+    assert await repos.tasks.reclaim_expired(now, 3) == 1
+    stored = await repos.tasks.get(task.scope_id, task.id)
+    assert stored.status is TaskStatus.WAITING
+    assert stored.wait_condition is WaitCondition.RECONCILIATION
+    assert stored.current_attempt_id is None
+    attempt = await repos.tasks.get_attempt(task.scope_id, lease.attempt_id)
+    assert attempt.ended_at == now
+    events = await repos.events.list(task.scope_id, task.id)
+    assert events[-1].attempt_id == lease.attempt_id
+    assert await repos.tasks.reclaim_expired(now, 3) == 0
+
+
+@pytest.mark.parametrize("unsettled", [False, True])
+async def test_reclaim_handles_missing_attempt_row(repos, unsettled):
+    task, lease = await claimed(repos)
+    if unsettled:
+        await add_action(repos, task, lease, ActionStatus.RUNNING, False)
+    if isinstance(repos, InMemoryRepositories):
+        del repos.tasks._s.attempts[lease.attempt_id]
+    else:
+        from sqlalchemy import delete
+
+        from harness.storage import schema
+
+        async with repos.engine.begin() as conn:
+            await conn.execute(delete(schema.attempts).where(schema.attempts.c.id == lease.attempt_id))
+    assert await repos.tasks.reclaim_expired(EXPIRED, 3) == 1
+    stored = await repos.tasks.get(task.scope_id, task.id)
+    assert stored.status is (TaskStatus.WAITING if unsettled else TaskStatus.QUEUED)
+    assert stored.current_attempt_id is None
+    events = await repos.events.list(task.scope_id, task.id)
+    assert events[-1].attempt_id is None
+
+
+async def test_reclaim_fails_at_deadline_without_requeue(repos):
+    task, lease = await claimed(repos, limits=Limits(timeout_sec=TTL))
+    other, other_lease = await claimed(repos, key="other", limits=Limits(timeout_sec=TTL))
+    await add_action(repos, other, other_lease, ActionStatus.RUNNING, False)
+    assert await repos.tasks.reclaim_expired(EXPIRED, 3) == 2
+    stored = await repos.tasks.get(task.scope_id, task.id)
+    assert stored.status is TaskStatus.FAILED
+    assert stored.error.code is ErrorCode.DEADLINE_EXCEEDED
+    assert (await repos.tasks.get_attempt(task.scope_id, lease.attempt_id)).exit_reason == "lease_expired"
+    assert (await repos.tasks.get(other.scope_id, other.id)).wait_condition is WaitCondition.RECONCILIATION
+    assert await repos.tasks.claim("after-deadline", [RunLane.FOREGROUND], TTL, EXPIRED) is None
 
 
 async def test_reclaim_only_checks_current_attempt_actions(repos):

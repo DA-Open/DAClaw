@@ -8,6 +8,7 @@ from harness.contracts import (
     ActionConflict,
     ActionStatus,
     AgentRole,
+    Checkpoint,
     ErrorCode,
     EventType,
     Limits,
@@ -17,11 +18,14 @@ from harness.contracts import (
     ToolOutcome,
     ToolStatus,
     Usage,
+    UsageKind,
     WaitCondition,
 )
 from harness.context.builder import SimpleContextBuilder, StaticInstructions, StaticToolCatalog
 from harness.context.resume import ResumingContextBuilder
+from harness.runtime import messages as msg
 from harness.runtime.models import ScriptedModelAdapter, result_step, tool_step
+from harness.runtime.models.base import estimate_tokens
 from harness.runtime.runner import AgentRunner
 from harness.storage.memory import InMemoryRepositories
 from harness.tools import ToolGateway, UserGrant, WhitelistPolicy
@@ -79,8 +83,8 @@ class Setup:
     def read_step(self):
         return tool_step(("files.read", {"path": str(self.path)}))
 
-    async def start(self):
-        self.task, self.execution = await claimed_task(self.repos, limits=Limits(timeout_sec=20000))
+    async def start(self, limits=None):
+        self.task, self.execution = await claimed_task(self.repos, limits=limits or Limits(timeout_sec=20000))
         return self
 
     async def run(self):
@@ -164,6 +168,41 @@ async def test_resume_replays_unfinished_readonly_call(tmp_path, monkeypatch):
     assert len(s.connector.calls) == 1
     assert s.connector.calls[0].logical_key == "step-1.0"
     assert len(await s.repos.actions.list_for_task(s.task.id)) == 1
+
+
+async def test_resume_trims_oversized_history_after_replay(tmp_path):
+    limits = Limits(timeout_sec=20000, max_total_tokens=2800)
+    s = await Setup(tmp_path).start(limits)
+    call = s.read_step().tool_calls[0].model_copy(update={"logical_key": "step-2.0"})
+    old_tool_call = msg.ToolCallPart(id="old-call", name=call.tool)
+    pending_tool_call = msg.ToolCallPart(id=call.native_call_id, name=call.tool, args=call.args)
+    messages = [
+        msg.system("Old system"),
+        msg.user("Original task brief"),
+        msg.Message(role="assistant", tool_calls=[old_tool_call]).to_dict(),
+        msg.tool_result("old-call", call.tool, "x" * 8000),
+        msg.Message(role="assistant", tool_calls=[pending_tool_call]).to_dict(),
+    ]
+    checkpoint = Checkpoint(stage="tools_pending", step_id=f"{s.task.id}.step-2", pending_calls=[call])
+    ref = await s.runner._store_json(s.task, "checkpoint", {"checkpoint": checkpoint, "messages": messages})
+    lease = s.execution.lease
+    await s.repos.tasks.checkpoint(lease, ref, s.clock())
+    reserved = Usage(input_tokens=1300)
+    assert (await s.repos.usage.reserve(
+        s.task.id, lease.attempt_id, "prior-open", UsageKind.MODEL, reserved, s.clock(),
+    )).granted
+    await s.recover()
+    s.model._script = [result_step("Done", {"draft": "result"})]
+    await s.finish()
+    sent, = s.model.calls
+    max_output, = s.model.max_tokens_seen
+    assert estimate_tokens(sent.messages, sent.tool_specs) + max_output + reserved.total_tokens <= limits.max_total_tokens
+    assert "Current instructions" in sent.messages[0]["content"]
+    assert sent.messages[1] == msg.user("Original task brief")
+    tool_messages = [m for m in sent.messages if m["role"] == "tool"]
+    assert [m["tool_call_id"] for m in tool_messages] == [call.native_call_id]
+    assert [m["tool_calls"][0]["id"] for m in sent.messages if m["role"] == "assistant"] == [call.native_call_id]
+    assert [record.logical_key for record in s.connector.calls] == ["step-2.0"]
 
 
 async def test_resume_does_not_reuse_model_call_ids(tmp_path, monkeypatch):

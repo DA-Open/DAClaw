@@ -45,7 +45,7 @@ from ..contracts import (
     assert_transition,
     new_id,
 )
-from .repositories import ActionRegistration, CreateResult, Repositories
+from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -291,41 +291,34 @@ class InMemoryTaskRepository:
 
     async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
         async with self._s.lock:
-            expired = [
-                task for task in self._s.tasks.values()
-                if task.status in _LEASED
-                and self._s.attempts[task.current_attempt_id].lease_expires_at <= now
-            ]
-            for task in expired:
-                attempt = self._s.attempts[task.current_attempt_id]
+            attempts = {(a.task_id, a.lease_epoch): a for a in self._s.attempts.values()}
+            recovered = 0
+            for task in self._s.tasks.values():
+                if task.status not in _LEASED:
+                    continue
+                attempt = attempts.get((task.id, task.lease_epoch))
+                if (attempt is not None and attempt.id == task.current_attempt_id
+                        and attempt.ended_at is None and attempt.lease_expires_at > now):
+                    continue
                 unsettled = any(
-                    action.attempt_id == attempt.id and not action.read_only
+                    action.task_id == task.id and (attempt is None or action.attempt_id == attempt.id)
+                    and not action.read_only
                     and action.status in (ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN)
                     for action in self._s.actions.values()
                 )
-                attempts = sum(a.task_id == task.id for a in self._s.attempts.values())
-                if task.status is TaskStatus.CANCELLING:
-                    status = TaskStatus.CANCELLED
-                elif unsettled:
-                    status = TaskStatus.WAITING
-                elif attempts >= max_attempts:
-                    status = TaskStatus.FAILED
-                else:
-                    status = TaskStatus.QUEUED
+                status, error = recovery_status(task, now, max_attempts, unsettled)
                 assert_transition(task.status, status)
                 updated = _replace(
                     task, status=status, current_attempt_id=None,
                     wait_condition=WaitCondition.RECONCILIATION if status is TaskStatus.WAITING else None,
-                    error=TaskError(code=ErrorCode.LEASE_LOST, message="maximum attempts reached")
-                    if status is TaskStatus.FAILED else None,
-                    version=task.version + 1, updated_at=now,
+                    error=error, version=task.version + 1, updated_at=now,
                 )
-                self._s.attempts[attempt.id] = _replace(
-                    attempt, ended_at=now, exit_reason="lease_expired"
-                )
+                if attempt is not None and attempt.ended_at is None:
+                    self._s.attempts[attempt.id] = _replace(attempt, ended_at=now, exit_reason="lease_expired")
                 self._s.tasks[task.id] = updated
-                self._s.status_event(updated, task.status, now, attempt_id=attempt.id)
-            return len(expired)
+                self._s.status_event(updated, task.status, now, attempt_id=attempt.id if attempt else None)
+                recovered += 1
+            return recovered
 
     async def record_run(
         self,

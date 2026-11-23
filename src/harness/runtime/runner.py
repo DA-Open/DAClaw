@@ -75,7 +75,7 @@ from ..interfaces import ArtifactStore, ToolGateway, Verifier
 from ..storage.repositories import Repositories
 from . import context_sizes
 from . import messages as msg
-from .budget import BudgetReminders, ModelBudget, ModelReservation, ReminderState
+from .budget import MIN_OUTPUT_TOKENS, BudgetReminders, ModelBudget, ModelReservation, ReminderState
 from .models.base import ModelAdapter, ModelError
 
 log = logging.getLogger(__name__)
@@ -267,11 +267,19 @@ class AgentRunner:
         self, task: Task, run: _Run, remaining: RemainingBudget, wrap_up: bool
     ) -> AssistantStep | TaskOutcome | None:
         tools = [msg.SUBMIT_RESULT_SPEC] if wrap_up else [*run.tools, msg.SUBMIT_RESULT_SPEC]
+        sizes = context_sizes.measure(run.messages, tools)
+        if run.context.checkpoint is not None:
+            reserved_tokens = sum(
+                r.reserved.total_tokens for r in await self._repos.usage.open_reservations(task.id)
+            )
+            input_limit = remaining.total_tokens - reserved_tokens - min(self._max_output, MIN_OUTPUT_TOKENS)
+            if sizes.est_tokens > input_limit:
+                run.messages = _trim_resumed_history(run.messages, tools, input_limit)
+                sizes = context_sizes.measure(run.messages, tools)
         context = run.context.model_copy(
             update={"messages": list(run.messages), "tool_specs": tools, "remaining_budget": remaining}
         )
         step_id = _step_id(task.id, run.steps + 1)
-        sizes = context_sizes.measure(context.messages, tools)
         input_tokens = sizes.est_tokens
         reservation = await self._budget.reserve(
             task,
@@ -549,6 +557,27 @@ def _step_id(task_id: str, step: int) -> str:
     task because step numbers continue across attempts.
     """
     return f"{task_id}.step-{step}"
+
+
+def _trim_resumed_history(
+    messages: list[dict[str, Any]], tools: list[ToolSpec], input_limit: int,
+) -> list[dict[str, Any]]:
+    # The system prompt and task brief must remain. Keep an assistant turn and
+    # all its tool results together; pending calls were replayed before this.
+    task_context = messages[:2]
+    notice = msg.user("Earlier checkpoint history was shortened to fit the task budget.")
+    prefix = [*task_context, notice]
+    for index, message in enumerate(messages[2:], start=2):
+        if message["role"] == "assistant":
+            candidate = prefix + messages[index:]
+            if context_sizes.measure(candidate, tools).est_tokens <= input_limit:
+                return candidate
+    reminder = messages[-1:] if messages and messages[-1].get("kind") == "budget_reminder" else []
+    for candidate in (prefix + reminder, task_context + reminder, task_context):
+        if context_sizes.measure(candidate, tools).est_tokens <= input_limit:
+            return candidate
+    # Let the regular budget reservation report a failure if even the brief cannot fit.
+    return task_context
 
 
 def _logical_key(step: int, index: int) -> str:
