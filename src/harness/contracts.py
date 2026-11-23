@@ -1163,6 +1163,10 @@ class AdmissionDecision(_Model):
     reason: str
     policy_version: str
     input_snapshot_ref: str | None = None
+    input_snapshot: dict[str, Any] = Field(default_factory=dict)
+    # Earlier distinct evaluations of a deferred event.
+    evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    kind: Literal["baseline", "diff"] | None = None
     task_id: str | None = None
     decided_at: datetime = Field(default_factory=utcnow)
     backfill_label: Literal["useful", "not_useful", "harmful"] | None = None
@@ -1206,6 +1210,9 @@ class Subscription(_Model):
     # What the subscription may read: directory or file refs, checked against
     # the user's grants when a task is created (spec: 订阅要读的资源).
     resources: list[str] = Field(default_factory=list)
+    # UTC hours, with equal endpoints denoting no quiet period.
+    quiet_hours: tuple[int, int] = (0, 0)
+    focus: list[str] = Field(default_factory=list)
     # How long a result stays usable; older results are not handed to Main.
     result_ttl_seconds: int = Field(7 * 24 * 3600, gt=0)
     expires_at: datetime | None = None
@@ -1218,6 +1225,8 @@ class Subscription(_Model):
     def _check(self) -> Subscription:
         if not self.event_filter and not self.schedule:
             raise ValueError("a subscription needs an event_filter or a schedule")
+        if any(not 0 <= hour <= 23 for hour in self.quiet_hours):
+            raise ValueError("quiet_hours must contain UTC hours in 0..23")
         return self
 
 
