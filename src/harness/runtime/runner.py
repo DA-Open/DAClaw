@@ -37,6 +37,7 @@ from typing import Any
 
 from ..config import BudgetReminderConfig
 from ..contracts import (
+    ActionConflict,
     AgentProfile,
     ArtifactInput,
     AssistantStep,
@@ -74,7 +75,7 @@ from ..interfaces import ArtifactStore, ToolGateway, Verifier
 from ..storage.repositories import Repositories
 from . import context_sizes
 from . import messages as msg
-from .budget import BudgetReminders, ModelBudget, ModelReservation, ReminderState
+from .budget import MIN_OUTPUT_TOKENS, BudgetReminders, ModelBudget, ModelReservation, ReminderState
 from .models.base import ModelAdapter, ModelError
 
 log = logging.getLogger(__name__)
@@ -168,6 +169,25 @@ class AgentRunner:
         await self._repos.tasks.record_run(
             lease, self._clock(), model_version=self._model.model, context_ref=context_ref
         )
+        if context.checkpoint is not None:
+            checkpoint = context.checkpoint
+            run.completed_action_ids = list(checkpoint.completed_action_ids)
+            run.add_artifacts(checkpoint.artifact_refs)
+            if checkpoint.pending_calls:
+                stop = self._check(task, run, lease_lost)
+                if stop is not None:
+                    return stop
+                step_number = int(checkpoint.step_id.rsplit(".step-", 1)[1])
+                step = AssistantStep(
+                    kind=StepKind.TOOL_CALLS,
+                    model=self._model.model,
+                    tool_calls=checkpoint.pending_calls,
+                    message=next(m for m in reversed(run.messages) if m["role"] == "assistant"),
+                )
+                wrap_up = checkpoint.stage == "tools_pending_wrap_up"
+                outcome = await self._tools(task, run, step, wrap_up, step_number, replay=True)
+                if outcome is not None:
+                    return outcome
         while True:
             task = await self._repos.tasks.get(execution.lease.scope_id, execution.lease.task_id)
             stop = self._check(task, run, lease_lost)
@@ -185,7 +205,7 @@ class AgentRunner:
                 continue  # retryable model failure, budget permitting
             if step.kind is StepKind.CANDIDATE_RESULT:
                 return await self._finish(task, run, step.candidate)
-            outcome = await self._tools(task, run, step, wrap_up)
+            outcome = await self._tools(task, run, step, wrap_up, run.steps)
             if outcome is not None:
                 return outcome
 
@@ -247,11 +267,19 @@ class AgentRunner:
         self, task: Task, run: _Run, remaining: RemainingBudget, wrap_up: bool
     ) -> AssistantStep | TaskOutcome | None:
         tools = [msg.SUBMIT_RESULT_SPEC] if wrap_up else [*run.tools, msg.SUBMIT_RESULT_SPEC]
+        sizes = context_sizes.measure(run.messages, tools)
+        if run.context.checkpoint is not None:
+            reserved_tokens = sum(
+                r.reserved.total_tokens for r in await self._repos.usage.open_reservations(task.id)
+            )
+            input_limit = remaining.total_tokens - reserved_tokens - min(self._max_output, MIN_OUTPUT_TOKENS)
+            if sizes.est_tokens > input_limit:
+                run.messages = _trim_resumed_history(run.messages, tools, input_limit)
+                sizes = context_sizes.measure(run.messages, tools)
         context = run.context.model_copy(
             update={"messages": list(run.messages), "tool_specs": tools, "remaining_budget": remaining}
         )
         step_id = _step_id(task.id, run.steps + 1)
-        sizes = context_sizes.measure(context.messages, tools)
         input_tokens = sizes.est_tokens
         reservation = await self._budget.reserve(
             task,
@@ -360,12 +388,20 @@ class AgentRunner:
 
     # -- tools --------------------------------------------------------------------
 
-    async def _tools(self, task: Task, run: _Run, step: AssistantStep, wrap_up: bool) -> TaskOutcome | None:
+    async def _tools(
+        self, task: Task, run: _Run, step: AssistantStep, wrap_up: bool, step_number: int, *, replay: bool = False
+    ) -> TaskOutcome | None:
         offered = {t.name for t in run.tools} if not wrap_up else set()
         invalid = _invalid_args(step)
-        calls = step.tool_calls
+        calls = step.tool_calls if replay else [
+            call.model_copy(update={"logical_key": _logical_key(step_number, index)})
+            for index, call in enumerate(step.tool_calls)
+        ]
+        if not replay:
+            stage = "tools_pending_wrap_up" if wrap_up else "tools_pending"
+            await self._checkpoint(task, run, step_number, calls, stage, [])
         for index, call in enumerate(calls):
-            logical_key = _logical_key(run.steps, index)
+            logical_key = call.logical_key
             call_id = call.native_call_id or logical_key
             problem = None
             if call.tool == msg.SUBMIT_RESULT:
@@ -381,10 +417,9 @@ class AgentRunner:
             if problem is not None:
                 run.messages.append(msg.tool_result(call_id, call.tool, problem, is_error=True))
                 continue
-            keyed = call.model_copy(update={"logical_key": logical_key})
             try:
-                outcome = await self._gateway.invoke(run.execution, keyed)
-            except StaleLease:
+                outcome = await self._gateway.invoke(run.execution, call)
+            except (StaleLease, ActionConflict):
                 raise
             except HarnessError as exc:
                 if exc.code is ErrorCode.IDEMPOTENCY_CONFLICT:
@@ -393,7 +428,7 @@ class AgentRunner:
                 return self._failed(run, exc.code, f"tool {call.tool} failed: {exc.message}", retryable=exc.retryable)
             run.add_artifacts(outcome.artifact_refs)
             if outcome.status in (ToolStatus.NEEDS_APPROVAL, ToolStatus.UNKNOWN):
-                return await self._wait(task, run, outcome, [c.native_call_id for c in calls[index + 1 :]])
+                return await self._wait(task, run, outcome, calls[index:], step_number)
             if outcome.action_id and outcome.status is ToolStatus.SUCCEEDED:
                 run.completed_action_ids.append(outcome.action_id)
             run.messages.append(
@@ -404,28 +439,38 @@ class AgentRunner:
                     is_error=outcome.status is not ToolStatus.SUCCEEDED,
                 )
             )
+        await self._checkpoint(task, run, step_number, [], "tools_completed", [])
         return None
 
     async def _wait(
-        self, task: Task, run: _Run, outcome: ToolOutcome, skipped: list[str | None]
+        self, task: Task, run: _Run, outcome: ToolOutcome, pending: list[ToolCall], step_number: int
     ) -> TaskOutcome:
         """Save where the attempt stopped and leave it ``waiting`` (spec 5.2)."""
         condition = (
             WaitCondition.APPROVAL if outcome.status is ToolStatus.NEEDS_APPROVAL else WaitCondition.RECONCILIATION
         )
-        checkpoint = Checkpoint(
-            stage=f"waiting_{condition}",
-            step_id=_step_id(task.id, run.steps),
-            completed_action_ids=list(run.completed_action_ids),
-            artifact_refs=list(run.artifact_refs),
-            pending_action_ids=[outcome.action_id] if outcome.action_id else [],
-        )
-        ref = await self._store_json(
-            task,
-            "checkpoint",
-            {"checkpoint": checkpoint, "messages": run.messages, "unanswered_tool_calls": skipped},
+        ref = await self._checkpoint(
+            task, run, step_number, pending, f"waiting_{condition}",
+            [outcome.action_id] if outcome.action_id else [],
         )
         return self._outcome(run, TaskStatus.WAITING, wait_condition=condition, checkpoint_ref=ref)
+
+    async def _checkpoint(
+        self, task: Task, run: _Run, step_number: int, pending: list[ToolCall], stage: str, action_ids: list[str]
+    ) -> str:
+        checkpoint = Checkpoint(
+            stage=stage,
+            step_id=_step_id(task.id, step_number),
+            completed_action_ids=list(run.completed_action_ids),
+            artifact_refs=list(run.artifact_refs),
+            pending_action_ids=action_ids,
+            pending_calls=pending,
+        )
+        ref = await self._store_json(
+            task, "checkpoint", {"checkpoint": checkpoint, "messages": run.messages},
+        )
+        await self._repos.tasks.checkpoint(run.lease, ref, self._clock())
+        return ref
 
     # -- result -----------------------------------------------------------------
 
@@ -514,15 +559,35 @@ def _step_id(task_id: str, step: int) -> str:
     return f"{task_id}.step-{step}"
 
 
+def _trim_resumed_history(
+    messages: list[dict[str, Any]], tools: list[ToolSpec], input_limit: int,
+) -> list[dict[str, Any]]:
+    # The system prompt and task brief must remain. Keep an assistant turn and
+    # all its tool results together; pending calls were replayed before this.
+    task_context = messages[:2]
+    notice = msg.user("Earlier checkpoint history was shortened to fit the task budget.")
+    prefix = [*task_context, notice]
+    for index, message in enumerate(messages[2:], start=2):
+        if message["role"] == "assistant":
+            candidate = prefix + messages[index:]
+            if context_sizes.measure(candidate, tools).est_tokens <= input_limit:
+                return candidate
+    reminder = messages[-1:] if messages and messages[-1].get("kind") == "budget_reminder" else []
+    for candidate in (prefix + reminder, task_context + reminder, task_context):
+        if context_sizes.measure(candidate, tools).est_tokens <= input_limit:
+            return candidate
+    # Let the regular budget reservation report a failure if even the brief cannot fit.
+    return task_context
+
+
 def _logical_key(step: int, index: int) -> str:
     """Action key for the ``index``-th tool call of ``step`` (spec 5.2).
 
     Unique within the task (actions dedupe on ``(task_id, logical_key)``)
     and without the attempt ID, as spec 3 requires: "重试沿用原动作键，不用新
-    Attempt ID 代替". Limit in P0: a later attempt continues the numbering
-    instead of replaying a step, so the same key comes back only when a
-    resumed attempt re-issues a step from its checkpoint. That replay, with
-    the step number taken from the checkpoint, is P1.
+    Attempt ID 代替". Checkpoints keep the assigned keys, including each
+    call's original index when earlier calls in the step already finished.
+    Replay uses those keys; new model steps continue the model-call count.
     """
     return f"step-{step}.{index}"
 

@@ -26,7 +26,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -58,11 +58,12 @@ from ..contracts import (
     VerificationRequired,
     VerificationResult,
     VerificationStatus,
+    WaitCondition,
     assert_transition,
     new_id,
 )
 from . import schema as s
-from .repositories import ActionRegistration, CreateResult, Repositories
+from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status
 
 _LEASED = (TaskStatus.RUNNING.value, TaskStatus.CANCELLING.value)
 
@@ -441,6 +442,57 @@ class PgTaskRepository:
                 )
             ).mappings().one()
             return _task(row)
+
+    async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
+        async with self._db.engine.begin() as conn:
+            rows = (await conn.execute(
+                select(s.tasks)
+                .outerjoin(s.attempts, and_(
+                    s.attempts.c.task_id == s.tasks.c.id,
+                    s.attempts.c.lease_epoch == s.tasks.c.lease_epoch,
+                ))
+                .where(s.tasks.c.status.in_(_LEASED), or_(
+                    s.attempts.c.id.is_(None),
+                    s.attempts.c.id.is_distinct_from(s.tasks.c.current_attempt_id),
+                    s.attempts.c.ended_at.is_not(None),
+                    s.attempts.c.lease_expires_at <= now,
+                ))
+                .order_by(s.tasks.c.scope_id, s.tasks.c.id)
+                .with_for_update(of=s.tasks, skip_locked=True)
+            )).mappings().all()
+            for row in rows:
+                task = _task(row)
+                attempt_id = await conn.scalar(select(s.attempts.c.id).where(
+                    s.attempts.c.task_id == task.id, s.attempts.c.lease_epoch == task.lease_epoch,
+                ))
+                unsettled_actions = select(s.actions.c.id).where(
+                    s.actions.c.task_id == task.id,
+                    s.actions.c.read_only.is_(False),
+                    s.actions.c.status.in_([
+                        ActionStatus.PLANNED.value, ActionStatus.RUNNING.value, ActionStatus.UNKNOWN.value,
+                    ]),
+                )
+                if attempt_id is not None:
+                    unsettled_actions = unsettled_actions.where(s.actions.c.attempt_id == attempt_id)
+                unsettled = await conn.scalar(select(unsettled_actions.exists()))
+                status, error = recovery_status(task, now, max_attempts, unsettled)
+                assert_transition(task.status, status)
+                updated = (await conn.execute(
+                    update(s.tasks).where(s.tasks.c.id == task.id).values(
+                        status=status.value, current_attempt_id=None,
+                        wait_condition=WaitCondition.RECONCILIATION.value if status is TaskStatus.WAITING else None,
+                        error=_dump(error) if error is not None else None,
+                        version=task.version + 1, updated_at=now,
+                    ).returning(*s.tasks.c)
+                )).mappings().one()
+                if attempt_id is not None:
+                    await conn.execute(update(s.attempts).where(
+                        s.attempts.c.id == attempt_id, s.attempts.c.ended_at.is_(None)
+                    ).values(ended_at=now, exit_reason="lease_expired"))
+                await self._db.status_event(
+                    conn, _task(updated), task.status, now, attempt_id=attempt_id
+                )
+            return len(rows)
 
     async def record_run(
         self,

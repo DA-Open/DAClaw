@@ -39,6 +39,7 @@ from .agents import AgentRegistry, PackageInstructions, main_role_whitelist
 from .capabilities import CapabilityRegistry
 from .config import HarnessConfig
 from .context.builder import SimpleContextBuilder
+from .context.resume import ResumingContextBuilder
 from .contracts import AgentRole, RunLane, utcnow
 from .interfaces import ModelAdapter
 from .results import CapabilityVerifier, FileArtifactStore
@@ -139,7 +140,7 @@ class HarnessSystem:
     policy: WhitelistPolicy
     gateway: ToolGateway
     verifier: CapabilityVerifier
-    builder: SimpleContextBuilder
+    builder: ResumingContextBuilder
     runner: AgentRunner
     tasks: TaskService
     _owned_pg: PgRepositories | None = field(default=None, repr=False)
@@ -220,6 +221,7 @@ def build_system(
         capabilities=capabilities,
         clock=clock,
     )
+    builder = ResumingContextBuilder(builder, artifacts)
     runner = AgentRunner(repos, model, gateway, verifier, artifacts, reminders=config.budget_reminder, clock=clock)
     tasks = TaskService(
         repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock

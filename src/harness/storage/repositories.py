@@ -34,11 +34,14 @@ from ..contracts import (
     Artifact,
     Attempt,
     AttemptLease,
+    ErrorCode,
     Event,
     ReservationResult,
     RunLane,
     Task,
+    TaskError,
     TaskOutcome,
+    TaskStatus,
     Usage,
     UsageKind,
     UsageReservation,
@@ -65,6 +68,23 @@ class ActionRegistration:
     action: Action | None
     created: bool
     budget: ReservationResult | None = None
+
+
+def recovery_status(
+    task: Task, now: datetime, max_attempts: int, unsettled: bool,
+) -> tuple[TaskStatus, TaskError | None]:
+    if task.status is TaskStatus.CANCELLING:
+        return TaskStatus.CANCELLED, None
+    # Preserve reconciliation even when the task can no longer run.
+    if unsettled:
+        return TaskStatus.WAITING, None
+    if task.deadline is not None and task.deadline <= now:
+        return TaskStatus.FAILED, TaskError(
+            code=ErrorCode.DEADLINE_EXCEEDED, message="the task deadline has passed",
+        )
+    if task.lease_epoch >= max_attempts:
+        return TaskStatus.FAILED, TaskError(code=ErrorCode.LEASE_LOST, message="maximum attempts reached")
+    return TaskStatus.QUEUED, None
 
 
 class TaskRepository(Protocol):
@@ -107,6 +127,9 @@ class TaskRepository(Protocol):
 
         Raise ``StaleLease`` for an old lease. ``version`` does not change.
         """
+
+    async def reclaim_expired(self, now: datetime, max_attempts: int) -> int:
+        """Recover expired or missing leases, parking uncertain side effects before retrying."""
 
     async def record_run(
         self,
