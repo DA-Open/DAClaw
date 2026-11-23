@@ -13,18 +13,24 @@ query fails.
 import pytest
 
 from harness.agents import AgentRegistry, PackageInstructions, main_role_whitelist
+from harness.app import build_system
 from harness.capabilities import CapabilityRegistry
+from harness.config import HarnessConfig
 from harness.context.builder import SimpleContextBuilder
 from harness.contracts import (
     Acceptance,
     AgentRole,
     ErrorCode,
     EventType,
+    ExecutionContext,
     RunLane,
     Task,
     TaskOrigin,
+    TaskOutcome,
     TaskRequest,
     TaskStatus,
+    ToolCall,
+    ToolStatus,
     TriggerType,
 )
 from harness.results import CapabilityVerifier, FileArtifactStore
@@ -222,3 +228,56 @@ async def test_report_without_evidence_section_fails(tmp_path):
     assert outcome.status is TaskStatus.FAILED
     assert outcome.error.code is ErrorCode.VERIFICATION_FAILED
     assert "Evidence" in outcome.error.message
+
+
+@pytest.mark.parametrize("keep_grant", [True, False])
+async def test_new_attempt_recovers_authorized_connection(tmp_path, keep_grant):
+    material = tmp_path / "data"
+    material.mkdir()
+    source = material / "sales.csv"
+    source.write_text(CSV, encoding="utf-8")
+    repos = InMemoryRepositories()
+    config = HarnessConfig(artifact_root=tmp_path / "artifacts")
+
+    def setup(allowed):
+        return build_system(
+            config, ScriptedModelAdapter(), repos=repos,
+            policy_spec={"users": {ACTOR.scope_id: {"main": {"paths": [str(allowed)]}}}},
+        )
+
+    system = setup(material)
+    request = TaskRequest(request_key="recover-csv", goal=QUESTION, capability_ref="data_analysis@1")
+    origin = TaskOrigin(
+        agent_role=AgentRole.MAIN, agent_profile_ref="main@1",
+        run_lane=RunLane.FOREGROUND, trigger_type=TriggerType.USER,
+    )
+    call = ToolCall(tool="data.connect", args={"path": str(source), "name": "regional_sales"}, logical_key="step-1.0")
+    async with system.lifespan():
+        task = await system.tasks.create(request, ACTOR, origin)
+        lease = await system.tasks.claim("first", [RunLane.FOREGROUND])
+        execution = ExecutionContext(lease=lease, actor=ACTOR, agent_role=AgentRole.MAIN, run_lane=RunLane.FOREGROUND)
+        connected = await system.gateway.invoke(execution, call)
+        assert connected.status is ToolStatus.SUCCEEDED
+        await system.tasks.commit(lease, TaskOutcome(status=TaskStatus.QUEUED))
+
+    # A restarted worker has the task and its tool records, but no DuckDB session.
+    restarted = setup(material if keep_grant else tmp_path / "different-data")
+    async with restarted.lifespan():
+        lease = await restarted.tasks.claim("second", [RunLane.FOREGROUND])
+        execution = execution.model_copy(update={"lease": lease})
+        if keep_grant:
+            replay = await restarted.gateway.invoke(execution, call)
+            assert replay.action_id == connected.action_id
+        queried = await restarted.gateway.invoke(execution, ToolCall(
+            tool="data.query", args={"sql": "SELECT SUM(units) AS units FROM regional_sales"}, logical_key="step-2.0",
+        ))
+        if keep_grant:
+            assert queried.status is ToolStatus.SUCCEEDED
+            assert "| 10 |" in queried.summary
+            assert len(queried.artifact_refs) == 2
+        else:
+            assert queried.status is ToolStatus.FAILED and queried.error.code is ErrorCode.FORBIDDEN
+            assert queried.artifact_refs == []
+        actions = await repos.actions.list_for_task(task.id)
+        assert {action.logical_key for action in actions} == {"step-1.0", "step-2.0"}
+        assert (await repos.tasks.get(ACTOR.scope_id, task.id)).usage.tool_calls == 2

@@ -83,7 +83,15 @@ web = ["fastapi>=0.104.0,<1", "uvicorn[standard]>=0.24.0,<1", "python-multipart>
 # DaraOS harness runtime (src/harness): HTTP API and the PostgreSQL task queue.
 # Kept out of [all]; the Docker image selects this extra explicitly.
 # Keep SQLAlchemy on 2.0.x for the image's snowflake-sqlalchemy 1.11 integration.
-harness = ["fastapi>=0.104.0,<1", "uvicorn[standard]>=0.24.0,<1", "asyncpg>=0.29,<1", "sqlalchemy[asyncio]>=2.0,<2.1", "alembic>=1.13,<2"]
+harness = [
+  "fastapi>=0.104.0,<1",
+  "uvicorn[standard]>=0.24.0,<1",
+  "asyncpg>=0.29,<1",
+  "sqlalchemy[asyncio]>=2.0,<2.1",
+  "alembic>=1.13,<2",
+  "duckdb>=1.4,<2",
+  "jsonschema>=4,<5",
+]
 data = [
   # DataAgent: DuckDB is the unified SQL engine; pandas/openpyxl bridge Excel &
   # SQLite; pyarrow enables Parquet. Charts inline vendored ECharts (no dep).

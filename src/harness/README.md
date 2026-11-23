@@ -264,6 +264,7 @@ them or silently fall back to an in-memory store.
 `capabilities/data_analysis.yaml` is the second pack: connect a local table,
 query it with read-only SQL, report the numbers with the queries that produced
 them. It adds three tools and one checker; no core module changes.
+The `harness` extra installs DuckDB and the JSON Schema validator.
 
 | Tool | Does |
 |---|---|
@@ -273,8 +274,9 @@ them. It adds three tools and one checker; no core module changes.
 
 Safety rules in `tools/connectors/data.py`:
 
-* One session per (scope_id, task_id): a task cannot see another task's sources,
-  and a worker restart loses the views (the model reconnects).
+* Each task attempt owns a session. The worker closes it when the attempt ends.
+  DuckDB disables external access and allows only the files registered in this
+  session, including the read-only log sidecar for a DuckDB database.
 * The SQL must parse as exactly one `SELECT`. Refused before it runs: other
   statement types, multi-statement text, `PRAGMA` / `SET` / `ATTACH` / `COPY`,
   file-reading table functions (`read_csv`, `read_parquet`, `read_text`, `*_scan`
