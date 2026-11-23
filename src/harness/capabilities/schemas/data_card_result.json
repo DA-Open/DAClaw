@@ -1,0 +1,1 @@
+{"type":"object","required":["summary","artifact_refs"],"properties":{"summary":{"type":"string"},"artifact_refs":{"type":"object","required":["data_card"],"properties":{"data_card":{"type":"string","minLength":1}}}}}

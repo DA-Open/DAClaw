@@ -15,6 +15,7 @@ from harness.contracts import (
     CheckSpec,
     EventType,
     NotFound,
+    RunLane,
     TaskOutcome,
     TaskStatus,
     VerificationStatus,
@@ -359,7 +360,8 @@ def test_builtin_document_draft_pack():
 def test_resolve_is_exact_version():
     reg = CapabilityRegistry.builtin()
     with pytest.raises(NotFound):
-        reg.resolve("document_draft@2")
+        reg.resolve("document_draft@999")
+    assert reg.resolve("document_draft@2").tools - reg.resolve("document_draft@1").tools == {"background_results.read"}
     with pytest.raises(ValueError):
         reg.resolve("document_draft")
 
@@ -408,13 +410,14 @@ def test_main_profile_registry():
     reg = AgentRegistry.builtin()
     assert reg.resolve(AgentRole.MAIN, "1") is MAIN_PROFILE
     assert reg.resolve_ref("main@1") is MAIN_PROFILE
-    assert reg.tool_policies() == {"main@1": "main_tools@1"}
-    with pytest.raises(NotFound):
-        reg.resolve(AgentRole.PROACTIVE, "1")
+    assert reg.tool_policies() == {"main@1": "main_tools@1", "proactive@1": "proactive_tools@1"}
+    assert reg.resolve(AgentRole.PROACTIVE, "1").default_lane == RunLane.BACKGROUND
     assert main_role_whitelist() == {
         "main_tools@1": {
-            "files.read", "artifacts.read", "artifacts.write", "data.list", "data.connect", "data.query"
-        }
+            "files.read", "artifacts.read", "artifacts.write", "background_results.read",
+            "data.list", "data.connect", "data.query",
+        },
+        "proactive_tools@1": {"data.profile", "data.connect", "data.query", "artifacts.read", "artifacts.write"},
     }
 
 
