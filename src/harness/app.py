@@ -220,6 +220,7 @@ def build_system(
         [*p0_connectors(artifacts), *data],
         profiles=agents.tool_policies(),
         clock=clock,
+        data_sessions=data[0],
     )
     verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock)
     builder = SimpleContextBuilder(

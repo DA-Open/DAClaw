@@ -32,7 +32,7 @@ import logging
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..contracts import (
     UsageKind,
@@ -50,6 +50,7 @@ from ..contracts import (
     HarnessError,
     NotFound,
     StaleLease,
+    Task,
     TaskError,
     TaskStatus,
     ToolCall,
@@ -64,6 +65,9 @@ from ..contracts import (
 from ..interfaces import ArtifactStore, Connector
 from ..storage.repositories import Repositories
 from .policy import WhitelistPolicy
+
+if TYPE_CHECKING:
+    from .connectors.data import DataConnector
 
 log = logging.getLogger(__name__)
 
@@ -137,6 +141,7 @@ class ToolGateway:
         *,
         profiles: dict[str, str],
         clock: Callable[[], datetime] = utcnow,
+        data_sessions: DataConnector | None = None,
     ) -> None:
         self._repos = repos
         self._artifacts = artifacts
@@ -144,6 +149,7 @@ class ToolGateway:
         self._connectors = {c.spec.name: c for c in connectors}
         self._profiles = dict(profiles)
         self._clock = clock
+        self._data_sessions = data_sessions
 
     @property
     def specs(self) -> list[ToolSpec]:
@@ -301,13 +307,20 @@ class ToolGateway:
         timeout = None
         if task.deadline is not None:
             timeout = (task.deadline - self._clock()).total_seconds()
+
+        async def execute() -> ToolResult:
+            restored = await self._restore_data_session(task, execution, authorized, tool_policy_ref)
+            if restored is not None:
+                return restored
+            return await connector.execute(authorized)
+
         try:
             if timeout is not None and timeout <= 0:
                 raise asyncio.TimeoutError
             if timeout is None:
-                result = await connector.execute(authorized)
+                result = await execute()
             else:
-                result = await asyncio.wait_for(connector.execute(authorized), timeout)
+                result = await asyncio.wait_for(execute(), timeout)
         except StaleLease:
             raise
         except asyncio.TimeoutError:
@@ -376,6 +389,69 @@ class ToolGateway:
             receipt_ref=result.receipt_ref,
             error=result.error,
         )
+
+    async def _restore_data_session(
+        self, task: Task, execution: ExecutionContext, call: AuthorizedCall, tool_policy_ref: str,
+    ) -> ToolResult | None:
+        data = self._data_sessions
+        lease = execution.lease
+        if (data is None or call.tool not in {"data.connect", "data.query"}
+                or lease.lease_epoch <= 1 or data.has_session(lease)):
+            return None
+
+        from .connectors.data import DataRegistration
+
+        # Background task inputs are the subscription's resource snapshot. The
+        # gateway must still authorize the live subscription before this step.
+        subscription_paths = (
+            {Path(ref).expanduser().resolve() for ref in task.input_refs} if task.subscription_id else None
+        )
+        registrations = []
+        for action in await self._repos.actions.list_for_task(task.id):
+            if (action.task_id != task.id or action.tool != "data.connect"
+                    or not action.read_only or action.status is not ActionStatus.SUCCEEDED):
+                continue
+            try:
+                if not action.args_ref or not action.result_ref:
+                    raise ValueError("missing connection record")
+                args = await self._read_json(task.scope_id, action.args_ref)
+                result = ToolResult.model_validate(await self._read_json(task.scope_id, action.result_ref))
+                recorded = result.data or {}
+                name, tables = recorded.get("table"), recorded.get("tables")
+                if (result.status is not ToolStatus.SUCCEEDED or not isinstance(name, str) or not name
+                        or not isinstance(args["path"], str) or not Path(args["path"]).is_absolute()):
+                    raise ValueError("invalid connection record")
+                path = Path(args["path"]).resolve()
+                if tables is not None and (
+                    not isinstance(tables, dict)
+                    or not all(isinstance(k, str) and isinstance(v, str) for k, v in tables.items())
+                ):
+                    raise ValueError("invalid table names")
+            except (HarnessError, KeyError, TypeError, ValueError):
+                return ToolResult(status=ToolStatus.FAILED, error=TaskError(
+                    code=ErrorCode.TOOL_ERROR, message="could not restore a previously recorded data connection",
+                ))
+            tool_allowed = self._policy.check_tool(
+                action.tool, scope_id=task.scope_id, role=task.agent_role,
+                tool_policy_ref=tool_policy_ref, capability_ref=task.capability_ref,
+            ).allowed
+            path_allowed = self._policy.check_path(path, scope_id=task.scope_id, role=task.agent_role).allowed
+            if not tool_allowed or not path_allowed or (subscription_paths is not None and path not in subscription_paths):
+                return ToolResult(status=ToolStatus.FAILED, error=TaskError(
+                    code=ErrorCode.FORBIDDEN, message="a previously connected source is no longer authorized",
+                ))
+            registrations.append(DataRegistration(path, name, tables))
+
+        if not registrations:
+            return None
+        latest = await self._repos.tasks.get(lease.scope_id, lease.task_id)
+        if latest.current_attempt_id != lease.attempt_id or latest.lease_epoch != lease.lease_epoch:
+            raise StaleLease(f"lease {lease.attempt_id} is no longer current", task_id=task.id)
+        if latest.cancel_requested_at is not None or latest.status is TaskStatus.CANCELLING:
+            return ToolResult(status=ToolStatus.FAILED, error=TaskError(
+                code=ErrorCode.CANCELLED, message="the task is being cancelled",
+            ))
+        return await data.restore(lease, call, registrations)
 
     async def _reuse(self, scope_id: str, action: Action) -> ToolOutcome:
         """An earlier success of the same call: answer from its stored result."""
