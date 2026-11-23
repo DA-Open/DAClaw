@@ -191,6 +191,65 @@ class ReservationStatus(StrEnum):
     RELEASED = "released"
 
 
+class SubscriptionStatus(StrEnum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
+class NoticeOutcome(StrEnum):
+    # We just reserved this notice.
+    RESERVED = "reserved"
+    # Another path (another channel, or Main's incidental mention) already
+    # reserved it; nothing further is sent for this dedup key.
+    ALREADY_RESERVED = "already_reserved"
+    # Policy said no: quiet hours, quota, expiry or a false claim.
+    SUPPRESSED = "suppressed"
+
+
+class ProactivityLevel(StrEnum):
+    """How willing a subscription is to speak up (spec: 主动程度)."""
+
+    QUIET = "quiet"
+    NORMAL = "normal"
+    EAGER = "eager"
+
+
+class OutboxStatus(StrEnum):
+    PENDING = "pending"
+    SENDING = "sending"
+    SENT = "sent"
+    FAILED = "failed"
+    # The channel may have delivered it; needs reconciliation, not a blind retry.
+    UNKNOWN = "unknown"
+    CANCELLED = "cancelled"
+
+
+class DeliveryStatus(StrEnum):
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    UNKNOWN = "unknown"
+    SUPPRESSED = "suppressed"
+
+
+class ApprovalDecision(StrEnum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class MemoryKind(StrEnum):
+    FACT = "fact"
+    PREFERENCE = "preference"
+    RESULT = "result"
+
+
+class MemoryStatus(StrEnum):
+    # What the user said, or a model inference that must not be trusted as fact.
+    CONFIRMED = "confirmed"
+    CANDIDATE = "candidate"
+
+
 # ---------------------------------------------------------------------------
 # errors
 # ---------------------------------------------------------------------------
@@ -1106,6 +1165,195 @@ class AdmissionDecision(_Model):
     decided_at: datetime = Field(default_factory=utcnow)
     backfill_label: Literal["useful", "not_useful", "harmful"] | None = None
     backfilled_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# subscriptions, approvals and delivery (P1/P2; types only)
+# ---------------------------------------------------------------------------
+
+
+class Subscription(_Model):
+    """A standing goal the user asked the agent to keep watching (spec 5).
+
+    Created only through the trusted API, never by the model. `event_filter`
+    and `schedule` are the two triggers; at least one must be set, and the
+    ProactiveController, not the model, decides whether a trigger is worth a
+    task. Grant refs and limits are re-checked at task creation and delivery,
+    so revoking a subscription stops new work without rewriting old tasks.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("sub"))
+    scope_id: str
+    owner_id: str
+    goal: str = Field(min_length=1)
+    subject_ref: str | None = None
+    # e.g. {"type": "data_updated", "source": "lake"} -- matched by the controller.
+    event_filter: dict[str, Any] = Field(default_factory=dict)
+    # A cron-like expression for time-based checks; evaluated by the Scheduler.
+    schedule: str | None = None
+    grant_ref: str | None = None
+    capability_ref: str
+    limits: Limits = Field(default_factory=Limits)
+    # Background budget for this subscription alone, per day; the task's own
+    # limits still apply on top of it (spec: 订阅的日预算).
+    daily_budget: Usage = Field(default_factory=Usage)
+    # How willing it is to speak up; DeliveryService still applies the rules.
+    proactivity: ProactivityLevel = ProactivityLevel.NORMAL
+    # Four background outcomes: silent / digest / notify / ask (see DeliveryMode).
+    delivery_mode: DeliveryMode = "digest"
+    # What the subscription may read: directory or file refs, checked against
+    # the user's grants when a task is created (spec: 订阅要读的资源).
+    resources: list[str] = Field(default_factory=list)
+    # How long a result stays usable; older results are not handed to Main.
+    result_ttl_seconds: int = Field(7 * 24 * 3600, gt=0)
+    expires_at: datetime | None = None
+    status: SubscriptionStatus = SubscriptionStatus.ACTIVE
+    version: int = Field(1, ge=1)
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+    @model_validator(mode="after")
+    def _check(self) -> Subscription:
+        if not self.event_filter and not self.schedule:
+            raise ValueError("a subscription needs an event_filter or a schedule")
+        return self
+
+
+class Approval(_Model):
+    """A human decision on one action (spec 5, 批准).
+
+    Bound to `action_id` *and* `request_hash`: a changed argument set needs
+    a new approval, so an old approval cannot be replayed onto new arguments.
+    """
+
+    action_id: str
+    request_hash: str
+    approver: str
+    decision: ApprovalDecision
+    reason: str = ""
+    expires_at: datetime | None = None
+    decided_at: datetime = Field(default_factory=utcnow)
+
+
+class Grant(_Model):
+    """What one subject may do to one resource (spec 5, 授权). P1 only.
+
+    The type exists so approvals can be built against it; nothing reads it yet.
+    P0 still authorises with the role whitelist and the user whitelist in
+    tools/policy.py, and there is no grants table until P1.
+
+    `key` is `tool:target` (e.g. send_email:ops@company.com); allowing git
+    does not allow curl. Written by the trusted API only, never by a model.
+    """
+
+    key: str = Field(min_length=1)
+    subject: str = Field(min_length=1)
+    resource: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    audience: str | None = None
+    limits: dict[str, Any] = Field(default_factory=dict)
+    granted_at: datetime = Field(default_factory=utcnow)
+    expires_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+    @property
+    def active(self) -> bool:
+        return self.revoked_at is None and (self.expires_at is None or self.expires_at > utcnow())
+
+
+class NoticeRequest(_Model):
+    """Ask DeliveryService whether this result may reach this user now.
+
+    `dedup_key` is cross-channel: Main's incidental mention and a proactive
+    push of the same result must reserve against the same key, so only one of
+    them is delivered.
+    """
+
+    scope_id: str
+    recipient: str = Field(min_length=1)
+    result_ref: str
+    result_version: str | None = None
+    channel: str = Field(min_length=1)
+    mode: DeliveryMode = "notify"
+    dedup_key: str = Field(min_length=1)
+    task_id: str | None = None
+    subject_ref: str | None = None
+    valid_until: datetime | None = None
+
+
+class NoticeReservation(_Model):
+    """The atomic answer to a NoticeRequest: reserved, or suppressed and why.
+
+    A suppressed request must not reach the outbox. A reservation is released
+    only when delivery is confirmed not to have happened; an unknown send keeps
+    the record for reconciliation.
+    """
+
+    notice_id: str | None = None
+    outcome: NoticeOutcome
+    dedup_key: str
+    reason: str = ""
+    expires_at: datetime | None = None
+
+
+class OutboxItem(_Model):
+    """One queued delivery (spec 5, outbox)."""
+
+    id: str = Field(default_factory=lambda: new_id("out"))
+    scope_id: str
+    task_id: str | None = None
+    recipient: str = Field(min_length=1)
+    channel: str = Field(min_length=1)
+    content_ref: str
+    mode: DeliveryMode = "notify"
+    dedup_key: str = Field(min_length=1)
+    status: OutboxStatus = OutboxStatus.PENDING
+    attempts: int = Field(0, ge=0)
+    expires_at: datetime | None = None
+    receipt_ref: str | None = None
+    error: TaskError | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class DeliveryOutcome(_Model):
+    """What one delivery attempt established.
+
+    "Queued" is not "delivered": only DELIVERED carries a receipt. UNKNOWN keeps
+    the item for reconciliation instead of a blind resend.
+    """
+
+    status: DeliveryStatus
+    receipt_ref: str | None = None
+    detail: str = ""
+    retryable: bool = False
+
+    @model_validator(mode="after")
+    def _check(self) -> DeliveryOutcome:
+        if self.status is DeliveryStatus.DELIVERED and not self.receipt_ref:
+            raise ValueError("a delivered notice needs a receipt")
+        return self
+
+
+class MemoryRecord(_Model):
+    """One versioned fact, preference or past result (spec 6, MemoryStore).
+
+    The text itself lives in ArtifactStore (`content_ref`); the row only
+    carries what retrieval and invalidation need. CANDIDATE means the model
+    inferred it and the user has not confirmed it.
+    """
+
+    id: str = Field(default_factory=lambda: new_id("mem"))
+    scope_id: str
+    kind: MemoryKind
+    content_ref: str
+    source_ref: str
+    status: MemoryStatus = MemoryStatus.CANDIDATE
+    version: int = Field(1, ge=1)
+    expires_at: datetime | None = None
+    supersedes_id: str | None = None
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 # ---------------------------------------------------------------------------
