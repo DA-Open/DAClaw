@@ -63,9 +63,16 @@ from ..contracts import (
     new_id,
 )
 from . import schema as s
-from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status
+from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
 
 _LEASED = (TaskStatus.RUNNING.value, TaskStatus.CANCELLING.value)
+
+
+def _unsettled_actions(task_id):
+    return select(s.actions).where(
+        s.actions.c.task_id == task_id, s.actions.c.read_only.is_(False),
+        s.actions.c.status.in_([ActionStatus.PLANNED.value, ActionStatus.RUNNING.value, ActionStatus.UNKNOWN.value]),
+    )
 
 
 def async_url(dsn: str) -> str:
@@ -149,6 +156,19 @@ def _reservation_result(row: RowMapping) -> ReservationResult:
 class _Db:
     def __init__(self, engine: AsyncEngine) -> None:
         self.engine = engine
+
+    async def release_reconciliation(self, conn: AsyncConnection, task: Task, now: datetime) -> Task:
+        if (task.wait_condition is not WaitCondition.RECONCILIATION
+                or await conn.scalar(select(_unsettled_actions(task.id).exists()))):
+            return task
+        row = (await conn.execute(
+            update(s.tasks).where(s.tasks.c.id == task.id).values(
+                status=TaskStatus.QUEUED.value, wait_condition=None, version=task.version + 1, updated_at=now,
+            ).returning(*s.tasks.c)
+        )).mappings().one()
+        updated = _task(row)
+        await self.status_event(conn, updated, task.status, now)
+        return updated
 
     async def append_event(self, conn: AsyncConnection, event: Event) -> Event:
         # Identity values are allocated before commit. Serialize publication
@@ -494,6 +514,22 @@ class PgTaskRepository:
                 )
             return len(rows)
 
+    async def list_reconciliation_candidates(self) -> list[Task]:
+        query = select(s.tasks).where(
+            ((s.tasks.c.status == TaskStatus.WAITING.value)
+             & (s.tasks.c.wait_condition == WaitCondition.RECONCILIATION.value))
+            | ((s.tasks.c.status == TaskStatus.CANCELLED.value) & _unsettled_actions(s.tasks.c.id).exists())
+        ).order_by(s.tasks.c.scope_id, s.tasks.c.id)
+        async with self._db.engine.connect() as conn:
+            return [_task(row) for row in (await conn.execute(query)).mappings()]
+
+    async def release_reconciliation(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        async with self._db.engine.begin() as conn:
+            task = await self._db.lock_task(conn, task_id)
+            if task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            return await self._db.release_reconciliation(conn, task, now)
+
     async def record_run(
         self,
         lease: AttemptLease,
@@ -721,6 +757,61 @@ class PgActionRepository:
                 )
             ).mappings().all()
         return [_action(r) for r in rows]
+
+    async def list_unsettled(self, task_id: str) -> list[Action]:
+        async with self._db.engine.connect() as conn:
+            rows = (await conn.execute(
+                _unsettled_actions(task_id).order_by(s.actions.c.created_at, s.actions.c.id)
+            )).mappings()
+            return [_action(row) for row in rows]
+
+    async def decide(
+        self, scope_id: str, task_id: str, action_id: str, status: ActionStatus, *,
+        result_ref: str | None, receipt_ref: str | None, usage: Usage, event: Event, now: datetime, expected_attempt: int,
+    ) -> Action | None:
+        async with self._db.engine.begin() as conn:
+            task = await self._db.lock_task(conn, task_id)
+            row = (await conn.execute(select(s.actions).where(
+                s.actions.c.id == action_id, s.actions.c.task_id == task_id,
+            ).with_for_update())).mappings().first()
+            if task.scope_id != scope_id or row is None:
+                raise NotFound(f"action {action_id} not found")
+            if row["status"] not in (ActionStatus.PLANNED.value, ActionStatus.RUNNING.value, ActionStatus.UNKNOWN.value):
+                return None
+            if task.status is not TaskStatus.CANCELLED and task.wait_condition is not WaitCondition.RECONCILIATION:
+                return None
+            statuses = (await conn.execute(select(s.events.c.payload["status"].astext).where(
+                s.events.c.task_id == task_id, s.events.c.type == EventType.TOOL_RECONCILE.value,
+                s.events.c.payload["action_id"].astext == action_id,
+            ).order_by(s.events.c.seq))).scalars()
+            attempt = 1 + round_attempts(statuses)
+            if expected_attempt != attempt:
+                return None
+            updated = (await conn.execute(update(s.actions).where(s.actions.c.id == action_id).values(
+                status=status.value, updated_at=now, result_ref=func.coalesce(result_ref, s.actions.c.result_ref),
+                receipt_ref=func.coalesce(receipt_ref, s.actions.c.receipt_ref),
+            ).returning(*s.actions.c))).mappings().one()
+            if status in (ActionStatus.SUCCEEDED, ActionStatus.FAILED):
+                reservations = (await conn.execute(select(s.usage_reservations).where(
+                    s.usage_reservations.c.task_id == task_id, s.usage_reservations.c.granted.is_(True),
+                    s.usage_reservations.c.status == ReservationStatus.RESERVED.value,
+                    (s.usage_reservations.c.call_id == action_id)
+                    | s.usage_reservations.c.call_id.startswith(f"{action_id}.retry-", autoescape=True),
+                ).with_for_update())).mappings().all()
+                for reservation in reservations:
+                    settled = status is ActionStatus.SUCCEEDED
+                    await conn.execute(update(s.usage_reservations).where(
+                        s.usage_reservations.c.call_id == reservation["call_id"]
+                    ).values(status=ReservationStatus.SETTLED.value if settled else ReservationStatus.RELEASED.value,
+                             settled=_dump(usage) if settled else reservation["settled"], settled_at=now))
+                    if settled:
+                        task = task.model_copy(update={"usage": task.usage + usage})
+                        await conn.execute(update(s.tasks).where(s.tasks.c.id == task_id).values(
+                            usage=_dump(task.usage), updated_at=now,
+                        ))
+            await self._db.append_event(conn, event.model_copy(update={"payload": {**event.payload, "attempt": attempt}}))
+            await self._db.release_reconciliation(conn, task, now)
+            return _action(updated)
 
 
 class PgArtifactRepository:

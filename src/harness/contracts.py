@@ -152,6 +152,7 @@ class EventType(StrEnum):
     TASK_CREATED = "task_created"
     TASK_STATUS_CHANGED = "task_status_changed"
     TOOL_ACTION = "tool_action"
+    TOOL_RECONCILE = "tool_reconcile"
     VERIFICATION_RECORDED = "verification_recorded"
     BACKGROUND_RESULT_READY = "background_result_ready"
     EXTERNAL = "external"

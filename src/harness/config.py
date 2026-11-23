@@ -78,6 +78,7 @@ class HarnessConfig:
     default_limits: Limits = field(default_factory=Limits)
     caps: DeploymentCaps = field(default_factory=DeploymentCaps)
     budget_reminder: BudgetReminderConfig = field(default_factory=BudgetReminderConfig)
+    reconcile_grace_sec: int = 60
 
     def __post_init__(self) -> None:
         if self.lease_ttl_sec <= 0 or self.heartbeat_interval_sec <= 0:
@@ -88,6 +89,8 @@ class HarnessConfig:
             raise ValueError("heartbeat_interval_sec must be shorter than lease_ttl_sec")
         if self.sse_max_connections <= 0 or self.sse_max_connections_per_scope <= 0:
             raise ValueError("SSE connection limits must be positive")
+        if self.reconcile_grace_sec <= 0:
+            raise ValueError("reconcile_grace_sec must be positive")
         self.caps.check(self.default_limits)
 
     def __repr__(self) -> str:
@@ -112,6 +115,7 @@ class HarnessConfig:
                 "final_turn": self.budget_reminder.final_turn,
                 "reserve_model_calls": self.budget_reminder.reserve_model_calls,
             },
+            "reconcile_grace_sec": self.reconcile_grace_sec,
         }
 
     @classmethod
@@ -186,4 +190,5 @@ class HarnessConfig:
                     "BUDGET_REMINDER_RESERVE_MODEL_CALLS", base_reminder.reserve_model_calls
                 ),
             ),
+            reconcile_grace_sec=get_int("RECONCILE_GRACE_SEC", 60),
         )
