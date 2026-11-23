@@ -140,6 +140,13 @@ class _Session:
     views: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class DataRegistration:
+    path: Path
+    table: str
+    tables: dict[str, str] | None = None
+
+
 DATA_LIST = ToolSpec(
     name="data.list",
     description=(
@@ -239,6 +246,25 @@ class DataConnector(_Base):
         session = self._sessions[call.scope_id, call.task_id, call.attempt_id]
         return session.connection, session.views[name]["tables"]
 
+    def has_session(self, lease: AttemptLease) -> bool:
+        return (lease.scope_id, lease.task_id, lease.attempt_id) in self._sessions
+
+    async def restore(
+        self, lease: AttemptLease, call: AuthorizedCall, sources: list[DataRegistration],
+    ) -> ToolResult | None:
+        """Rebuild an attempt's catalog using the gateway's reauthorized sources."""
+        restored = False
+        try:
+            for source in sources:
+                result = await self._connect(call.model_copy(update={"args": {"path": str(source.path)}}), source)
+                if result.status is not ToolStatus.SUCCEEDED:
+                    return result
+            restored = True
+            return None
+        finally:
+            if not restored:
+                self.release(lease)
+
     def release(self, lease: AttemptLease) -> None:
         session = self._sessions.pop((lease.scope_id, lease.task_id, lease.attempt_id), None)
         if session is not None:
@@ -256,7 +282,7 @@ class DataConnector(_Base):
             return await self._query(call)
         return await self._connect(call)
 
-    async def _connect(self, call: AuthorizedCall) -> ToolResult:
+    async def _connect(self, call: AuthorizedCall, source: DataRegistration | None = None) -> ToolResult:
         path = Path(str(call.args.get("path", ""))).expanduser()
         if not path.is_file():
             return _failed(ErrorCode.NOT_FOUND, f"no such file: {call.args.get('path')}")
@@ -289,8 +315,14 @@ class DataConnector(_Base):
                 for statement in meta["setup"]:
                     con.execute(statement)
             used = {view for meta in sources.values() for view in meta["tables"].values()}
-            name = _view_name(str(call.args.get("name") or path.stem), used)
-            meta = self._register(con, name, path, kind, used, len(sources))
+            if source is None:
+                name = _view_name(str(call.args.get("name") or path.stem), used)
+            else:
+                name = source.table
+                if name in used:
+                    raise duckdb.Error("previously registered table name is already in use")
+                used.add(name)
+            meta = self._register(con, name, path, kind, used, len(sources), source.tables if source else None)
         except duckdb.Error as exc:
             con.close()
             return _failed(ErrorCode.INVALID_REQUEST, _short(f"cannot connect {path.name}: {exc}"))
@@ -299,7 +331,10 @@ class DataConnector(_Base):
             previous.connection.close()
         return _connected(name, meta, reused=False)
 
-    def _register(self, con, name: str, path: Path, kind: str, used: set[str], index: int) -> dict[str, Any]:
+    def _register(
+        self, con, name: str, path: Path, kind: str, used: set[str], index: int,
+        previous_tables: dict[str, str] | None,
+    ) -> dict[str, Any]:
         setup = []
         tables = {}
         if kind == "duckdb":
@@ -313,9 +348,17 @@ class DataConnector(_Base):
                 raise duckdb.Error("the database has no tables")
             for schema, table in rows:
                 label = table if schema == "main" else f"{schema}.{table}"
-                view = _view_name(f"{name}_{label}", used) if tables else name
+                if previous_tables is not None:
+                    view = previous_tables.get(label)
+                    if view is None or (view != name and view in used):
+                        raise duckdb.Error("the source tables no longer match the previous connection")
+                    used.add(view)
+                else:
+                    view = _view_name(f"{name}_{label}", used) if tables else name
                 tables[label] = view
                 setup.append(f"CREATE VIEW {_quoted(view)} AS SELECT * FROM {alias}.{_quoted(schema)}.{_quoted(table)}")
+            if previous_tables is not None and tables != previous_tables:
+                raise duckdb.Error("the source tables no longer match the previous connection")
             view_statements = setup[1:]
         else:
             reader = {"csv": "read_csv_auto", "tsv": "read_csv_auto", "parquet": "read_parquet"}[kind]
@@ -564,7 +607,7 @@ def _connected(name: str, meta: dict[str, Any], *, reused: bool) -> ToolResult:
     return ToolResult(
         status=ToolStatus.SUCCEEDED,
         summary=f"{head}\nColumns: {body}",
-        data={"table": name, "columns": columns, "row_count": meta["row_count"]},
+        data={"table": name, "columns": columns, "row_count": meta["row_count"], "tables": meta["tables"]},
     )
 
 

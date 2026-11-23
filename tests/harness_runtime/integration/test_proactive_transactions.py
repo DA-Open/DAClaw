@@ -6,9 +6,10 @@ import pytest_asyncio
 from sqlalchemy import select, text, func
 from sqlalchemy.exc import DBAPIError
 
-from harness.contracts import ExecutionContext, Usage
+from harness.contracts import ExecutionContext, RunLane, ToolCall, Usage, utcnow
 from harness.storage import schema as tables
 from ..scenarios.test_proactive import dataset, scripted, system, subscribe, event, ACTOR
+from ..fakes import Clock
 from harness.storage.postgres import PgRepositories
 from ..pg import clean
 
@@ -122,3 +123,47 @@ async def test_completion_rolls_back_status_when_inbox_insert_fails(repos, tmp_p
     assert await repos.delivery.list("s1") == []
     assert not any(e.type == "background_result_ready" for e in await repos.events.list("s1", task_id=task_id))
     assert (await s.tasks.commit(lease, outcome)).status == "succeeded"
+
+
+async def test_recovery_restores_only_live_subscription_resources(repos, tmp_path):
+    clock = Clock(utcnow())
+    kept = tmp_path / "retained.csv"
+    kept.write_text("id,amount\n1,10\n", encoding="utf-8")
+    removed = tmp_path / "removed.csv"
+    removed.write_text("id,amount\n2,99\n", encoding="utf-8")
+    first = system(tmp_path, repos, clock=clock)
+    async with first.lifespan():
+        sub = await subscribe(first, kept, resources=[str(kept), str(removed)])
+        task_id = (await first.proactive.on_event(event(kept)))[0].task_id
+        lease = await first.tasks.claim("first", [RunLane.BACKGROUND])
+        ctx = ExecutionContext(lease=lease, actor=ACTOR, agent_role="proactive", run_lane="background")
+        for name, path in (("kept_rows", kept), ("removed_rows", removed)):
+            connected = await first.gateway.invoke(ctx, ToolCall(
+                tool="data.connect", args={"path": str(path), "name": name}, logical_key=name,
+            ))
+            assert connected.status == "succeeded", connected
+
+        narrowed = sub.model_copy(update={"resources": [str(kept)], "version": sub.version + 1})
+        async with repos.engine.begin() as connection:
+            await connection.execute(tables.subscriptions.update().where(tables.subscriptions.c.id == sub.id)
+                                     .values(body=narrowed.model_dump(mode="json")))
+        clock.advance(61)
+        assert await first.scheduler.tick() == 1
+
+    restarted = system(tmp_path, repos, clock=clock)
+    async with restarted.lifespan():
+        fresh = await restarted.tasks.claim("restarted", [RunLane.BACKGROUND])
+        assert fresh.task_id == task_id and fresh.lease_epoch == 2
+        ctx = ctx.model_copy(update={"lease": fresh})
+        allowed = await restarted.gateway.invoke(ctx, ToolCall(
+            tool="data.query", args={"sql": "SELECT amount FROM kept_rows"}, logical_key="query-kept",
+        ))
+        assert allowed.status == "succeeded" and "| 10 |" in allowed.summary, allowed
+        blocked = await restarted.gateway.invoke(ctx, ToolCall(
+            tool="data.query", args={"sql": "SELECT amount FROM removed_rows"}, logical_key="query-removed",
+        ))
+        assert blocked.status == "failed" and not blocked.artifact_refs
+        forbidden = await restarted.gateway.invoke(ctx, ToolCall(
+            tool="data.connect", args={"path": str(removed)}, logical_key="reconnect-removed",
+        ))
+        assert forbidden.status == "denied"

@@ -105,7 +105,7 @@ API 和 Scheduler 不调用模型。真实模型 Worker 尚未作为本次验收
 更新时使用新的事件 ID、`kind=data_updated`、版本和数据指纹。
 Scheduler 的 `schedule` 事件不能从该 API 伪造。
 
-升级前留下的 `data.query_readonly` 待重放调用会收到工具拒绝，已有调用结果仍可从该任务的历史记录读取。恢复执行时可继续用 `data.profile`。需要查询 CSV、TSV、Parquet 或 DuckDB 时，先调用 `data.connect`，再用返回的表名调用 `data.query`。数据卡表名由数据源决定，查询别名不改变统计或重放结果。SQLite、Excel、`.txt` 和 `.pq` 仍可生成数据卡。
+升级前留下的 `data.query_readonly` 待重放调用会收到工具拒绝，已有调用结果仍可从该任务的历史记录读取。恢复执行时可继续用 `data.profile`。需要查询 CSV、TSV、Parquet 或 DuckDB 时，先调用 `data.connect`，再用返回的表名调用 `data.query`。恢复历史查询会话时，连接文件必须还在任务创建时和当前订阅资源的交集内，并通过用户白名单。数据卡表名由数据源决定，查询别名不改变统计或重放结果。SQLite、Excel、`.txt` 和 `.pq` 仍可生成数据卡。
 
 3. `GET /tasks/{task_id}`、`GET /tasks/{task_id}/trace` 查看执行及核验；
    `GET /inbox` 查看当前可用数据卡。`notify` 仍是站内待看项。

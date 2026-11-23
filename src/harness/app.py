@@ -242,6 +242,7 @@ def build_system(
         profiles=agents.tool_policies(),
         clock=clock,
         delivery=delivery,
+        data_sessions=connect,
     )
     data_checks = DataCardChecks(repos, policy, clock, profile)
     verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock,
