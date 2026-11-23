@@ -83,7 +83,12 @@ async def test_loads_subscriptions_saved_by_the_earlier_draft(repos, tmp_path):
     before = await repos.subscriptions.decisions(sub.scope_id, sub.id)
     deferred = next(record for record in before if record.input_snapshot["data_version"] == "v2")
     assert deferred.reason == "daily_budget"
-    new_budget = Usage(model_calls=10, tool_calls=12, input_tokens=6000)
+    consumed = (await s.tasks.get(sub.scope_id, admitted[0].task_id)).usage
+    new_budget = Usage(
+        model_calls=consumed.model_calls + 1,
+        tool_calls=consumed.tool_calls + 1,
+        input_tokens=consumed.total_tokens + 1,
+    )
     updated = restored.model_copy(update={"daily_budget": new_budget, "version": 2})
     async with repos.engine.begin() as connection:
         await connection.execute(tables.subscriptions.update().where(tables.subscriptions.c.id == sub.id)
@@ -91,7 +96,7 @@ async def test_loads_subscriptions_saved_by_the_earlier_draft(repos, tmp_path):
     await s.scheduler.tick()
     after = await repos.subscriptions.decisions(sub.scope_id, sub.id)
     retried = next(record for record in after if record.event_id == deferred.event_id)
-    assert retried.decision == "admit" and retried.task_id
+    assert retried.decision == "admit" and retried.task_id, retried.input_snapshot
     assert retried.input_snapshot["subscription_version"] == 2
     assert retried.evaluations[0]["reason"] == "daily_budget"
 
