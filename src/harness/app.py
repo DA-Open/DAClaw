@@ -226,7 +226,7 @@ def build_system(
     artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
     delivery = DeliveryService(repos, artifacts, policy, clock=clock)
     connect, *other_data = data_connectors(artifacts)
-    profile = DataProfileConnector(connect, artifacts)
+    profile = DataProfileConnector(artifacts)
     connectors = [
         *p0_connectors(artifacts),
         connect,

@@ -7,14 +7,20 @@ import json
 import os
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 
 from ...contracts import ArtifactInput, AuthorizedCall, ErrorCode, ToolResult, ToolSpec, ToolStatus, canonical_json
+from ...interfaces import ArtifactStore
 from .data import DataConnector
 from .files import _Base, _failed
 
+PROFILE_TIMEOUT_SECONDS = 30
 DATA_PROFILE = ToolSpec(
     name="data.profile",
-    description="Compute data-card statistics and quality findings for an authorized local dataset.",
+    description=(
+        "Compute data-card statistics and quality findings for an authorized local dataset. "
+        "To run SQL afterward, connect the file separately with data.connect."
+    ),
     input_schema={
         "type": "object",
         "properties": {"path": {"type": "string", "minLength": 1}},
@@ -30,15 +36,14 @@ DATA_PROFILE = ToolSpec(
 class DataProfileConnector(_Base):
     spec = DATA_PROFILE
 
-    def __init__(self, connect: DataConnector, artifacts):
-        self._connect = connect
+    def __init__(self, artifacts: ArtifactStore):
         self._artifacts = artifacts
 
     async def execute(self, call: AuthorizedCall) -> ToolResult:
         try:
-            profile = await _profile(call, self._connect)
+            profile = await _profile_dataset(Path(call.args["path"]))
         except TimeoutError:
-            return _failed(ErrorCode.TOOL_ERROR, "data profile exceeded 30 seconds")
+            return _failed(ErrorCode.TOOL_ERROR, f"data profile exceeded {PROFILE_TIMEOUT_SECONDS:g} seconds")
         except ValueError as exc:
             return _failed(ErrorCode.INVALID_REQUEST, str(exc))
         data = {"action_id": call.action_id, "profile": profile}
@@ -61,53 +66,67 @@ class DataProfileConnector(_Base):
         )
 
     async def replay(self, call: AuthorizedCall) -> dict:
-        # Use a fresh session so replay sees file changes even if the execution
-        # cached a registered table in its attempt-local session.
-        connect = DataConnector(self._artifacts)
-        try:
-            return await _profile(call, connect)
-        finally:
-            connect.close()
+        return await _profile_dataset(Path(call.args["path"]))
 
 
-async def _profile(call: AuthorizedCall, connect: DataConnector) -> dict:
-    from agent.data_agent.engine import DataEngine, _EXCEL_SUFFIXES, _SQLITE_SUFFIXES
-
-    path = Path(call.args["path"])
-    if path.suffix.lower() in _EXCEL_SUFFIXES | _SQLITE_SUFFIXES:
-        # These formats are supported by the original data-card profiler.
-        # They have no SQL connector in the shared data-access pack.
-        return await _legacy_profile(path)
-    connected = await connect.execute(call.model_copy(update={"tool": "data.connect"}))
-    if connected.status != ToolStatus.SUCCEEDED:
-        raise ValueError(connected.error.message if connected.error else "could not connect the source")
-    assert connected.data is not None
-    connection, views = connect.source(call, connected.data["table"])
-    engine = DataEngine(restore_sources=False, connection=connection)
-    return _statistics(engine, views)
-
-
-async def _legacy_profile(path: Path, *, timeout: float = 30) -> dict:
+async def _profile_dataset(path: Path) -> dict:
+    # Both data loading and statistics can block inside native code. The
+    # disposable process keeps heartbeat/cancellation running and can be killed.
     env = dict(os.environ)
-    root = Path(__file__).resolve().parents[4]
-    env["PYTHONPATH"] = os.pathsep.join((str(root / "src"), str(root)))
-    process = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "harness.tools.connectors.data_profile",
-        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE, env=env,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(canonical_json({"path": str(path)}).encode()), timeout
+    package_root = Path(__file__).resolve().parents[3]
+    import_roots = [package_root]
+    # A source checkout has harness under src and agent alongside src. An
+    # installed distribution has both packages in the same import root.
+    if (package_root.parent / "agent" / "data_agent" / "engine.py").is_file():
+        import_roots.append(package_root.parent)
+    env["PYTHONPATH"] = os.pathsep.join(map(str, import_roots))
+    request = canonical_json({"path": str(path.resolve())}).encode()
+    with TemporaryDirectory(prefix="daraos-profile-") as scratch:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "harness.tools.connectors.data_profile",
+            stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, env=env, cwd=scratch,
         )
-    except (TimeoutError, asyncio.CancelledError):
-        if process.returncode is None:
-            process.kill()
-        await process.wait()
-        raise
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(request), PROFILE_TIMEOUT_SECONDS)
+        except (TimeoutError, asyncio.CancelledError):
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+            await process.communicate()
+            raise
     if process.returncode:
         raise ValueError(stderr.decode("utf-8", errors="replace")[-2000:])
     return json.loads(stdout)
+
+
+async def _profile_file(path: Path) -> dict:
+    from agent.data_agent.engine import DataEngine, _EXCEL_SUFFIXES, _SQLITE_SUFFIXES
+
+    if path.suffix.lower() in _EXCEL_SUFFIXES | _SQLITE_SUFFIXES | {".txt", ".pq"}:
+        return _profile_legacy_file(path)
+
+    from ...results.artifacts import FileArtifactStore
+    from ...storage.memory import InMemoryRepositories
+
+    # This child only connects the authorized source. No query artifacts or
+    # attempt-local aliases are visible to it. Any spill files are disposable.
+    connect = DataConnector(FileArtifactStore(Path.cwd(), InMemoryRepositories().artifacts))
+    try:
+        call = AuthorizedCall(
+            scope_id="profile", task_id="profile", attempt_id="profile", action_id="profile",
+            tool="data.connect", args={"path": str(path)}, logical_key="profile",
+        )
+        connected = await connect.execute(call)
+        if connected.status != ToolStatus.SUCCEEDED:
+            raise ValueError(connected.error.message if connected.error else "could not connect the source")
+        assert connected.data is not None
+        connection, views = connect.source(call, connected.data["table"])
+        return _statistics(DataEngine(restore_sources=False, connection=connection), views)
+    finally:
+        connect.close()
 
 
 def _profile_legacy_file(path: Path) -> dict:
@@ -117,7 +136,9 @@ def _profile_legacy_file(path: Path) -> dict:
     try:
         engine.con.execute("SET memory_limit='512MB'")
         engine.con.execute("SET threads=2")
-        source = engine.connect_source(str(path.resolve(strict=True)), persist=False)
+        path = path.resolve(strict=True)
+        source = engine.connect_source(str(path), persist=False)
+        engine.con.execute("SET allowed_paths = ?", [[str(path)]])
         engine.con.execute("SET enable_external_access=false")
         engine.con.execute("SET lock_configuration=true")
         return _statistics(engine, {table: table for table in source["tables"]})
@@ -131,6 +152,7 @@ def _statistics(engine, views: dict[str, str]) -> dict:
     tables, findings = [], []
     for table, view in sorted(views.items()):
         profile = engine.profile_table(view, sample_rows=0)
+        quoted_view = '"' + view.replace('"', '""') + '"'
         if len(profile["columns"]) > 512:
             raise ValueError("data.profile supports at most 512 columns per table")
         profile["table"] = table
@@ -145,7 +167,7 @@ def _statistics(engine, views: dict[str, str]) -> dict:
             stat["unique_rate"] = stat["distinct_count"] / row_count if row_count else 0
             quoted = '"' + name.replace('"', '""') + '"'
             stat["top_values"] = engine.run_query(
-                f'SELECT {quoted} AS value, COUNT(*) AS count FROM "{view}" GROUP BY 1 '
+                f"SELECT {quoted} AS value, COUNT(*) AS count FROM {quoted_view} GROUP BY 1 "
                 'ORDER BY count DESC, CAST(value AS VARCHAR) NULLS LAST LIMIT 5',
                 max_rows=5,
             ).rows
@@ -165,4 +187,4 @@ def _statistics(engine, views: dict[str, str]) -> dict:
 
 if __name__ == "__main__":
     request = json.load(sys.stdin)
-    print(canonical_json(_profile_legacy_file(Path(request["path"]))))
+    print(canonical_json(asyncio.run(_profile_file(Path(request["path"])))))

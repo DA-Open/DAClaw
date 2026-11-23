@@ -3,7 +3,9 @@ import asyncio
 from datetime import timedelta
 import hashlib
 import json
+from pathlib import Path
 import sqlite3
+import sys
 
 import httpx
 import pytest
@@ -17,7 +19,7 @@ from harness.contracts import (
     UsageKind, utcnow,
 )
 from harness.runtime.models import ScriptedModelAdapter, result_step, tool_step
-from harness.tools.connectors.data_profile import _legacy_profile
+from harness.tools.connectors import data_profile
 from harness.storage.memory import InMemoryRepositories
 from ..fakes import Clock
 from ..unit.test_repositories import repos  # shared backend fixture
@@ -34,7 +36,7 @@ def dataset(tmp_path):
     return path
 
 
-def scripted(path, *, corrupt=False):
+def scripted(path, *, corrupt=False, before=()):
     def write(ctx):
         content = [m["content"] for m in ctx.messages if m.get("role") == "tool"][-1]
         assert content.startswith("status: succeeded"), content
@@ -47,7 +49,7 @@ def scripted(path, *, corrupt=False):
     def submit(ctx):
         written = [m["content"] for m in ctx.messages if m.get("role") == "tool" and "wrote artifact" in m.get("content", "")][-1]
         return result_step("Data card generated", {"data_card": written.split(" as ")[1].split(" ")[0]})
-    return ScriptedModelAdapter([tool_step(("data.profile", {"path": str(path)})), write, submit])
+    return ScriptedModelAdapter([*before, tool_step(("data.profile", {"path": str(path)})), write, submit])
 
 
 def system(tmp_path, repos, *, model=None, clock=utcnow, limit=2):
@@ -56,9 +58,10 @@ def system(tmp_path, repos, *, model=None, clock=utcnow, limit=2):
         policy_spec={"users": {"s1": {role: {"paths": [str(tmp_path)]} for role in ("main", "proactive")}}})
 
 
-async def subscribe(s, path, **kw):
+async def subscribe(s, path, *, resources=None, **kw):
     return await s.proactive.create_subscription(Subscription(scope_id="s1", owner_id="u1", goal="Understand sales quality",
-        subject_ref=str(path), resources=[str(path)], capability_ref="data_card@1", event_filter={"source": "dataset"},
+        subject_ref=str(path), resources=resources if resources is not None else [str(path)],
+        capability_ref="data_card@1", event_filter={"source": "dataset"},
         limits=Limits(max_model_calls=10, max_tool_calls=30), **kw))
 
 
@@ -254,12 +257,12 @@ async def test_trusted_api_scope_and_decision_export(repos, tmp_path):
 
 async def test_legacy_sqlite_profile_preserves_statistics(tmp_path):
     path = dataset(tmp_path)
-    profile = await _legacy_profile(path)
+    profile = await data_profile._profile_dataset(path)
     assert profile["tables"][0]["row_count"] == 3
     assert {f["kind"] for f in profile["findings"]} == {"null_values", "duplicate_key_candidate"}
 
 
-async def test_data_profile_and_query_share_an_authorized_session(tmp_path):
+async def test_profile_and_explicit_query_use_authorized_source(tmp_path):
     s = system(tmp_path, InMemoryRepositories())
     path = tmp_path / "sales.csv"
     path.write_text("id,amount\n1,10\n2,20\n", encoding="utf-8")
@@ -270,7 +273,15 @@ async def test_data_profile_and_query_share_an_authorized_session(tmp_path):
     profiled = await s.gateway.invoke(ctx, ToolCall(tool="data.profile", args={"path": str(path)}, logical_key="profile"))
     assert profiled.status == "succeeded", profiled
     assert json.loads(profiled.summary)["profile"]["tables"][0]["row_count"] == 2
-    queried = await s.gateway.invoke(ctx, ToolCall(tool="data.query", args={"sql": "SELECT * FROM sales"}, logical_key="query"))
+    disconnected = await s.gateway.invoke(ctx, ToolCall(
+        tool="data.query", args={"sql": "SELECT * FROM sales"}, logical_key="disconnected"
+    ))
+    assert disconnected.status == "failed" and "connect a table" in disconnected.error.message
+    connected = await s.gateway.invoke(ctx, ToolCall(
+        tool="data.connect", args={"path": str(path), "name": "named_sales"}, logical_key="connect"
+    ))
+    assert connected.status == "succeeded", connected
+    queried = await s.gateway.invoke(ctx, ToolCall(tool="data.query", args={"sql": "SELECT * FROM named_sales"}, logical_key="query"))
     assert queried.status == "succeeded", queried
     assert len(queried.artifact_refs) == 2
     evidence = await s.artifacts.read(queried.artifact_refs[0], ACTOR)
@@ -279,6 +290,67 @@ async def test_data_profile_and_query_share_an_authorized_session(tmp_path):
         tool="data.connect", args={"path": str(tmp_path / "unsubscribed.csv")}, logical_key="other"
     ))
     assert blocked.status == "denied"
+
+
+async def test_data_card_replays_with_an_existing_query_alias_and_collision(tmp_path):
+    path = tmp_path / "sales.csv"
+    path.write_text("id,amount\n1,10\n2,20\n", encoding="utf-8")
+    other = tmp_path / "other" / "sales.csv"
+    other.parent.mkdir()
+    other.write_text("id,amount\n9,99\n", encoding="utf-8")
+    model = scripted(path, before=[
+        tool_step(("data.connect", {"path": str(other), "name": "renamed_sales"})),
+        tool_step(("data.connect", {"path": str(path), "name": "renamed_sales"})),
+    ])
+    repos = InMemoryRepositories()
+    s = system(tmp_path, repos, model=model)
+    await subscribe(s, path, resources=[str(path), str(other)])
+    task_id = (await s.proactive.on_event(event(path)))[0].task_id
+    report = await s.worker(lanes=[RunLane.BACKGROUND]).run_once()
+    assert report.committed and report.status == "succeeded", report
+    connect_actions = [action for action in await repos.actions.list_for_task(task_id)
+                       if action.tool == "data.connect"]
+    assert len(connect_actions) == 2 and all(action.status == "succeeded" for action in connect_actions)
+    connected_tables = {
+        json.loads((await s.artifacts.read(action.result_ref, ACTOR)).content)["data"]["table"]
+        for action in connect_actions
+    }
+    assert connected_tables == {"renamed_sales", "renamed_sales_2"}
+    verification = (await repos.verifications.list_for_task(task_id))[-1]
+    assert next(check for check in verification.checks if check.id == "stats_replay").status == "passed"
+    item, = await s.delivery.inbox(ACTOR.scope_id)
+    card = (await s.delivery.read(ACTOR.scope_id, item.id))["card"]
+    table, = card["profile"]["tables"]
+    assert table["table"] == "sales" and table["row_count"] == 2
+
+
+@pytest.mark.parametrize("extension", [".txt", ".pq"])
+async def test_profile_accepts_legacy_text_and_parquet_extensions(tmp_path, extension):
+    path = tmp_path / f"sales{extension}"
+    if extension == ".txt":
+        path.write_text("id,amount\n1,10\n2,20\n", encoding="utf-8")
+    else:
+        import duckdb
+
+        with duckdb.connect() as connection:
+            connection.execute("COPY (SELECT * FROM (VALUES (1, 10), (2, 20)) AS sales(id, amount)) "
+                               "TO ? (FORMAT PARQUET)", [str(path)])
+    profile = await data_profile._profile_dataset(path)
+    table, = profile["tables"]
+    assert table["table"] == "sales" and table["row_count"] == 2
+
+
+async def test_profile_reads_quoted_duckdb_table_and_column(tmp_path):
+    import duckdb
+
+    path = tmp_path / "sales.duckdb"
+    with duckdb.connect(str(path)) as connection:
+        connection.execute('CREATE TABLE "orders""east" ("customer""id" INTEGER)')
+        connection.execute('INSERT INTO "orders""east" VALUES (7), (8)')
+    profile = await data_profile._profile_dataset(path)
+    table, = profile["tables"]
+    assert table["table"] == 'orders"east'
+    assert table["column_stats"]['customer"id']["top_values"] == [[7, 1], [8, 1]]
 
 
 async def test_legacy_excel_profile(tmp_path):
@@ -290,7 +362,7 @@ async def test_legacy_excel_profile(tmp_path):
     book.active.append([1, 10])
     book.active.append([2, 20])
     book.save(path)
-    profile = await _legacy_profile(path)
+    profile = await data_profile._profile_dataset(path)
     assert profile["tables"][0]["row_count"] == 2
 
 
@@ -324,10 +396,42 @@ async def test_cron_is_durable_idempotent_and_restarts(repos, tmp_path):
     assert (await s.tasks.get("s1", records[0].task_id)).trigger_type == "schedule"
 
 
-async def test_timeout_stops_legacy_profile_process(tmp_path):
-    path = dataset(tmp_path)
-    with pytest.raises(asyncio.TimeoutError):
-        await _legacy_profile(path, timeout=0.0001)
+async def test_profile_timeout_reaps_child_and_keeps_event_loop_responsive(tmp_path, monkeypatch):
+    path = tmp_path / "sales.csv"
+    path.write_text("id,amount\n1,10\n", encoding="utf-8")
+    s = system(tmp_path, InMemoryRepositories())
+    await subscribe(s, path)
+    await s.proactive.on_event(event(path))
+    lease = await s.tasks.claim("background", [RunLane.BACKGROUND])
+    ctx = ExecutionContext(lease=lease, actor=ACTOR, agent_role="proactive", run_lane="background")
+    spawned = asyncio.Event()
+    start = asyncio.create_subprocess_exec
+    children = []
+
+    async def slow_profile(*_args, **kwargs):
+        child = await start(sys.executable, "-c", "import time; time.sleep(60)", **kwargs)
+        children.append((child, Path(kwargs["cwd"])))
+        spawned.set()
+        return child
+
+    async def pulse():
+        await asyncio.wait_for(spawned.wait(), 5)
+        await asyncio.sleep(0.01)
+        return children[0][0].returncode is None
+
+    with monkeypatch.context() as patch:
+        patch.setattr(data_profile, "PROFILE_TIMEOUT_SECONDS", 0.2)
+        patch.setattr(data_profile.asyncio, "create_subprocess_exec", slow_profile)
+        outcome, pulsed = await asyncio.gather(s.gateway.invoke(ctx, ToolCall(
+            tool="data.profile", args={"path": str(path)}, logical_key="slow"
+        )), pulse())
+    assert pulsed and outcome.status == "failed" and "data profile exceeded" in outcome.error.message
+    child, scratch = children[0]
+    assert child.returncode is not None and not scratch.exists()
+    healthy = await s.gateway.invoke(ctx, ToolCall(
+        tool="data.profile", args={"path": str(path)}, logical_key="healthy"
+    ))
+    assert healthy.status == "succeeded", healthy
 
 
 async def test_delivery_rules_thresholds_and_quiet_window(tmp_path):

@@ -5,8 +5,9 @@ artifacts.read first; never construct a card from a truncated preview. Copy the 
 `profile` object unchanged into the data card, with meaning_source="computed".
 Include the producing call's action_id as profile_action_id (returned by the tool).
 Every number in profile must come from that call; the verifier replays it.
-For a connected CSV, TSV, Parquet or DuckDB source, data.query can perform
-additional read-only lookups. Its output does not replace the recorded profile.
+For optional SQL on a supported source, call data.connect with the path and
+use the table name it returns with data.query. The profile's table labels
+describe the source and can differ from those in the query session.
 Only grain, meaning and unit may be inferred. Put them in `inferences`, each as
 {"field":"grain|meaning|unit", "value":"...", "meaning_source":"inferred",
 "confidence":0.0}. Do not invent statistical claims in inference text.

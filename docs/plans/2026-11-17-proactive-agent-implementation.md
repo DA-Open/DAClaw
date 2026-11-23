@@ -20,7 +20,7 @@
 | Q1 订阅与事件 | token 身份绑定 scope；订阅资源是用户白名单的子集；事件去重；每订阅/事件一条决策；准入与建任务同一事务 | 不自动订阅；不实现 grants 表；外部来源签名验证留到接入对应来源时 |
 | Q1 P 门与资源 | `skip/defer/admit`、baseline/diff、订阅日用量、scope 容量、较小单任务预算 | 日用量按 UTC 已结算用量做准入，任务自身预算独立执行；不是日额度的硬预留 |
 | Q1 Scheduler | 五字段 UTC cron、持久化 defer 重评，并调用共用的 `Recovery.tick` | 数据卡定时触发需先收到数据源事件；过期租约与未结算副作用走同一套恢复逻辑 |
-| Q2 数据卡 | 独立 Proactive 上下文；`data.profile`、共享 `data.connect` / `data.query`；`data_card@1`；统计绑定 action 并重放核对 | CSV、TSV、Parquet、DuckDB 复用同一连接器；SQLite、Excel 保留原有独立统计路径；语义推断只允许 grain/meaning/unit 并附置信度 |
+| Q2 数据卡 | 独立 Proactive 上下文；`data.profile`、共享 `data.connect` / `data.query`；`data_card@1`；统计绑定 action 并重放核对 | 统计和重放均在可终止的独立进程中执行，最多 30 秒。CSV、TSV、Parquet、DuckDB 复用共享的连接代码，SQLite、Excel、`.txt`、`.pq` 保留原有统计路径 |
 | Q2 隔离 | 角色/用户/能力工具交集 + 订阅资源约束；共享查询的 SQL 门禁和证据留存；前后台分 Worker | `artifacts.write` 只写本任务产物；不开放外部写工具；生产应配置共享、可读取的数据文件与产物目录 |
 | Q3 待看区 | `2R+I+U`、三档主动程度、UTC 静默时段、有效窗口、原子发布 inbox 与 ready 事件 | `notify` 是站内优先级，不发送飞书消息；当前质量发现是空值、候选键重复和空表，不能等同于业务缺陷 |
 | Q3 Main 交接 | 关联数据源/当前及最近三条请求的表列关键词/订阅关注点；最多三条短指针；读取前验证权限、版本、核验与时效 | 使用 `document_draft@2` 启用后台读取；保持 `document_draft@1` 契约；不在流式输出途中注入 |
@@ -105,7 +105,7 @@ API 和 Scheduler 不调用模型。真实模型 Worker 尚未作为本次验收
 更新时使用新的事件 ID、`kind=data_updated`、版本和数据指纹。
 Scheduler 的 `schedule` 事件不能从该 API 伪造。
 
-升级前留下的 `data.query_readonly` 待重放调用会收到工具拒绝，已有调用结果仍可从该任务的历史记录读取。恢复执行时可继续用 `data.profile`，CSV、TSV、Parquet、DuckDB 查询可重新使用 `data.connect` 与 `data.query`。SQLite、Excel 仍可生成数据卡。
+升级前留下的 `data.query_readonly` 待重放调用会收到工具拒绝，已有调用结果仍可从该任务的历史记录读取。恢复执行时可继续用 `data.profile`。需要查询 CSV、TSV、Parquet 或 DuckDB 时，先调用 `data.connect`，再用返回的表名调用 `data.query`。数据卡表名由数据源决定，查询别名不改变统计或重放结果。SQLite、Excel、`.txt` 和 `.pq` 仍可生成数据卡。
 
 3. `GET /tasks/{task_id}`、`GET /tasks/{task_id}/trace` 查看执行及核验；
    `GET /inbox` 查看当前可用数据卡。`notify` 仍是站内待看项。
