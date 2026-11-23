@@ -7,7 +7,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..contracts import ErrorCode, Event, EventType, Limits, ProactivityLevel, Subscription, Usage
-from ..proactive_types import DataEvent
+from ..proactive_types import DataEvent, default_daily_budget
 from .errors import ApiError
 
 
@@ -20,9 +20,7 @@ class CreateSubscription(BaseModel):
     schedule: str | None = None
     capability_ref: Literal["data_card@1"] = "data_card@1"
     limits: Limits = Field(default_factory=lambda: Limits(timeout_sec=600, max_model_calls=10, max_tool_calls=30, max_total_tokens=50000))
-    daily_budget: Usage = Field(default_factory=lambda: Usage(
-        model_calls=50, tool_calls=150, input_tokens=250_000
-    ))
+    daily_budget: Usage = Field(default_factory=default_daily_budget)
     proactivity: ProactivityLevel = ProactivityLevel.NORMAL
     result_ttl_seconds: int = Field(7 * 24 * 3600, gt=0)
     quiet_hours: tuple[int, int] = (0, 0)
@@ -51,7 +49,10 @@ def routes(system):
     async def create_subscription(payload: CreateSubscription, request: Request):
         actor = request.state.actor
         try:
-            sub = Subscription(scope_id=actor.scope_id, owner_id=actor.actor_id, **payload.model_dump())
+            sub = Subscription(
+                scope_id=actor.scope_id, owner_id=actor.actor_id, daily_budget=payload.daily_budget,
+                **payload.model_dump(exclude={"daily_budget"}),
+            )
             return await system.proactive.create_subscription(sub)
         except PermissionError as exc:
             raise ApiError(403, ErrorCode.FORBIDDEN, str(exc)) from exc

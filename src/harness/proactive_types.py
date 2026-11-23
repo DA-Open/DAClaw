@@ -5,7 +5,11 @@ from typing import Literal
 
 from pydantic import Field
 
-from .contracts import _Model, new_id, utcnow
+from .contracts import Usage, _Model, new_id, utcnow
+
+
+def default_daily_budget() -> Usage:
+    return Usage(model_calls=50, tool_calls=150, input_tokens=250_000)
 
 
 class DataEvent(_Model):

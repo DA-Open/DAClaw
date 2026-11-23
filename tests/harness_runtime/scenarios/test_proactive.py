@@ -133,15 +133,17 @@ async def test_defer_recovery_and_foreground_capacity(repos, tmp_path):
     assert any(r["decision"] == "defer" and r["reason"] == "subscription_busy" for r in retried.evaluations)
 
 
-async def test_daily_budget_defers_until_next_utc_day(repos, tmp_path):
+@pytest.mark.parametrize("budget", [Usage(model_calls=1), Usage(input_tokens=1, output_tokens=1)])
+async def test_daily_budget_defers_until_next_utc_day(repos, tmp_path, budget):
     clock = Clock()
     s = system(tmp_path, repos, clock=clock)
     path = dataset(tmp_path)
-    sub = await subscribe(s, path, daily_budget=Usage(model_calls=1))
+    sub = await subscribe(s, path, daily_budget=budget)
     task_id = (await s.proactive.on_event(event(path)))[0].task_id
     lease = await s.tasks.claim("b", [RunLane.BACKGROUND])
-    await repos.usage.reserve(task_id, lease.attempt_id, "charge", UsageKind.MODEL, Usage(model_calls=1), clock())
-    await repos.usage.settle("charge", Usage(model_calls=1), clock())
+    charge = Usage(model_calls=1, input_tokens=1, output_tokens=1)
+    await repos.usage.reserve(task_id, lease.attempt_id, "charge", UsageKind.MODEL, charge, clock())
+    await repos.usage.settle("charge", charge, clock())
     await s.tasks.request_cancel("s1", task_id, "done")
     await s.tasks.commit(lease, TaskOutcome(status="cancelled"))
     assert await s.proactive.on_event(event(path, "v2")) == []
@@ -227,9 +229,24 @@ async def test_trusted_api_scope_and_decision_export(repos, tmp_path):
         assert sub.json()["daily_budget"] == Usage(
             model_calls=50, tool_calls=150, input_tokens=250_000
         ).model_dump()
+        partial = await client.post("/subscriptions", json={**body, "daily_budget": {"model_calls": 1}})
+        assert partial.status_code == 201, partial.text
+        assert partial.json()["daily_budget"] == Usage(
+            model_calls=1, tool_calls=150, input_tokens=250_000
+        ).model_dump()
+        paused = []
+        for budget in ({}, {"model_calls": 0}, {"tool_calls": 0}, {"input_tokens": 0}):
+            created = await client.post("/subscriptions", json={**body, "daily_budget": budget})
+            assert created.status_code == 201, created.text
+            paused.append(created.json()["id"])
         payload = {"source": "dataset", "source_event_id": "v1", "subject_ref": str(path), "data": event(path).payload}
         first, second = await client.post("/events", json=payload), await client.post("/events", json=payload)
         assert first.status_code == 202 and first.json() == second.json()
+        assert len(first.json()["tasks"]) == 2
+        for subscription_id in paused:
+            records = await client.get(f"/subscriptions/{subscription_id}/decisions")
+            record = json.loads(records.text)
+            assert record["reason"] == "daily_budget" and record["task_id"] is None
         export = await client.get(f"/subscriptions/{sub.json()['id']}/decisions")
         assert json.loads(export.text)["policy_version"] == "proactive-admission@1"
         assert (await client.get("/subscriptions", headers={"Authorization": "Bearer wrong"})).status_code == 401

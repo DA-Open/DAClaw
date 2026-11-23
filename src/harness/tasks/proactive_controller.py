@@ -9,7 +9,7 @@ from ..contracts import (
     EventType, Limits, RunLane, Subscription, SubscriptionStatus, Task, TaskOrigin,
     TaskRef, TaskRequest, TaskStatus, TriggerType, Usage, utcnow,
 )
-from ..proactive_types import DataEvent
+from ..proactive_types import DataEvent, default_daily_budget
 
 POLICY_VERSION = "proactive-admission@1"
 UNFINISHED = {TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING, TaskStatus.WAITING}
@@ -43,14 +43,24 @@ def retain_evaluations(record, prior):
     return record
 
 
+def _daily_budget_at_creation(sub: Subscription) -> Usage:
+    if "daily_budget" not in sub.model_fields_set:
+        return default_daily_budget()
+    requested = sub.daily_budget.model_dump(exclude_unset=True)
+    if not requested:
+        return sub.daily_budget
+    ceilings = default_daily_budget().model_dump()
+    if "input_tokens" in requested or "output_tokens" in requested:
+        ceilings["input_tokens"] = 0
+    return Usage(**(ceilings | requested))
+
+
 def daily_budget_reached(used: Usage, budget: Usage) -> bool:
-    # The shared contract uses zero for a missing limit. Usage is settled
-    # by UTC day, and the token ceiling is total input plus output.
-    return any(limit and count >= limit for count, limit in (
-        (used.model_calls, budget.model_calls),
-        (used.tool_calls, budget.tool_calls),
-        (used.total_tokens, budget.total_tokens),
-    ))
+    return (
+        used.model_calls >= budget.model_calls
+        or used.tool_calls >= budget.tool_calls
+        or used.total_tokens >= budget.total_tokens
+    )
 
 
 def decide(sub, event, tasks, records, daily_usage, now, scope_limit, allowed):
@@ -106,7 +116,9 @@ class ProactiveController:
             from croniter import croniter
             if not croniter.is_valid(sub.schedule) or len(sub.schedule.split()) != 5:
                 raise ValueError("schedule must be a five-field UTC cron expression")
-        return await self.repos.subscriptions.create(sub)
+        return await self.repos.subscriptions.create(sub.model_copy(
+            update={"daily_budget": _daily_budget_at_creation(sub)}
+        ))
 
     def _request(self, sub, event_id):
         return TaskRequest(
