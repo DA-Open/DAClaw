@@ -25,13 +25,14 @@ the passed verification belongs to the same ``result_ref``.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
 from ..capabilities.registry import CapabilityPack, CapabilityRegistry
 from ..contracts import (
+    Action,
     Actor,
     CandidateResult,
     CheckResult,
@@ -65,6 +66,7 @@ class CheckContext:
     pack: CapabilityPack
     actor: Actor
     artifacts: ArtifactStore
+    actions: Sequence[Action] = ()
 
     def target_names(self, spec: CheckSpec) -> list[str]:
         """Artifacts a document check applies to: ``artifact`` / ``artifacts``
@@ -231,7 +233,7 @@ def _result_schema(pack: CapabilityPack, candidate: CandidateResult) -> CheckRes
     return _result("result_schema", PASSED, f"matches {pack.ref} result schema")
 
 
-async def _evidence(task: Task, candidate: CandidateResult, repos: Repositories) -> CheckResult | None:
+async def _evidence(task: Task, candidate: CandidateResult, repos: Repositories, task_actions: Sequence[Action]) -> CheckResult | None:
     """Every evidence reference the result cites must be real and reachable.
 
     Spec 5.2: CandidateResult carries "事实依据引用". A reference counts only if
@@ -243,7 +245,7 @@ async def _evidence(task: Task, candidate: CandidateResult, repos: Repositories)
     refs = list(candidate.evidence_refs) + list(candidate.required_action_receipts)
     if not refs:
         return None
-    actions = {a.id: a for a in await repos.actions.list_for_task(task.id)}
+    actions = {a.id: a for a in task_actions}
     receipts = {a.receipt_ref: a for a in actions.values() if a.receipt_ref}
     bad = []
     for ref in refs:
@@ -309,10 +311,14 @@ class CapabilityVerifier:
             pack = None
             unverified.append(f"capability {task.capability_ref}: {exc}")
 
+        task_actions = (
+            await self._repos.actions.list_for_task(task.id)
+            if result.evidence_refs or result.required_action_receipts else []
+        )
         for built_in in (
             await _required_artifacts(task, result, self._artifacts),
             _result_schema(pack, result) if pack else None,
-            await _evidence(task, result, self._repos),
+            await _evidence(task, result, self._repos, task_actions),
             _required_actions(task, result),
         ):
             if built_in is not None:
@@ -325,6 +331,7 @@ class CapabilityVerifier:
                 pack=pack,
                 actor=Actor(actor_id=task.actor_id, scope_id=task.scope_id),
                 artifacts=self._artifacts,
+                actions=task_actions,
             )
             for spec in task.acceptance.checks:
                 checks.append(await self._run(spec, ctx, pack, unverified))

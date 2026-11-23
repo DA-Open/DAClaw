@@ -47,7 +47,7 @@ from .storage.memory import InMemoryRepositories
 from .storage.repositories import Repositories
 from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
-from .tools.connectors import data_connectors, p0_connectors
+from .tools.connectors import DataConnector, data_connectors, p0_connectors
 from .tools.connectors.background_results import BackgroundResultsConnector
 from .tools.connectors.data_profile import DataProfileConnector
 from .results.checks.data_card import DataCardChecks
@@ -152,6 +152,7 @@ class HarnessSystem:
     proactive: ProactiveController
     delivery: DeliveryService
     scheduler: Scheduler
+    _data: DataConnector
     _owned_pg: PgRepositories | None = field(default=None, repr=False)
 
     @asynccontextmanager
@@ -167,6 +168,7 @@ class HarnessSystem:
                 await self._owned_pg.check_ready()
             yield self
         finally:
+            self._data.close()
             if self._owned_pg is not None:
                 await self._owned_pg.close()
 
@@ -178,6 +180,7 @@ class HarnessSystem:
             self.agents,
             lanes=lanes,
             heartbeat_interval_sec=self.config.heartbeat_interval_sec,
+            release_attempt=self._data.release,
             worker_id=worker_id,
             grant_refs=lambda task: [
                 g.ref
@@ -269,5 +272,6 @@ def build_system(
         proactive=proactive,
         delivery=delivery,
         scheduler=Scheduler(repos, proactive, clock=clock),
+        _data=connect,
         _owned_pg=owned_pg,
     )

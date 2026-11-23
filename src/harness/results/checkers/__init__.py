@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 
-from ...contracts import CheckResult, HarnessError, NotFound, VerificationStatus
+from ...contracts import ActionStatus, CheckResult, HarnessError, NotFound, ToolResult, ToolStatus, VerificationStatus
 
 _READ_ONLY = re.compile(r"^\s*(?:select|with)\b", re.IGNORECASE)
 _COMMENT = re.compile(r"^\s*(?:--[^\n]*\n|/\*.*?\*/\s*)", re.DOTALL)
@@ -29,19 +29,26 @@ def _strip_comments(sql: str) -> str:
 
 
 async def query_evidence(spec, ctx) -> CheckResult:
-    """Every cited evidence reference is a stored query, and the SQL is a read.
-
-    This is the machine-checkable half of "numbers must come from real queries":
-    it cannot prove the prose used the number, but it proves the cited evidence
-    exists, belongs to this task's scope, carries the SQL and that the SQL only
-    reads. A result with no evidence fails rather than passing silently.
-    """
+    """Require each citation to be the record returned by a successful query on this task."""
     refs = list(ctx.candidate.evidence_refs)
     if not refs:
         return _result(spec.id, VerificationStatus.FAILED, "the result cites no query evidence")
     problems: list[str] = []
     evidence: list[str] = []
+    returned_refs: set[str] = set()
+    for action in ctx.actions:
+        if (action.task_id != ctx.task.id or action.tool != "data.query" or not action.read_only
+                or action.status != ActionStatus.SUCCEEDED or not action.result_ref):
+            continue
+        stored = await ctx.artifacts.read(action.result_ref, ctx.actor)
+        result = ToolResult.model_validate_json(stored.content)
+        query_ref = (result.data or {}).get("query_ref")
+        if result.status == ToolStatus.SUCCEEDED and isinstance(query_ref, str) and query_ref in result.artifact_refs:
+            returned_refs.add(query_ref)
     for ref in refs:
+        if ref not in returned_refs:
+            problems.append(f"evidence {ref} was not returned by a successful data.query on this task")
+            continue
         try:
             content = await ctx.artifacts.read(ref, ctx.actor)
         except NotFound:
