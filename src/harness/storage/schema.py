@@ -30,7 +30,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 # Stable constraint names, so migrations and error handling can refer to them.
 metadata = MetaData(
@@ -235,6 +235,23 @@ inbox_items = Table("inbox_items", metadata,
 delivery_counters = Table("delivery_counters", metadata,
     Column("scope_id", Text, primary_key=True), Column("dedup_key", Text, primary_key=True),
     Column("body", JSONB, nullable=False))
+
+memories = Table("memories", metadata,
+    Column("id", Text, primary_key=True), Column("scope_id", Text, nullable=False),
+    Column("kind", Text, nullable=False), Column("status", Text, nullable=False),
+    Column("version", Integer, nullable=False), Column("supersedes_id", Text),
+    Column("subject_ref", Text), Column("source_ref", Text, nullable=False),
+    Column("ended_at", TS), Column("end_reason", Text), Column("expires_at", TS),
+    Column("updated_at", TS, nullable=False), Column("summary_lc", Text, nullable=False),
+    Column("tags_lc", ARRAY(Text), nullable=False), Column("body", JSONB, nullable=False))
+Index("uq_memories_supersedes", memories.c.supersedes_id, unique=True,
+      postgresql_where=text("supersedes_id IS NOT NULL"))
+Index("ix_memories_scope_kind", memories.c.scope_id, memories.c.kind,
+      postgresql_where=text("ended_at IS NULL"))
+Index("ix_memories_scope_subject", memories.c.scope_id, memories.c.subject_ref,
+      postgresql_where=text("ended_at IS NULL AND subject_ref IS NOT NULL"))
+Index("uq_memories_task", memories.c.scope_id, memories.c.source_ref, memories.c.kind, unique=True,
+      postgresql_where=text("source_ref LIKE 'task:%'"))
 
 __all__ = [
     "actions",

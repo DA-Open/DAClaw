@@ -254,7 +254,7 @@ async def test_event_cursor_does_not_skip_a_late_commit(pools, second_kind):
 
 def test_one_migration_head():
     # Two people branching from the same revision give two heads; merge them.
-    assert heads() == ["0003"]
+    assert heads() == ["0004"]
 
 
 @pytest.mark.asyncio

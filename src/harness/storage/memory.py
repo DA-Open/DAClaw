@@ -47,6 +47,7 @@ from ..contracts import (
     new_id,
 )
 from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
+from .memory_store import InMemoryMemoryStore
 
 M = TypeVar("M", bound=BaseModel)
 
@@ -768,4 +769,5 @@ class InMemoryRepositories(Repositories):
             usage=InMemoryUsageRepository(store),
             subscriptions=InMemorySubscriptionRepository(store),
             delivery=InMemoryDeliveryRepository(store),
+            memories=InMemoryMemoryStore(store),
         )
