@@ -215,6 +215,25 @@ async def test_calendar_error_does_not_block_other_subscriptions(repos, tmp_path
     assert await repos.subscriptions.decisions("s1", missing.id) == []
 
 
+async def test_directory_calendar_is_skipped_and_next_subscription_runs(repos, tmp_path, caplog):
+    clock = Clock(T0)
+    s = system(tmp_path, repos, clock)
+    directory = tmp_path / "directory.json"
+    directory.mkdir()
+    bad = await subscribe(s, directory)
+    good = await subscribe(s, calendar(tmp_path))
+    clock.advance(7205)
+
+    with caplog.at_level("WARNING", logger="harness.tasks.scheduler"):
+        await s.scheduler.tick()
+
+    assert any(bad.id in message and str(directory) in message for message in caplog.messages)
+    assert await repos.subscriptions.decisions("s1", bad.id) == []
+    record, = await repos.subscriptions.decisions("s1", good.id)
+    assert record.decision == "admit"
+    assert (await s.tasks.get("s1", record.task_id)).subscription_id == good.id
+
+
 async def test_personal_tick_before_first_due(repos, tmp_path):
     clock = Clock(T0 + timedelta(seconds=5))
     path = calendar(tmp_path)

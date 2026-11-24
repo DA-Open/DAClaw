@@ -159,3 +159,76 @@ git diff --numstat 5d765337222ebc2bc87d8b50123a0b6bd07eea9a -- src/ ':!src/harne
 - 去重键严格沿用卡片的 `(scope_id, "mock_calendar", item_id@version)`；`calendar_id` 不参与去重，同一 scope 的多个日历来源需避免复用同一条目 ID 和版本。没有改动唯一索引或增加迁移。
 
 没有触发 C2 停止条件，没有超范围修改或遗留的 C2 必需项。本次只在本地提交，不 push、不开 PR；C0 合入后的 rebase，以及并行分支的 `personal/__init__.py` / 分派位置冲突，由派发方按任务卡处理。
+
+## 评审后修复
+
+在 `17f48fab` 上修复评审第 3 项。`MockCalendarSource.changes()` 现在捕获 `(OSError, ValidationError)`，将读盘或校验错误转换为包含日历路径的 `ValueError`，并保留原始异常。Scheduler 沿用逐订阅处理逻辑，记录警告后继续处理同一轮的其他订阅。
+
+新增回归用例先订阅一个名为 `directory.json` 的真实目录，再订阅正常日历，只调用一次 `tick()`。用例检查警告包含出错订阅的 ID 和目录路径，该订阅的准入记录为空，正常订阅获得 `admit` 并建出自己的任务。
+
+仅加入测试时，内存和 PostgreSQL 两个后端均在 `Path.read_bytes()` 抛出 `IsADirectoryError`，异常传播到 `tick()`。红灯摘要如下。
+
+```text
+FAILED tests/harness_runtime/scenarios/test_personal_window.py::test_directory_calendar_is_skipped_and_next_subscription_runs[memory]
+FAILED tests/harness_runtime/scenarios/test_personal_window.py::test_directory_calendar_is_skipped_and_next_subscription_runs[postgres]
+2 failed in 6.31s
+```
+
+修改一行日历源码后，重跑同一用例。
+
+```text
+..                                                                       [100%]
+2 passed in 6.26s
+```
+
+在 WSL 临时目录中读取一个已撤去读取权限的文件，也验证了 `ValueError` 包含路径，且其 `__cause__` 为 `PermissionError`。
+
+以下三项检查沿用原卡 BASE `5d765337222ebc2bc87d8b50123a0b6bd07eea9a`。运行环境为 WSL 2 Ubuntu-22.04、Python 3.11.15 和 Docker `postgres:16`，本轮日志存于 `/home/xue/p2-c2-review.pjYKuW`。
+
+**1. Harness 全量回归**
+
+```bash
+python -m pytest tests/harness_runtime -q -n0 -o addopts="" -m "integration or not integration"
+```
+
+```text
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 27%]
+........................................................................ [ 36%]
+........................................................................ [ 45%]
+........................................................................ [ 54%]
+........................................................................ [ 63%]
+........................................................................ [ 72%]
+........................................................................ [ 81%]
+........................................................................ [ 90%]
+........................................................................ [ 99%]
+.....                                                                    [100%]
+797 passed in 111.82s (0:01:51)
+```
+
+全量回归退出码为 0。上次 C2 交付通过 795 项，本轮新增的目录场景分别在两个后端通过，失败清单仍为空。
+
+**2. 防御性写法检查**
+
+```bash
+git diff 5d765337222ebc2bc87d8b50123a0b6bd07eea9a -- 'src/harness/*.py' ':!src/harness/contracts.py' ':!src/harness/interfaces.py' ':!src/harness/storage/repositories.py' \
+  | grep -nE '^\+.*(except Exception|except:|getattr\([^)]*,[^)]*,|hasattr\(|self\._\w+ is not None)|^\+\s+def __init__\([^)]*=None|^\+ {8,}(from \.|import )'
+```
+
+```text
+```
+
+标准输出和标准错误合计 0 字节。`git diff` 退出码为 0，`grep` 退出码为 1，表示没有匹配行。
+
+**3. `src/` 新增行数**
+
+```bash
+git diff --numstat 5d765337222ebc2bc87d8b50123a0b6bd07eea9a -- src/ ':!src/harness/prompts' ':!src/harness/capabilities' | awk '{s+=$1} END {print s}'
+```
+
+```text
+171
+```
+
+相对原卡 BASE 共新增 171 行，低于 360 行上限。本次修复相对 `17f48fab` 的源码差异为 1 行新增、1 行删除。

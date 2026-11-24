@@ -11,6 +11,6 @@ class MockCalendarSource:
     def changes(self, path: str | Path, since: datetime, until: datetime) -> list[CalendarChange]:
         try:
             calendar = CalendarFile.model_validate_json(Path(path).read_bytes())
-        except (FileNotFoundError, ValidationError) as exc:
+        except (OSError, ValidationError) as exc:
             raise ValueError(f"Invalid calendar {path}: {exc}") from exc
         return [change for change in calendar.changes if since < change.occurred_at <= until]
