@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..contracts import ErrorCode, InvalidTransition, MemoryKind, MemoryStatus
-from ..personal.memory import ALL_RECORDS, MemoryRevision
+from ..personal.memory import ALL_RECORDS, MemoryRevision, has_pinned_tag
 from ..storage.memory_store import is_current
 from .errors import ApiError
 
@@ -27,16 +27,16 @@ def routes(system):
     service = system.memory
 
     async def check_pin(scope_id, tags, previous_tags):
-        if "pinned" in tags and "pinned" not in previous_tags:
+        if has_pinned_tag(tags) and not has_pinned_tag(previous_tags):
             current = await service.memories.list(scope_id, now=service.clock(), limit=ALL_RECORDS)
-            if sum("pinned" in r.tags for r in current) >= 5:
+            if sum(has_pinned_tag(r.tags) for r in current) >= 5:
                 raise ApiError(400, ErrorCode.INVALID_REQUEST, "at most 5 current memories may be pinned")
 
     @router.post("/memories", status_code=201)
     async def create(payload: CreateMemory, request: Request):
         actor = request.state.actor
         tags = list(payload.tags)
-        if payload.pinned and "pinned" not in tags:
+        if payload.pinned and not has_pinned_tag(tags):
             tags.append("pinned")
         await check_pin(actor.scope_id, tags, [])
         try:

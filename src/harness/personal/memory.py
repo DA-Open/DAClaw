@@ -24,8 +24,16 @@ class MemoryRevision(BaseModel):
     expires_at: datetime | None = None
 
 
+def _normalize_pin_tag(tag: str) -> str:
+    return "pinned" if tag.casefold() == "pinned" else tag
+
+
+def has_pinned_tag(tags: list[str]) -> bool:
+    return "pinned" in map(_normalize_pin_tag, tags)
+
+
 def _tags(kind, tags, expires_at):
-    result = list(tags)
+    result = list(map(_normalize_pin_tag, tags))
     if kind == MemoryKind.PREFERENCE:
         result = [t for t in result if t != "temporary"]
         if expires_at is not None:
@@ -101,7 +109,10 @@ class MemoryService:
 
     async def confirm(self, scope_id, actor_id, memory_id):
         old = await self._current(scope_id, memory_id)
-        replacement = self._replacement(old, actor_id, status=MemoryStatus.CONFIRMED)
+        if old.status != MemoryStatus.CANDIDATE:
+            raise InvalidTransition("only candidates can be confirmed")
+        replacement = self._replacement(old, actor_id, status=MemoryStatus.CONFIRMED,
+                                        tags=list(map(_normalize_pin_tag, old.tags)))
         return await self.memories.supersede(scope_id, memory_id, replacement, self.clock())
 
     async def reject(self, scope_id, actor_id, memory_id):

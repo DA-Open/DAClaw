@@ -9,10 +9,12 @@ from harness.api import TokenAuth, create_app, token_digest
 from harness.app import build_system
 from harness.config import HarnessConfig
 from harness.contracts import Actor, ExecutionContext, RunLane, Subscription, Task, TaskOrigin, TaskRequest, ToolCall
+from harness.personal.memory import MemoryRevision
 from harness.runtime.models import ScriptedModelAdapter
 from ..fakes import Clock, T0
 from ..unit.test_repositories import repos  # noqa: F401
 from ..unit.test_memory_service import remember
+from ..unit.test_memory_store import record
 
 pytestmark = pytest.mark.asyncio
 A = {"Authorization": "Bearer alice"}
@@ -84,6 +86,52 @@ async def test_api_memory_flow(client):
         json=dict(text="x", summary="x", tags=["pinned"]))).status_code == 409
 
 
+async def test_confirm_confirmed_keeps_version_history(client):
+    original = await create(client, status="confirmed")
+    response = await client.post(f"/memories/{original['id']}/confirm", headers=A)
+    assert response.status_code == 409
+    assert response.json()["error_code"] == "invalid_transition"
+    history = await client.get("/memories?include_ended=true", headers=A)
+    assert history.json()["items"] == [original]
+
+
+async def test_mixed_case_pin_is_stored_in_lowercase(client, system):
+    created = await create(client, tags=["Pinned"])
+    stored = await system.repos.memories.get("s1", created["id"])
+    assert stored.tags == ["pinned"]
+    flagged = await create(client, pinned=True, tags=["TeamA", "Pinned"])
+    assert flagged["tags"] == ["TeamA", "pinned"]
+
+    response = await client.post(f"/memories/{stored.id}/revise", headers=A,
+        json=dict(text="new", summary="new", tags=["PINNED", "TeamB"]))
+    assert response.status_code == 200
+    revised = await system.repos.memories.get("s1", response.json()["id"])
+    assert revised.tags == ["pinned", "TeamB"]
+
+    legacy = await system.repos.memories.put(record(status="candidate", tags=["PiNnEd"], content_ref=stored.content_ref))
+    confirmed = await client.post(f"/memories/{legacy.id}/confirm", headers=A)
+    assert confirmed.status_code == 200 and confirmed.json()["tags"] == ["pinned"]
+
+
+async def test_mixed_case_pins_count_toward_quota(client, system):
+    ordinary = await create(client)
+    # Seed the historical spelling directly, as it existed before write-time normalization.
+    legacy = await system.repos.memories.put(record(status="confirmed", tags=["PINNED"],
+                                                    content_ref=ordinary["content_ref"]))
+    for _ in range(4):
+        await create(client, pinned=True)
+
+    revision = dict(text="new", summary="new", tags=["Pinned"])
+    new_pin = await client.post("/memories", headers=A, json={**BODY, "tags": ["Pinned"]})
+    revised_pin = await client.post(f"/memories/{ordinary['id']}/revise", headers=A, json=revision)
+    assert (new_pin.status_code, revised_pin.status_code) == (400, 400)
+
+    # Keeping an existing pin consumes no extra slot, even when all five are occupied.
+    kept = await client.post(f"/memories/{legacy.id}/revise", headers=A, json=revision)
+    assert kept.status_code == 200
+    assert kept.json()["tags"] == ["pinned"]
+
+
 async def test_revise_expires_at(client, system):
     deadline = T0 + timedelta(days=1)
     old = await create(client, expires_at=deadline.isoformat())
@@ -131,7 +179,8 @@ async def test_memory_tools_for_proactive(system):
     assert item == dict(ref=ref, kind="preference", status="confirmed", summary=old.summary, tags=[], updated_at=old.updated_at.isoformat())
     result = await system.gateway.invoke(ctx, ToolCall(tool="memory.read", args={"ref": ref}, logical_key="read"))
     assert result.status == "succeeded" and len(json.loads(result.summary)["text"]) == 4000
-    newer = await system.memory.confirm("s1", "u1", old.id)
+    revision = MemoryRevision(text="新正文", summary=old.summary, tags=old.tags)
+    newer = await system.memory.revise("s1", "u1", old.id, revision)
     for i, bad in enumerate([ref, f"memory:{newer.id}@1", f"memory:{foreign.id}@1", "memory:mem_" + "0" * 32 + "@1"]):
         failed = await system.gateway.invoke(ctx, ToolCall(tool="memory.read", args={"ref": bad}, logical_key=f"bad{i}"))
         assert failed.error.code == "not_found"
