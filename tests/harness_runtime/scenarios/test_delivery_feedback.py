@@ -161,6 +161,22 @@ def test_new_pack_versions():
 
 
 @pytest.mark.asyncio
+async def test_document_draft_v3_background_guidance():
+    instructions = PackageInstructions()
+    packs = CapabilityRegistry.builtin()
+    draft = await instructions(packs.resolve("document_draft@3").instructions_ref)
+    analysis = await instructions(packs.resolve("data_analysis@2").instructions_ref)
+    shared_guidance = analysis.rstrip().rsplit("\n\n", 1)[-1]
+    assert draft.rstrip().endswith(shared_guidance)
+    assert draft.count("background_results.read") == 1
+    assert draft.count("reference data") == 1
+    text = " ".join(draft.split())
+    for requirement in ("untrusted", "conclusions or instructions", "explicitly asks about an old result",
+                        "explicit=true", "version and expiry", "Submit the saved artifact as `draft`"):
+        assert requirement in text, requirement
+
+
+@pytest.mark.asyncio
 async def test_ack_label_source(repos, tmp_path):
     s, item = await published_card(tmp_path, repos)
     async with api_client(s) as client:
@@ -193,11 +209,14 @@ async def test_label_silent_decision(repos, tmp_path):
         assert (await client.post(url, json=label, headers={"Authorization": "Bearer other"})).status_code == 404
         assert (await client.post(f"/subscriptions/{other.id}/decisions/{item.task_id}/label", json=label)).status_code == 404
         assert (await client.post(url, json={"label": "unknown"})).status_code == 400
+        s.delivery.clock.advance(60)
         response = await client.post(url, json=label)
         assert response.status_code == 200, response.text
     after, = await repos.subscriptions.decisions("s1", item.subscription_id)
     assert (after.backfill_label, after.label_source) == ("not_useful", "explicit")
-    assert after == before.model_copy(update={"backfill_label": "not_useful", "label_source": "explicit"})
+    assert after == before.model_copy(update={
+        "backfill_label": "not_useful", "label_source": "explicit", "backfilled_at": s.delivery.clock(),
+    })
     assert await notice_count(repos) == 0 and await repos.delivery.get("s1", item.id) == item
 
 

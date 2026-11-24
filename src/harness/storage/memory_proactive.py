@@ -49,7 +49,7 @@ class InMemorySubscriptionRepository:
             self._get(scope_id, subscription_id)
             for key, record in self._s.subscription_events.items():
                 if record.subscription_id == subscription_id and record.task_id == task_id:
-                    updated = _replace(record, backfill_label=label, label_source="explicit")
+                    updated = _replace(record, backfill_label=label, label_source="explicit", backfilled_at=now)
                     self._s.subscription_events[key] = updated
                     return _copy(updated)
             raise NotFound("admission decision not found")

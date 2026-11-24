@@ -77,7 +77,9 @@ class PgSubscriptionRepository:
             result = await conn.execute(
                 update(events).where(events.c.scope_id == scope_id, events.c.subscription_id == subscription_id,
                                      events.c.task_id == task_id)
-                .values(body=events.c.body.concat({"backfill_label": label, "label_source": "explicit"}))
+                .values(body=events.c.body.concat({
+                    "backfill_label": label, "label_source": "explicit", "backfilled_at": now.isoformat(),
+                }))
                 .returning(events.c.body)
             )
             body = result.scalar_one_or_none()
