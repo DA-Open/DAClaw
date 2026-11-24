@@ -154,6 +154,7 @@ class EventType(StrEnum):
     TOOL_ACTION = "tool_action"
     TOOL_RECONCILE = "tool_reconcile"
     VERIFICATION_RECORDED = "verification_recorded"
+    RECOMPUTE_RECORDED = "recompute_recorded"
     BACKGROUND_RESULT_READY = "background_result_ready"
     EXTERNAL = "external"
     # DaraOS additions, see ModelCallRecord and BudgetReminderRecord
@@ -243,6 +244,8 @@ class MemoryKind(StrEnum):
     FACT = "fact"
     PREFERENCE = "preference"
     RESULT = "result"
+    ANALYSIS = "analysis"
+    EPISODE = "episode"
 
 
 class MemoryStatus(StrEnum):
@@ -1174,6 +1177,7 @@ class AdmissionDecision(_Model):
     decided_at: datetime = Field(default_factory=utcnow)
     backfill_label: Literal["useful", "not_useful", "harmful"] | None = None
     backfilled_at: datetime | None = None
+    label_source: Literal["explicit", "behavior", "manual"] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1216,6 +1220,10 @@ class Subscription(_Model):
     # UTC hours, with equal endpoints denoting no quiet period.
     quiet_hours: tuple[int, int] = (0, 0)
     focus: list[str] = Field(default_factory=list)
+    # The baseline an analysis_watch subscription re-checks, as memory:<id>@<version>.
+    baseline_ref: str | None = None
+    # Each capability validates its own watch settings, such as a threshold.
+    watch: dict[str, Any] | None = None
     # How long a result stays usable; older results are not handed to Main.
     result_ttl_seconds: int = Field(7 * 24 * 3600, gt=0)
     expires_at: datetime | None = None
@@ -1368,6 +1376,17 @@ class MemoryRecord(_Model):
     supersedes_id: str | None = None
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)
+    summary: str = Field("", max_length=300)
+    tags: list[str] = Field(default_factory=list, max_length=16)
+    subject_ref: str | None = None
+    ended_at: datetime | None = None
+    end_reason: Literal["superseded", "retracted", "rejected"] | None = None
+
+    @model_validator(mode="after")
+    def _check(self) -> MemoryRecord:
+        if (self.ended_at is None) != (self.end_reason is None):
+            raise ValueError("ended_at and end_reason must be set together")
+        return self
 
 
 # ---------------------------------------------------------------------------

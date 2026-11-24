@@ -22,6 +22,7 @@ from harness.contracts import (
     DeliveryStatus,
     ErrorCode,
     ErrorResponse,
+    EventType,
     IdempotencyConflict,
     InvalidTransition,
     Grant,
@@ -437,6 +438,19 @@ def test_subscription_rejects_unknown_fields():
         subscription(scope="s1")
 
 
+def test_subscription_watch_fields_optional():
+    old_json = {
+        "scope_id": "s1", "owner_id": "u1", "goal": "watch refunds",
+        "capability_ref": "document_draft@1", "schedule": "*/30 * * * *",
+    }
+    old = Subscription.model_validate(old_json)
+    assert old.baseline_ref is None and old.watch is None
+
+    watch = {"query_index": 0, "column": "refunds", "min_relative_change": 0.1}
+    configured = Subscription.model_validate({**old_json, "baseline_ref": "memory:mem_1@2", "watch": watch})
+    assert configured.baseline_ref == "memory:mem_1@2" and configured.watch == watch
+
+
 def test_admission_decision_is_the_per_subscription_record():
     # AdmissionDecision already existed; it doubles as the (subscription, event)
     # dedup record, so there is no separate SubscriptionEvent type.
@@ -450,6 +464,22 @@ def test_admission_decision_is_the_per_subscription_record():
     )
     assert first.task_id and second.task_id is None
     assert first.decided_at.tzinfo is not None
+
+
+def test_admission_label_source_optional():
+    old_json = {
+        "subscription_id": "sub_1", "event_id": "evt_1", "decision": "skip",
+        "reason": "deduped", "policy_version": "p1", "backfill_label": "useful",
+    }
+    assert AdmissionDecision.model_validate(old_json).label_source is None
+    for source in ("explicit", "behavior", "manual"):
+        assert AdmissionDecision.model_validate({**old_json, "label_source": source}).label_source == source
+    with pytest.raises(ValidationError, match="label_source"):
+        AdmissionDecision.model_validate({**old_json, "label_source": "inferred"})
+
+
+def test_recompute_recorded_event_type():
+    assert EventType("recompute_recorded") is EventType.RECOMPUTE_RECORDED
 
 
 def test_approval_binds_action_and_request_hash():
@@ -506,6 +536,56 @@ def test_memory_record_is_candidate_until_confirmed():
     confirmed = record.model_copy(update={"status": MemoryStatus.CONFIRMED})
     superseding = record.model_copy(update={"supersedes_id": confirmed.id})
     assert superseding.supersedes_id == confirmed.id
+
+
+@pytest.fixture
+def old_memory_json():
+    return {
+        "id": "mem_2", "scope_id": "s1", "kind": "result", "status": "confirmed",
+        "content_ref": "art_2", "source_ref": "task:2", "version": 2,
+        "supersedes_id": "mem_1", "expires_at": None,
+        "created_at": "2026-11-20T09:00:00Z", "updated_at": "2026-11-21T09:00:00Z",
+    }
+
+
+def test_memory_kinds():
+    assert MemoryKind("analysis") is MemoryKind.ANALYSIS
+    assert MemoryKind("episode") is MemoryKind.EPISODE
+
+
+def test_memory_record_new_fields_default(old_memory_json):
+    record = MemoryRecord.model_validate(old_memory_json)
+    assert record.summary == "" and record.tags == []
+    assert record.subject_ref is None and record.ended_at is None and record.end_reason is None
+
+    tags = [f"tag{i}" for i in range(16)]
+    fields = {"summary": "x" * 300, "tags": tags, "subject_ref": "orders.csv"}
+    populated = MemoryRecord.model_validate({**old_memory_json, **fields})
+    assert populated.model_dump(include=set(fields)) == fields
+    with pytest.raises(ValidationError, match="summary"):
+        MemoryRecord.model_validate({**old_memory_json, "summary": "x" * 301})
+    with pytest.raises(ValidationError, match="tags"):
+        MemoryRecord.model_validate({**old_memory_json, "tags": [*tags, "overflow"]})
+
+
+def test_memory_record_end_fields_together(old_memory_json):
+    ended_at = datetime(2026, 11, 22, tzinfo=timezone.utc)
+    with pytest.raises(ValidationError):
+        MemoryRecord.model_validate({**old_memory_json, "ended_at": ended_at})
+    with pytest.raises(ValidationError):
+        MemoryRecord.model_validate({**old_memory_json, "end_reason": "retracted"})
+    for reason in ("superseded", "retracted", "rejected"):
+        record = MemoryRecord.model_validate({**old_memory_json, "ended_at": ended_at, "end_reason": reason})
+        assert record.ended_at == ended_at and record.end_reason == reason
+    with pytest.raises(ValidationError, match="end_reason"):
+        MemoryRecord.model_validate({**old_memory_json, "ended_at": ended_at, "end_reason": "expired"})
+
+
+def test_memory_record_reads_old_json(old_memory_json):
+    record = MemoryRecord.model_validate(old_memory_json)
+    assert record.kind is MemoryKind.RESULT
+    assert record.model_dump(mode="json", include=set(old_memory_json)) == old_memory_json
+    assert record.ended_at is None
 
 
 def test_new_types_survive_a_json_round_trip():
