@@ -23,6 +23,10 @@ for _mod in ("sqlalchemy", "asyncpg", "alembic"):
 from sqlalchemy import inspect, text  # noqa: E402
 
 from harness.contracts import (  # noqa: E402
+    WaitCondition,
+    ApprovalDecision,
+    Approval,
+    ActionStatus,
     Action,
     ErrorCode,
     Event,
@@ -252,9 +256,44 @@ async def test_event_cursor_does_not_skip_a_late_commit(pools, second_kind):
 # -- migrations ------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
+async def test_approval_round_trip_and_requeue(pools):
+    """An approval is bound to its arguments, and approving requeues the task."""
+    store = pools[0]
+    task = (await store.tasks.create(make_task("approve-me"))).task
+    lease = await store.tasks.claim("w1", [RunLane.FOREGROUND], TTL, T0)
+    action = Action(
+        task_id=task.id,
+        attempt_id=lease.attempt_id,
+        logical_key="mail.1.0",
+        tool="mail.send",
+        request_hash="h1",
+        read_only=False,
+    )
+    registered = await store.actions.register(action)
+    await store.actions.update(registered.action.id, ActionStatus.NEEDS_APPROVAL, now=T0, approval_ref=None)
+    waiting = TaskOutcome(status=TaskStatus.WAITING, wait_condition=WaitCondition.APPROVAL)
+    await store.tasks.commit(lease, waiting, T0)
+
+    approval = Approval(
+        action_id=registered.action.id,
+        request_hash="h1",
+        approver="u1",
+        decision=ApprovalDecision.APPROVE,
+        decided_at=T0,
+    )
+    await store.approvals.add(approval)
+    # A decision for other arguments is a different row, not a match.
+    assert await store.approvals.get(registered.action.id, "h2") is None
+    assert (await store.approvals.get(registered.action.id, "h1")).decision is ApprovalDecision.APPROVE
+
+    queued = await store.tasks.requeue("s1", task.id, T0)
+    assert queued.status is TaskStatus.QUEUED and queued.wait_condition is None
+
+
 def test_one_migration_head():
     # Two people branching from the same revision give two heads; merge them.
-    assert heads() == ["0004"]
+    assert heads() == ["0005"]
 
 
 @pytest.mark.asyncio

@@ -480,6 +480,25 @@ class InMemoryTaskRepository:
             return _copy(updated)
 
 
+    async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        async with self._s.lock:
+            task = self._s.tasks.get(task_id)
+            if task is None or task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            if task.status is not TaskStatus.WAITING:
+                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting")
+            old = task.status
+            updated = _replace(
+                task,
+                status=TaskStatus.QUEUED,
+                wait_condition=None,
+                version=task.version + 1,
+                updated_at=now,
+            )
+            self._s.tasks[task.id] = updated
+            self._s.status_event(updated, old, now, reason="wait condition settled")
+            return _copy(updated)
+
     async def revoke_subscription(self, scope_id, subscription_id, now):
         async with self._s.lock:
             sub = self._s.subscriptions.get(subscription_id)
@@ -574,6 +593,7 @@ class InMemoryActionRepository:
         *,
         result_ref: str | None = None,
         receipt_ref: str | None = None,
+        approval_ref: str | None = None,
         now: datetime,
     ) -> Action:
         async with self._s.lock:
@@ -584,6 +604,7 @@ class InMemoryActionRepository:
                 action,
                 status=status,
                 result_ref=result_ref if result_ref is not None else action.result_ref,
+                approval_ref=approval_ref if approval_ref is not None else action.approval_ref,
                 receipt_ref=receipt_ref if receipt_ref is not None else action.receipt_ref,
                 updated_at=now,
             )
@@ -758,6 +779,7 @@ class InMemoryRepositories(Repositories):
 
     def __init__(self) -> None:
         store = _Store()
+        from .memory_approvals import InMemoryApprovalRepository
         from .memory_proactive import InMemorySubscriptionRepository
         from .memory_delivery import InMemoryDeliveryRepository
         super().__init__(
@@ -770,4 +792,5 @@ class InMemoryRepositories(Repositories):
             subscriptions=InMemorySubscriptionRepository(store),
             delivery=InMemoryDeliveryRepository(store),
             memories=InMemoryMemoryStore(store),
+            approvals=InMemoryApprovalRepository(),
         )

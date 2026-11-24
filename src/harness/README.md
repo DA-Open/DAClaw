@@ -381,6 +381,7 @@ With no file, no scope has any tool.
 | `GET /tasks/{id}` | status, wait reason, usage, remaining budget, `result_ref`, error |
 | `GET /tasks/{id}/events` | SSE; `Last-Event-ID` resumes; one `final` event after the task stops (succeeded, failed, cancelled or waiting); a dropped client does not cancel the task |
 | `POST /tasks/{id}/cancel` | idempotent; body `{"reason": "..."}` optional |
+| `POST /tasks/{id}/approvals/{action_id}` | approve or reject one side-effecting action; body `{"decision": "approve|reject", "request_hash": "...", "reason"?, "expires_in_sec"?}`; the decision is bound to that hash, and approving requeues the task |
 | `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
 | `GET /artifacts/{id}` | whole content (200), or a byte range (206); 5 MiB max per call |
 
@@ -390,8 +391,9 @@ Proactive Q1–Q3 also exposes `POST/GET /subscriptions`,
 These use the same bearer-token identity and scope isolation. See the
 [Proactive runbook](../../docs/plans/2026-11-17-proactive-agent-implementation.md)
 for event payloads, permissions, the scheduler and separate background workers.
-Checkpoint replay is implemented in the worker. HTTP resume and approvals
-remain R2 work.
+Checkpoint replay is implemented in the worker, and approvals are decided over
+HTTP (see the route above). A resume endpoint is still missing: a task that
+waits for input has to be recreated, not continued.
 
 **Artifact downloads** support `offset` / `length` query parameters or one
 `Range: bytes=start-end` header (open-ended and suffix ranges also work).
@@ -578,7 +580,7 @@ expired leases and actions awaiting reconciliation.
 
 | Item | Decided | When |
 |---|---|---|
-| `grants` / `approvals` tables | P0 has no tables; `tools/policy.py` uses the two whitelists described under "Tool gateway". Tools with outside side effects are refused with `needs_approval` until approvals exist | P1 |
+| `approvals` table | Done: an action with outside side effects is registered as `needs_approval`, waits for a decision bound to `action_id + request_hash`, and runs once approved; the task moves waiting/approval -> queued. `grants` still do not exist: authorisation is the role whitelist and the user whitelist in `tools/policy.py` | P1 |
 | Proactive external delivery / outbox | Q1–Q3 subscriptions, scheduler, verified data cards and inbox are implemented; external sends, receipts, unknown reconciliation and notification quotas remain unimplemented | Q4 / P1 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |

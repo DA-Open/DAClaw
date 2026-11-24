@@ -135,6 +135,9 @@ class ActionStatus(StrEnum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     UNKNOWN = "unknown"
+    # A tool with outside side effects, registered and waiting for a human
+    # decision; nothing has been executed yet.
+    NEEDS_APPROVAL = "needs_approval"
 
 
 class VerificationStatus(StrEnum):
@@ -161,6 +164,8 @@ class EventType(StrEnum):
     MODEL_CALL = "model_call"
     BUDGET_REMINDER = "budget_reminder"
     CONTEXT_BUILT = "context_built"
+    APPROVAL_REQUESTED = "approval_requested"
+    APPROVAL_DECIDED = "approval_decided"
 
 
 class ErrorCode(StrEnum):

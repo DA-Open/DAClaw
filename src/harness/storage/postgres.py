@@ -695,6 +695,35 @@ class PgTaskRepository:
             return updated
 
 
+    async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        async with self._db.engine.begin() as conn:
+            row = (
+                await conn.execute(
+                    select(s.tasks).where(s.tasks.c.id == task_id, s.tasks.c.scope_id == scope_id).with_for_update()
+                )
+            ).mappings().first()
+            if row is None:
+                raise NotFound(f"task {task_id} not found")
+            task = _task(row)
+            if task.status is not TaskStatus.WAITING:
+                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting")
+            updated_row = (
+                await conn.execute(
+                    update(s.tasks)
+                    .where(s.tasks.c.id == task.id)
+                    .values(
+                        status=TaskStatus.QUEUED.value,
+                        wait_condition=None,
+                        version=task.version + 1,
+                        updated_at=now,
+                    )
+                    .returning(*s.tasks.c)
+                )
+            ).mappings().one()
+            updated = _task(updated_row)
+            await self._db.status_event(conn, updated, task.status, now, reason="wait condition settled")
+            return updated
+
     async def revoke_subscription(self, scope_id, subscription_id, now):
         from .postgres_proactive import lock_scope, PgSubscriptionRepository
         async with self._db.engine.begin() as conn:
@@ -790,6 +819,7 @@ class PgActionRepository:
         *,
         result_ref: str | None = None,
         receipt_ref: str | None = None,
+        approval_ref: str | None = None,
         now: datetime,
     ) -> Action:
         values: dict[str, Any] = {"status": status.value, "updated_at": now}
@@ -797,6 +827,8 @@ class PgActionRepository:
             values["result_ref"] = result_ref
         if receipt_ref is not None:
             values["receipt_ref"] = receipt_ref
+        if approval_ref is not None:
+            values["approval_ref"] = approval_ref
         async with self._db.engine.begin() as conn:
             row = (
                 await conn.execute(
@@ -1062,6 +1094,7 @@ class PgRepositories(Repositories):
 
     def __init__(self, engine: AsyncEngine) -> None:
         db = _Db(engine)
+        from .postgres_approvals import PgApprovalRepository
         from .postgres_proactive import PgSubscriptionRepository
         from .postgres_delivery import PgDeliveryRepository
         super().__init__(
@@ -1074,6 +1107,7 @@ class PgRepositories(Repositories):
             subscriptions=PgSubscriptionRepository(db),
             delivery=PgDeliveryRepository(db),
             memories=PgMemoryStore(db),
+            approvals=PgApprovalRepository(db),
         )
         object.__setattr__(self, "engine", engine)
 

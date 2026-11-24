@@ -29,6 +29,7 @@ from datetime import datetime
 from typing import Iterable, Protocol
 
 from ..contracts import (
+    Approval,
     Action,
     ActionStatus,
     AdmissionDecision,
@@ -194,6 +195,14 @@ class TaskRepository(Protocol):
         """Idempotent. queued/waiting -> cancelled; running -> cancelling;
         cancelling and terminal states are returned unchanged."""
 
+    async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
+        """Move a waiting task back to queued once its wait condition is settled.
+
+        Only waiting -> queued; bump version and clear the wait condition. The
+        attempt already ended when the task started waiting, so the current
+        attempt stays empty and the next claim opens a new one.
+        """
+
 
 class EventRepository(Protocol):
     async def append(self, event: Event) -> Event:
@@ -231,6 +240,7 @@ class ActionRepository(Protocol):
         *,
         result_ref: str | None = None,
         receipt_ref: str | None = None,
+        approval_ref: str | None = None,
         now: datetime,
     ) -> Action: ...
 
@@ -345,6 +355,21 @@ class DeliveryRepository(Protocol):
                   label_source: str | None, now: datetime) -> InboxItem: ...
 
 
+class ApprovalRepository(Protocol):
+    """Human decisions on actions that change things outside the task.
+
+    An approval is bound to (action_id, request_hash): the same action with
+    different arguments is a different decision, so a stale approval can never
+    authorise new arguments.
+    """
+
+    async def add(self, approval: Approval) -> Approval:
+        """Insert or replace the decision for this (action_id, request_hash)."""
+
+    async def get(self, action_id: str, request_hash: str) -> Approval | None:
+        """The decision for exactly these arguments, or None."""
+
+
 @dataclass(frozen=True)
 class Repositories:
     tasks: TaskRepository
@@ -356,3 +381,4 @@ class Repositories:
     subscriptions: ProactiveSubscriptionRepository | None = None
     delivery: DeliveryRepository | None = None
     memories: MemoryStore | None = None
+    approvals: ApprovalRepository | None = None

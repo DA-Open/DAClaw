@@ -59,6 +59,7 @@ from . import errors
 from .auth import TokenAuth
 from .errors import ApiError
 from .ranges import byte_range
+from .approvals import approval_router
 from .reconcile import reconciliation_router
 from .memory import routes as memory_routes
 
@@ -175,6 +176,7 @@ def create_app(
         title="DaraOS harness", version="0.1", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan
     )
     errors.install(app)
+    app.include_router(approval_router(system))
     app.include_router(reconciliation_router(system))
 
     @app.middleware("http")

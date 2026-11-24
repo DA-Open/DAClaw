@@ -422,7 +422,12 @@ async def test_outside_side_effects_need_approval(tmp_path):
     policy = WhitelistPolicy(roles={"main_tools@1": {"mail.send"}}, users={ACTOR.scope_id: {AgentRole.MAIN: UserGrant()}})
     s = await Setup(tmp_path, policy=policy, connectors=[Mail(spec)]).start()
     outcome = await s.call("mail.send")
-    assert outcome.status is ToolStatus.NEEDS_APPROVAL and await s.actions() == []
+    # The action is registered in needs_approval so an approval can be bound to
+    # it (action_id + request_hash); nothing ran and no tool budget was spent.
+    assert outcome.status is ToolStatus.NEEDS_APPROVAL
+    actions = await s.actions()
+    assert [a.status for a in actions] == [ActionStatus.NEEDS_APPROVAL]
+    assert actions[0].id == outcome.action_id
 
 
 # -- connectors on their own --------------------------------------------------------------
