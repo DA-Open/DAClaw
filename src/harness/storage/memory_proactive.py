@@ -44,6 +44,16 @@ class InMemorySubscriptionRepository:
             self._get(scope_id, subscription_id)
             return [_copy(r) for r in self._s.subscription_events.values() if r.subscription_id == subscription_id]
 
+    async def label_decision(self, scope_id, subscription_id, task_id, label, now):
+        async with self._s.lock:
+            self._get(scope_id, subscription_id)
+            for key, record in self._s.subscription_events.items():
+                if record.subscription_id == subscription_id and record.task_id == task_id:
+                    updated = _replace(record, backfill_label=label, label_source="explicit")
+                    self._s.subscription_events[key] = updated
+                    return _copy(updated)
+            raise NotFound("admission decision not found")
+
     async def event(self, scope_id, event_id):
         async with self._s.lock:
             for event in self._s.events:

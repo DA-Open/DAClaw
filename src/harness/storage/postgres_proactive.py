@@ -70,6 +70,21 @@ class PgSubscriptionRepository:
             return [AdmissionDecision.model_validate(b) for b in (await conn.execute(select(s.subscription_events.c.body)
                     .where(s.subscription_events.c.subscription_id == subscription_id))).scalars()]
 
+    async def label_decision(self, scope_id, subscription_id, task_id, label, now):
+        events = s.subscription_events
+        async with self._db.engine.begin() as conn:
+            await lock_scope(conn, scope_id)
+            result = await conn.execute(
+                update(events).where(events.c.scope_id == scope_id, events.c.subscription_id == subscription_id,
+                                     events.c.task_id == task_id)
+                .values(body=events.c.body.concat({"backfill_label": label, "label_source": "explicit"}))
+                .returning(events.c.body)
+            )
+            body = result.scalar_one_or_none()
+            if body is None:
+                raise NotFound("admission decision not found")
+            return AdmissionDecision.model_validate(body)
+
     async def event(self, scope_id, event_id):
         async with self._db.engine.connect() as conn:
             row = (await conn.execute(select(s.events).where(s.events.c.id == event_id,

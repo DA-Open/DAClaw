@@ -76,7 +76,7 @@ async def run(database, output):
     if len(items) != 1 or len(context.injected_materials) != 1:
         raise RuntimeError("demo did not publish and inject the data card")
     read = await system.delivery.read("demo", items[0].id)
-    await system.repos.delivery.ack("demo", items[0].id, "handled", "useful", system.delivery.clock())
+    await system.repos.delivery.ack("demo", items[0].id, "handled", "useful", label_source="explicit", now=system.delivery.clock())
     checks = (await system.repos.verifications.list_for_task(report.task_id))[-1]
     evidence = {"task_id": report.task_id, "status": report.status, "verification": checks.model_dump(mode="json"),
         "table_count": len(read["card"]["profile"]["tables"]), "finding_count": len(read["card"]["profile"]["findings"]),

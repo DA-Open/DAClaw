@@ -118,7 +118,9 @@ class SimpleContextBuilder:
             if task.source_task_id:
                 previous = await self._repos.tasks.get(task.scope_id, task.source_task_id)
                 brief += f"\nPrevious data-card artifact: {previous.result_ref}"
-        elif self._delivery is not None and any(s.name == "background_results.read" for s in tools):
+        elif self._delivery is not None and any(
+            s.name in {"background_results.read", "background_results.mention"} for s in tools
+        ):
             from ..contracts import canonical_json
             materials = await self._delivery.materials(task)
             if materials:

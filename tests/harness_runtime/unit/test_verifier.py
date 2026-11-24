@@ -414,7 +414,7 @@ def test_main_profile_registry():
     assert reg.resolve(AgentRole.PROACTIVE, "1").default_lane == RunLane.BACKGROUND
     assert main_role_whitelist() == {
         "main_tools@1": {
-            "files.read", "artifacts.read", "artifacts.write", "background_results.read",
+            "files.read", "artifacts.read", "artifacts.write", "background_results.read", "background_results.mention",
             "data.list", "data.connect", "data.query",
         },
         "proactive_tools@1": {"data.profile", "data.connect", "data.query", "artifacts.read", "artifacts.write",

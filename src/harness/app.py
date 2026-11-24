@@ -49,7 +49,7 @@ from .storage.repositories import Repositories
 from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
 from .tools.connectors import DataConnector, data_connectors, p0_connectors
-from .tools.connectors.background_results import BackgroundResultsConnector
+from .tools.connectors.background_results import BackgroundResultsConnector, BackgroundResultsMentionConnector
 from .tools.connectors.data_profile import DataProfileConnector
 from .results.checks.data_card import DataCardChecks
 from .results.verifier import DEFAULT_CHECKERS
@@ -238,6 +238,7 @@ def build_system(
         *other_data,
         profile,
         BackgroundResultsConnector(delivery),
+        BackgroundResultsMentionConnector(delivery),
         MemorySearchConnector(memory),
         MemoryReadConnector(memory),
     ]

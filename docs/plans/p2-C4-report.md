@@ -1,103 +1,113 @@
-# P2 C4 停止报告
+# P2 C4 交付报告
 
-2026-11-24 · 本地分支 `feat/harness-p2-delivery`
+2026-11-24 · `feat/harness-p2-delivery` · BASE `5d765337222ebc2bc87d8b50123a0b6bd07eea9a`
 
-**C4 未实施：开工检查已触发卡片的停止条件。** 演示脚本存在卡片未列出的 `DeliveryRepository.ack` 调用方。只交付本报告和基线记录，不修改实现、测试、能力包或 Prompt，不 push、不创建 PR。
+Main 可以反复读取后台结果。决定把结果提给用户时，`background_results.mention` 才会预留提醒。`data_analysis@2` 和 `document_draft@3` 提供这两个工具。用户的显式评价和从收件箱状态推得的评价现在分别记录来源。
 
-## 工作树与基线
+## 首次停止与恢复
 
-- 已通过 `attach_worktree` 挂载 `E:\Desktop\研0\DAClaw-worktrees\harness-p2-delivery`。
-- 开工时分支为 `feat/harness-p2-delivery`，HEAD 为指定 BASE `5d765337222ebc2bc87d8b50123a0b6bd07eea9a`，`git status --short` 输出为空。
-- 已读取任务卡“0. 顺序与依赖”“通用约定”和 C4，以及仓库 AGENTS.md、Harness README 要求的四节。
-- 在指定 worktree 用 `git archive` 导出 BASE，测试副本为 WSL 的 `/home/xue/harness-p2-C4-check.3hM6pD/repo`。使用 `/home/xue/venvs/docker-harness-review/bin/python`（Python 3.11.15）；实际导入的 `harness` 路径已确认位于这个测试副本。
-- PostgreSQL fixture 使用已有 `postgres:16` 镜像启动独立临时容器；没有复用其他任务的测试数据库。
-- [基线失败清单](p2-C4-baseline.txt)为空，740 个用例通过。由于未修改 `src/`、`tests/` 或 `scripts/`，本次基线执行也作为提交前回归证据，没有重复运行相同测试。
+首次核对共享接口时，BASE 中有三处 `DeliveryRepository.ack` 调用。旧卡只列出了 API 和场景测试，漏掉了演示脚本。按当时的停止条件，提交 `fc9e3471` 只记录了基线和停止原因。三处调用在 BASE 的位置如下。
 
-## 停止条件与证据
+| 调用方 | BASE 行号 | 本次处理 |
+| --- | ---: | --- |
+| `src/harness/api/proactive.py` | 90 | 从请求中的评价值或收件箱状态确定来源 |
+| `tests/harness_runtime/scenarios/test_proactive.py` | 189 | 显式传入 `useful`，来源为 `explicit` |
+| `scripts/harness/proactive_data_card_demo.py` | 79 | 同样补上 `label_source="explicit"`。脚本差异仅此一行，保留第 78 行的 `read` 调用，后文继续使用 `card` |
 
-任务卡 `E:\Desktop\研0\P2_Codex任务卡_2026-11-24.md:684` 明确写明：
+修订后的卡片列出了这三处调用。本次在同一 worktree 的 `fc9e3471` 后继续，按派发要求仍用 C0 的指定提交作为 BASE。沿用的[基线记录](p2-C4-baseline.txt)为 `740 passed in 89.76s`，失败清单为空。
 
-> `DeliveryRepository.ack` 还有本卡没列出的调用方。
+## 实现与兼容
 
-在 BASE 执行 `rg -n '\.ack\(' src tests scripts` 的完整输出为：
+- `DeliveryService.read` 在可见性检查后始终返回正文。普通读取的 `notice` 为 `read`，用户明确请求的读取为 `requested`。`mention` 检查当前可见性，再用仓库现有的跨渠道去重键预留。第一次预留将 `notify` 转为 `digest`。已经 `ack` 或预留过则返回 `already_reserved`。返回值包含 `notice` 和 `valid_until`。
+- 网关把 `mention` 加入原有的缓存前可见性检查。撤销订阅后，即使相同逻辑键曾成功，调用仍返回 `denied`。Proactive 和未授予该工具的旧能力包也会被拒绝。连接器声明 `read_only=True`、`side_effects=False`、`idempotent=True`，预留只写 Harness 内部的去重记录。
+- `data_analysis@2` 在 v1 工具集合上增加 `read` 和 `mention`，`document_draft@3` 在 v2 上增加 `mention`。Main 只要获准使用任一工具，就可以收到相关指针。两份新 Prompt 共用相同的提起说明。共享 Proactive Prompt 说明单订阅、Main 对话隔离、来源与记忆的可信边界，以及按能力包产出并提交校验的职责。数据卡专属指令放回 `data_card.md`。
+- **旧版本的兼容边界。** `document_draft@2` 仍可读取后台结果，但共享 `read` 已改为只读，旧 Prompt 中默认读取会预留提醒的说明随之失效。需要主动提起后台结果的新文档任务应选 `document_draft@3`。`data_analysis@1` 保持原来的工具集合和上下文行为。
 
-```text
-scripts\harness\proactive_data_card_demo.py:79:    await system.repos.delivery.ack("demo", items[0].id, "handled", "useful", system.delivery.clock())
-src\harness\api\proactive.py:90:        return await system.repos.delivery.ack(request.state.actor.scope_id, item_id, payload.status, label, system.delivery.clock())
-tests\harness_runtime\scenarios\test_proactive.py:189:    await repos.delivery.ack("s1", item.id, "handled", "useful", utcnow())
+## 共享接口与反馈
+
+| 接口 | 调用和持久化行为 |
+| --- | --- |
+| `DeliveryRepository.ack(scope_id, item_id, status, label, label_source, now)` | 新增必传的 `label_source: str \| None`。给出评价值时，任何状态都记 `explicit`。仅有 `handled` / `ignored` 时分别映射到 `useful` / `not_useful`，来源为 `behavior`。仅有 `read` 时不写反馈，也不覆盖已有评价。带标签的 `ack` 沿用原有回填时间及收件箱去重机制。 |
+| `ProactiveSubscriptionRepository.label_decision(scope_id, subscription_id, task_id, label, now)` | 新的 `POST /subscriptions/{subscription_id}/decisions/{task_id}/label` 从鉴权身份取得 scope，返回更新后的准入记录。按卡片“只写”两个字段的要求，仅更新 `backfill_label` 和 `label_source="explicit"`。保留约定签名中的 `now`，此路由不更新 `backfilled_at`、收件箱或去重表。 |
+
+两种仓库都在锁保护下更新。PostgreSQL 独立评价在同一事务按 scope、订阅和任务匹配行，并更新该行的 JSONB。跨 scope 或任务不属于该订阅时返回 404。沿用原表结构。
+
+## 红灯、定向回归和演示
+
+红灯阶段只加入测试和卡片允许的断言改动，`src/`、`scripts/` 与 BASE 相同。WSL 导出的测试树为 `1793cc30dc984fae91a835ea12d9352299274504`。运行下方用例得到 `19 failed, 2 passed in 29.35s`。失败包括普通读取仍为 `reserved`、缺少 `mention` 和新版能力包、`ignored` 后来源为空、评价路由返回 404、共享 Prompt 仍含 `data card`。两项通过的是两种仓库原有的损坏数据卡校验用例。
+
+```bash
+python -m pytest tests/harness_runtime/scenarios/test_delivery_feedback.py \
+  tests/harness_runtime/scenarios/test_proactive.py::test_data_card_end_to_end_and_tamper_failure \
+  tests/harness_runtime/unit/test_verifier.py::test_main_profile_registry \
+  -q -n0 -o addopts="" -m "integration or not integration" --tb=short
 ```
 
-API 和场景测试已列入 C4；`scripts/harness/proactive_data_card_demo.py` 没有列入。现有接口在 `src/harness/storage/repositories.py:339` 接收五个参数（不含 `self`），而 C4 要增加必传的 `label_source: str | None`。只更新卡片列出的调用方，会遗漏演示脚本中的现有五参数调用。为新参数添加默认值来迁就旧调用也不符合通用约定。
+实现后的定向检查覆盖卡片要求的八个具名测试。仓库行为使用现有 `repos` fixture 同时在内存和 PostgreSQL 执行，包含只开放 `mention` 时仍注入指针、缓存成功后撤销订阅、静默评价跨 scope 或订阅被拒绝，以及评价前后去重记录数为零。
 
-发现此条件后没有编写“必须的测试”或实现，也没有修改 `test_verifier.py` 的 Main / Proactive 白名单。红灯阶段尚未开始，不声称 C4 行为已经得到验证。
+```text
+.....................                                                    [100%]
+21 passed in 29.98s
+```
+
+另用一张含 3 行数据的 SQLite 表运行卡片补列的离线演示脚本。`acceptance.json` 中 `backfill_label` 为 `useful`，`label_source` 为 `explicit`，注入了 1 个指针。对两版新增 Prompt 还逐项核对了旧文本和新增段落。
+
+```text
+{"status": "succeeded", "verification": "passed", "tables": 1, "findings": 2, "output": "/home/xue/harness-p2-C4-check.3hM6pD/demo.a2MTbK/output"}
+```
 
 ## 提交前三项检查
 
-### 1. Harness 全量回归
+WSL 2 Ubuntu-22.04，Python 3.11.15，环境为 `/home/xue/venvs/docker-harness-review`。定向与全量回归使用同一份 Git 索引快照 `4688f309e8500609f63b5f575a7560ce8e673836` 导出的原生 Linux 目录。PostgreSQL fixture 使用 `postgres:16` 和各次运行独立的临时容器。原始日志位于 `/home/xue/harness-p2-C4-check.3hM6pD/` 下的 `red-pytest.txt`、`candidate-pytest.txt` 和 `final-pytest.txt`。
 
-在 WSL 2 Ubuntu-22.04 中激活指定环境、进入 BASE 测试副本，并清除 `DARAOS_HARNESS_TEST_DSN` 后执行：
+### 1. Harness 全量回归
 
 ```bash
 python -m pytest tests/harness_runtime -q -n0 -o addopts="" -m "integration or not integration"
 ```
 
-完整 pytest 输出：
-
 ```text
 ........................................................................ [  9%]
 ........................................................................ [ 19%]
-........................................................................ [ 29%]
+........................................................................ [ 28%]
 ........................................................................ [ 38%]
-........................................................................ [ 48%]
-........................................................................ [ 58%]
-........................................................................ [ 68%]
-........................................................................ [ 77%]
-........................................................................ [ 87%]
-........................................................................ [ 97%]
-....................                                                     [100%]
-740 passed in 89.76s (0:01:29)
+........................................................................ [ 47%]
+........................................................................ [ 57%]
+........................................................................ [ 66%]
+........................................................................ [ 76%]
+........................................................................ [ 85%]
+........................................................................ [ 95%]
+....................................                                     [100%]
+756 passed in 100.13s (0:01:40)
 ```
 
-pytest 返回码为 0。原始输出保留在 WSL 的 `/home/xue/harness-p2-C4-check.3hM6pD/baseline-full.txt`。包装脚本在 pytest 完成后，末行受 PowerShell 的 CRLF 影响，额外报出 `bash: line 15: exit: 0\r: numeric argument required`，使外层命令返回 1；此前从 `PIPESTATUS[0]` 保存的 `baseline-exit.txt` 字节为 `30 0A`（`0\n`），因此该包装错误不计为测试失败。
+pytest 退出码为 0。相较 BASE 新增 16 个通过用例，失败清单仍为空。
 
 ### 2. 防御性写法检查
-
-在交付 worktree 中使用 Git Bash 执行任务卡原命令：
 
 ```bash
 git diff 5d765337222ebc2bc87d8b50123a0b6bd07eea9a -- 'src/harness/*.py' ':!src/harness/contracts.py' ':!src/harness/interfaces.py' ':!src/harness/storage/repositories.py' \
   | grep -nE '^\+.*(except Exception|except:|getattr\([^)]*,[^)]*,|hasattr\(|self\._\w+ is not None)|^\+\s+def __init__\([^)]*=None|^\+ {8,}(from \.|import )'
 ```
 
-完整输出为空（0 字节）；`grep` 返回 1 表示没有匹配。
-
 ```text
+97:+        elif self._delivery is not None and any(
 ```
 
-### 3. `src/` 新增行数
+该匹配来自 `src/harness/context/builder.py:121`。BASE 同行已有 `elif self._delivery is not None and any(s.name == "background_results.read" for s in tools):`。C4 只扩展了 `any(...)` 中的工具集合，保留原有可选交付服务的判断。
 
-在交付 worktree 中使用 Git Bash 执行任务卡原命令：
+### 3. `src/` 新增行数
 
 ```bash
 git diff --numstat 5d765337222ebc2bc87d8b50123a0b6bd07eea9a -- src/ ':!src/harness/prompts' ':!src/harness/capabilities' | awk '{s+=$1} END {print s}'
 ```
 
-完整输出仅含一个换行（1 字节，十六进制 `0A`）：
-
 ```text
-
+101
 ```
 
-这里 `git diff --numstat` 没有输入行，原命令中的 `awk` 变量 `s` 保持未初始化，故打印空行。实际 `src/` 新增 0 行，低于 C4 的 200 行上限。补充执行以下命令，输出为空、返回 0，确认源码、测试及脚本均与 BASE 相同：
+C4 上限 200 行。演示脚本、网关和 `test_verifier.py` 在各自授权的位置各改一行，白名单变更仅涉及 `main_tools@1`。
 
-```bash
-git diff --exit-code 5d765337222ebc2bc87d8b50123a0b6bd07eea9a -- src tests scripts
-```
+## 参考文档与任务卡的范围
 
-## 差异、未完成工作与恢复条件
-
-- 实际仓库比任务卡多出一个 `ack` 调用方，这是本次需要修订的范围差异。没有为绕过限制修改脚本、添加兼容默认值或调整接口设计。
-- 任务卡写 BASE 为“C0 合入后的 DaraOS”；本次派发明确覆盖为 PR #32 的提交 `5d765337222ebc2bc87d8b50123a0b6bd07eea9a`，且 rebase 由派发方负责，因此按指定提交验证。
-- 本次没有使用记忆系统计划推导额外要求，也没有进入功能实现；读取 / 提起拆分、新能力包、标签来源、静默评价和 Prompt 调整均未完成。
-- 建议将 `scripts/harness/proactive_data_card_demo.py` 的该处 `ack` 调用补入 C4 的“允许改”，允许显式补齐与演示反馈一致的 `label_source`。范围修订后可从本分支继续，先添加卡片要求的测试并确认红灯，再实施功能。
-- C4 列出的共享接口变化仍需在后续 PR 描述中单独说明；`document_draft@2` 的旧 Prompt 与新读取语义之间的差异也仍需按卡片记录。
+记忆计划 §7、§8.1 的反馈和预留规则与 C4 一致。§8.2 还描述了过滤静默或取消的指针、按来源哈希判断数据复核结果是否有效。这些工作在任务卡中分配给 C5。C4 按卡片完成读取、预留和独立评价，保持 `materials()` 的既有筛选规则。
