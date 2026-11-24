@@ -17,7 +17,7 @@ SPEC_METHODS = {
     # P1/P2: types only for now, so the implementations can be written against them.
     "SubscriptionRepository": {"create", "get", "list_for_scope", "update", "record_event", "consumed"},
     "OutboxRepository": {"enqueue", "get", "list_due", "update", "cancel_for_task"},
-    "MemoryStore": {"put", "get", "search", "supersede"},
+    "MemoryStore": {"put", "get", "search", "current", "list", "supersede", "retract"},
     "DeliveryService": {"reserve_notice", "dispatch"},
     "ProactiveController": {"on_event"},
 }

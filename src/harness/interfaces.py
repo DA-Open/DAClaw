@@ -12,7 +12,7 @@ as types so their implementations can be written and faked independently.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from .contracts import (
     ActionRef,
@@ -26,7 +26,9 @@ from .contracts import (
     AssistantStep,
     DeliveryOutcome,
     Event,
+    MemoryKind,
     MemoryRecord,
+    MemoryStatus,
     NoticeRequest,
     NoticeReservation,
     OutboxItem,
@@ -196,20 +198,60 @@ class OutboxRepository(Protocol):
 
 
 class MemoryStore(Protocol):
-    """Versioned facts, preferences and past results (spec 6).
+    """Scope-owned, versioned memory records (spec 6).
 
     Full text lives in ArtifactStore. Model inferences are CANDIDATE and may
     not be presented as confirmed facts; superseding keeps the old row.
+    A record is current when ended_at is unset and expires_at is unset or later than now.
     """
 
     async def put(self, record: MemoryRecord) -> MemoryRecord: ...
 
-    async def get(self, scope_id: str, memory_id: str) -> MemoryRecord: ...
+    async def get(self, scope_id: str, memory_id: str) -> MemoryRecord:
+        """Read a record in this scope, including ended and expired versions."""
 
-    async def search(self, scope_id: str, query: str, *, limit: int = 20) -> list[MemoryRecord]: ...
+    async def search(
+        self, scope_id: str, query: str, *, now: datetime,
+        kinds: list[MemoryKind] | None = None, limit: int = 20,
+    ) -> list[MemoryRecord]:
+        """Return current records matching any whitespace-separated query term.
 
-    async def supersede(self, scope_id: str, memory_id: str, replacement: MemoryRecord) -> MemoryRecord:
-        """Mark the old row superseded, then store `replacement`."""
+        A term matches a summary substring or a whole tag, case-insensitively.
+        Sort by matched term count, then updated_at, both descending.
+        Raise ValueError if the query contains no terms.
+        """
+
+    async def current(
+        self, scope_id: str, *, now: datetime, kinds: list[MemoryKind],
+        subject_ref: str | None = None, limit: int = 50,
+    ) -> list[MemoryRecord]:
+        """Return current records of these kinds, newest updated_at first.
+        When supplied, subject_ref limits results to that subject.
+        """
+
+    async def list(
+        self, scope_id: str, *, now: datetime, kinds: list[MemoryKind] | None = None,
+        statuses: list[MemoryStatus] | None = None, include_ended: bool = False,
+        end_reasons: list[str] | None = None, source_ref: str | None = None, limit: int = 200,
+    ) -> list[MemoryRecord]:
+        """List records for the user API and deduplication, newest updated_at first.
+        Only current records qualify unless include_ended is set. Omitted filters impose no restriction.
+        """
+
+    async def supersede(
+        self, scope_id: str, memory_id: str, replacement: MemoryRecord, now: datetime,
+    ) -> MemoryRecord:
+        """Atomically end the old record at now as superseded and return its replacement.
+        Set supersedes_id to memory_id and increment the old version by one for the new record.
+        Raise InvalidTransition unless the old record is current in this scope.
+        """
+
+    async def retract(
+        self, scope_id: str, memory_id: str, reason: Literal["retracted", "rejected"], now: datetime,
+    ) -> MemoryRecord:
+        """Set only ended_at and end_reason on the record and return it, retaining its content.
+        Raise InvalidTransition unless the record is current in this scope.
+        """
 
 
 class DeliveryService(Protocol):

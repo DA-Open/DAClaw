@@ -51,6 +51,7 @@ from ..contracts import (
     UsageReservation,
     VerificationResult,
 )
+from ..interfaces import MemoryStore
 from ..proactive_types import InboxItem
 
 
@@ -313,6 +314,13 @@ class ProactiveSubscriptionRepository(Protocol):
 
     async def latest_event(self, scope_id: str, subject_ref: str) -> Event | None: ...
 
+    async def changes(
+        self, scope_id: str, subject_ref: str, since: datetime, until: datetime, *, source: str,
+    ) -> list[Event]:
+        """External events from `source` about subject_ref with since < occurred_at <= until,
+        ordered by (occurred_at, seq).
+        """
+
     async def pending_events(self) -> list[Event]: ...
 
     async def mark_processed(self, scope_id: str, event_id: str, now: datetime) -> None: ...
@@ -341,3 +349,4 @@ class Repositories:
     usage: UsageRepository
     subscriptions: ProactiveSubscriptionRepository | None = None
     delivery: DeliveryRepository | None = None
+    memories: MemoryStore | None = None
