@@ -10,6 +10,8 @@ from ..contracts import (
     TaskRef, TaskRequest, TaskStatus, TriggerType, Usage, utcnow,
 )
 from ..proactive_types import DataEvent, default_daily_budget
+from ..personal.calendar_admission import decide_personal
+from ..personal.calendar_types import PersonalWindowEvent
 
 POLICY_VERSION = "proactive-admission@1"
 UNFINISHED = {TaskStatus.QUEUED, TaskStatus.RUNNING, TaskStatus.CANCELLING, TaskStatus.WAITING}
@@ -108,7 +110,15 @@ class ProactiveController:
             raise ValueError("subject_ref must be one of the explicitly granted resources")
         if not resources_allowed(sub, self.policy):
             raise PermissionError("subscription resources exceed the user's proactive whitelist")
-        if sub.capability_ref != "data_card@1":
+        if sub.capability_ref == "personal_watch@1":
+            if not sub.schedule or sub.event_filter or sub.baseline_ref is not None or sub.watch is not None:
+                raise ValueError("personal_watch requires schedule and empty event_filter, baseline_ref and watch")
+            if sub.resources != [sub.subject_ref] or Path(sub.subject_ref).suffix != ".json":
+                raise ValueError("personal_watch resources must be exactly the subject_ref JSON file")
+            if not self.policy.check_path(Path(sub.subject_ref).expanduser().resolve(),
+                                          scope_id=sub.scope_id, role=AgentRole.MAIN).allowed:
+                raise PermissionError("subscription resources exceed the user's main whitelist")
+        elif sub.capability_ref != "data_card@1":
             raise ValueError("Q1-Q3 subscriptions support data_card@1")
         self.tasks.prepare(self._request(sub, "validate"), Actor(scope_id=sub.scope_id, actor_id=sub.owner_id),
                            self._origin(sub, "validate"))
@@ -121,6 +131,13 @@ class ProactiveController:
         ))
 
     def _request(self, sub, event_id):
+        if sub.capability_ref == "personal_watch@1":
+            return TaskRequest(
+                request_key=f"proactive:{sub.id}:{event_id}", goal=sub.goal,
+                input_refs=[sub.subject_ref], subject_ref=sub.subject_ref, capability_ref=sub.capability_ref,
+                limits=sub.limits, acceptance=Acceptance(required_artifacts=["decision"], checks=[
+                    CheckSpec(id="artifact_readable"), CheckSpec(id="decision_schema"), CheckSpec(id="decision_evidence")]),
+            )
         return TaskRequest(
             request_key=f"proactive:{sub.id}:{event_id}", goal=sub.goal,
             input_refs=list(sub.resources), subject_ref=sub.subject_ref, capability_ref=sub.capability_ref,
@@ -137,16 +154,27 @@ class ProactiveController:
     async def on_event(self, event: Event) -> list[TaskRef]:
         if event.type != EventType.EXTERNAL:
             raise ValueError("ProactiveController only accepts external data events")
-        DataEvent.model_validate({k: event.payload.get(k) for k in DataEvent.model_fields})
+        if event.payload.get("kind") == "personal_window":
+            PersonalWindowEvent.model_validate(event.payload)
+        else:
+            DataEvent.model_validate({k: event.payload.get(k) for k in DataEvent.model_fields})
         event = await self.repos.events.append(event)
         out = []
         for sub in await self.repos.subscriptions.list_for_scope(event.scope_id):
             if not matches(sub, event):
                 continue
             now = self.clock()
+            if sub.capability_ref == "personal_watch@1":
+                window = PersonalWindowEvent.model_validate(event.payload)
+                changes = await self.repos.subscriptions.changes(
+                    event.scope_id, sub.subject_ref, window.since, window.until, source="mock_calendar")
             def evaluate(current, tasks, records, usage):
-                record = decide(current, event, tasks, records, usage, now, self.scope_limit,
-                                resources_allowed(current, self.policy))
+                if current.capability_ref == "personal_watch@1":
+                    record = decide_personal(current, event, window, changes, tasks, usage, now, self.scope_limit,
+                                             resources_allowed(current, self.policy))
+                else:
+                    record = decide(current, event, tasks, records, usage, now, self.scope_limit,
+                                    resources_allowed(current, self.policy))
                 task = None
                 if record.decision == "admit":
                     task = self.tasks.prepare(self._request(current, event.id),

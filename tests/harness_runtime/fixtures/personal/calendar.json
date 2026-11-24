@@ -1,0 +1,17 @@
+{
+  "calendar_id": "lab",
+  "changes": [
+    {
+      "item_id": "group-meeting-w48",
+      "version": 2,
+      "kind": "updated",
+      "occurred_at": "2026-11-25T01:10:00Z",
+      "title": "组会",
+      "summary": "组会由周五提前到周四",
+      "start": "2026-11-26T02:00:00Z",
+      "end": "2026-11-26T04:00:00Z",
+      "previous": {"start": "2026-11-27T02:00:00Z", "end": "2026-11-27T04:00:00Z"},
+      "body": "本周组会改到周四上午十点，汇报顺序不变。"
+    }
+  ]
+}

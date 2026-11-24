@@ -1,0 +1,9 @@
+BASE: 5d765337222ebc2bc87d8b50123a0b6bd07eea9a
+Branch: feat/harness-p2-personal-window
+Environment: WSL 2 Ubuntu-22.04, Python 3.11.15
+Virtualenv: /home/xue/venvs/docker-harness-review
+TMPDIR: /home/xue/p2-c2-tests.G2iTKz
+Command: python -m pytest tests/harness_runtime -q -n0 -o addopts="" -m "integration or not integration"
+Exit code: 0
+Summary: 740 passed in 141.64s (0:02:21)
+Failed cases: 0
