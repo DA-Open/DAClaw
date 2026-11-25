@@ -33,7 +33,8 @@ async def test_concurrent_remember_same_task_once(pools, tmp_path):
 
 
 async def test_migration_0004_round_trip(pools):
-    assert heads() == ["0004"]
+    # 0005 (approvals) is the head now; downgrading past 0004 still drops memories.
+    assert heads() == ["0005"]
     engine = pools[0].engine
     async with engine.connect() as conn:
         columns = await conn.run_sync(lambda c: {v["name"]: str(v["type"]) for v in inspect(c).get_columns("memories")})
@@ -44,7 +45,7 @@ async def test_migration_0004_round_trip(pools):
     await run(engine, "downgrade", "0003")
     async with engine.connect() as conn:
         assert "memories" not in await conn.run_sync(lambda c: inspect(c).get_table_names())
-    await run(engine, "upgrade", "0004")
+    await run(engine, "upgrade", "head")
     await pools[0].check_ready()
     old = await pools[0].memories.put(record())
     assert await pools[1].memories.get("s1", old.id) == old

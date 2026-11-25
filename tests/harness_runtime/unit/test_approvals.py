@@ -211,7 +211,10 @@ async def test_api_decides_and_requeues(tmp_path):
     auth = TokenAuth([{"sha256": token_digest(token), "scope_id": "s1", "actor_id": "u1"}])
 
     class Stub:
+        # Only the approval route is exercised; the other routers are built but
+        # never called, so they only need their attributes to exist.
         repos = s.repos
+        memory = None
 
     app = create_app(Stub(), auth)
     transport = httpx.ASGITransport(app=app)
