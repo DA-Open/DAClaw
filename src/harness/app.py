@@ -57,6 +57,8 @@ from .delivery.service import DeliveryService
 from .tasks.proactive_controller import ProactiveController
 from .tasks.recovery import Recovery
 from .tasks.scheduler import Scheduler
+from .personal.memory import MemoryService
+from .tools.connectors import MemoryReadConnector, MemorySearchConnector
 
 if TYPE_CHECKING:
     from .storage.postgres import PgRepositories
@@ -154,6 +156,7 @@ class HarnessSystem:
     proactive: ProactiveController
     delivery: DeliveryService
     scheduler: Scheduler
+    memory: MemoryService
     _data: DataConnector
     _owned_pg: PgRepositories | None = field(default=None, repr=False)
 
@@ -224,6 +227,7 @@ def build_system(
         else:
             repos = InMemoryRepositories()
     artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
+    memory = MemoryService(repos.memories, artifacts, clock)
     delivery = DeliveryService(repos, artifacts, policy, clock=clock)
     connect, *other_data = data_connectors(artifacts)
     profile = DataProfileConnector(artifacts)
@@ -233,6 +237,8 @@ def build_system(
         *other_data,
         profile,
         BackgroundResultsConnector(delivery),
+        MemorySearchConnector(memory),
+        MemoryReadConnector(memory),
     ]
     gateway = ToolGateway(
         repos,
@@ -277,6 +283,7 @@ def build_system(
         proactive=proactive,
         delivery=delivery,
         scheduler=Scheduler(repos, proactive, recovery, clock=clock),
+        memory=memory,
         _data=connect,
         _owned_pg=owned_pg,
     )

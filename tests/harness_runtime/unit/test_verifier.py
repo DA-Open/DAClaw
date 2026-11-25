@@ -417,7 +417,8 @@ def test_main_profile_registry():
             "files.read", "artifacts.read", "artifacts.write", "background_results.read",
             "data.list", "data.connect", "data.query",
         },
-        "proactive_tools@1": {"data.profile", "data.connect", "data.query", "artifacts.read", "artifacts.write"},
+        "proactive_tools@1": {"data.profile", "data.connect", "data.query", "artifacts.read", "artifacts.write",
+                              "memory.search", "memory.read"},
     }
 
 

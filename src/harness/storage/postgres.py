@@ -65,6 +65,7 @@ from ..contracts import (
 )
 from . import schema as s
 from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
+from .postgres_memory import PgMemoryStore
 
 _LEASED = (TaskStatus.RUNNING.value, TaskStatus.CANCELLING.value)
 
@@ -1072,6 +1073,7 @@ class PgRepositories(Repositories):
             usage=PgUsageRepository(db),
             subscriptions=PgSubscriptionRepository(db),
             delivery=PgDeliveryRepository(db),
+            memories=PgMemoryStore(db),
         )
         object.__setattr__(self, "engine", engine)
 
@@ -1086,6 +1088,7 @@ class PgRepositories(Repositories):
             await conn.execute(select(s.tasks.c.id).union_all(
                 select(s.subscriptions.c.id), select(s.subscription_events.c.event_id),
                 select(s.inbox_items.c.id), select(s.delivery_counters.c.dedup_key),
+                select(s.memories.c.id),
             ).limit(0))
 
     async def close(self) -> None:

@@ -60,6 +60,7 @@ from .auth import TokenAuth
 from .errors import ApiError
 from .ranges import byte_range
 from .reconcile import reconciliation_router
+from .memory import routes as memory_routes
 
 MAIN_PROFILE = "main@1"
 # Statuses after which the task does nothing until someone acts.
@@ -417,6 +418,7 @@ def create_app(
 
     from .proactive import routes
     app.include_router(routes(system))
+    app.include_router(memory_routes(system))
     return app
 
 
