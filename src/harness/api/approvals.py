@@ -11,7 +11,7 @@ from typing import Literal
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..contracts import ApprovalDecision, HarnessError, InvalidTransition, NotFound
+from ..contracts import ApprovalConflict, ApprovalDecision, HarnessError, InvalidTransition, NotFound
 from ..tasks.approvals import ApprovalRefused, Approvals
 from .errors import ApiError
 
@@ -51,7 +51,7 @@ def approval_router(system) -> APIRouter:
             )
         except NotFound as exc:
             raise ApiError(404, "not_found", exc.message) from None
-        except (ApprovalRefused, InvalidTransition) as exc:
+        except (ApprovalRefused, InvalidTransition, ApprovalConflict) as exc:
             raise ApiError(409, "invalid_transition", exc.message) from None
         except HarnessError as exc:
             raise ApiError(400, exc.code, exc.message) from exc

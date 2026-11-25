@@ -1,9 +1,6 @@
 """PostgreSQL approvals (asyncpg + SQLAlchemy 2.0 Core)."""
 from __future__ import annotations
 
-import json
-from datetime import datetime
-
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -12,11 +9,16 @@ from . import schema as s
 
 
 def _approval(row) -> Approval:
-    return Approval.model_validate(json.loads(row["body"]))
+    return Approval.model_validate(row["body"])
 
 
 class PgApprovalRepository:
-    """One row per (action_id, request_hash); a later decision replaces it."""
+    """One row per (action_id, request_hash).
+
+    Deciding goes through tasks.decide_approval, so the check, the insert, the
+    event and the requeue share one transaction. add() here is for seeding and
+    tests, and replaces the row.
+    """
 
     def __init__(self, db) -> None:
         self._db = db
@@ -27,15 +29,15 @@ class PgApprovalRepository:
                 await conn.execute(
                     pg_insert(s.approvals)
                     .values(
-                        id=approval.action_id + ":" + approval.request_hash[:32],
+                        id="apr_" + approval.action_id,
                         action_id=approval.action_id,
                         request_hash=approval.request_hash,
                         decision=str(approval.decision),
-                        body=approval.model_dump_json(),
+                        body=approval.model_dump(mode="json"),
                     )
                     .on_conflict_do_update(
                         index_elements=["action_id", "request_hash"],
-                        set_={"decision": str(approval.decision), "body": approval.model_dump_json()},
+                        set_={"decision": str(approval.decision), "body": approval.model_dump(mode="json")},
                     )
                     .returning(*s.approvals.c)
                 )

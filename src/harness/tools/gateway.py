@@ -287,6 +287,9 @@ class ToolGateway:
             args_ref=args_ref,
             read_only=connector.spec.read_only,
             grant_ref=decision.grant_ref,
+            # Written in the waiting state so a crash between registration and
+            # parking cannot leave a side effect looking like an unknown run.
+            status=ActionStatus.NEEDS_APPROVAL if connector.spec.side_effects else ActionStatus.PLANNED,
             created_at=now,
             updated_at=now,
         )
@@ -314,10 +317,19 @@ class ToolGateway:
         # task waits; nothing is executed and no tool budget is spent.
         approval_ref: str | None = None
         if connector.spec.side_effects:
-            approved = await self._valid_approval(action, now)
-            if approved is None:
-                if action.status is not ActionStatus.NEEDS_APPROVAL:
-                    await self._repos.actions.update(action.id, ActionStatus.NEEDS_APPROVAL, now=self._clock())
+            verdict, detail = await self._valid_approval(action, now)
+            if verdict == "rejected":
+                # The human said no: fail the action so the model sees a refusal
+                # instead of being asked again for the same thing.
+                await self._repos.actions.update(action.id, ActionStatus.FAILED, now=self._clock())
+                return _refused(
+                    ToolStatus.DENIED,
+                    ErrorCode.FORBIDDEN,
+                    f"{call.tool} was rejected: {detail}",
+                    action.id,
+                )
+            if verdict is None:
+                if registration.created:
                     await self._repos.events.append(
                         Event(
                             scope_id=task.scope_id,
@@ -335,7 +347,7 @@ class ToolGateway:
                     f"{call.tool} changes things outside the task; approve action {action.id} to run it",
                     action.id,
                 )
-            approval_ref = approved
+            approval_ref = detail
         # The budget charge for this run of the call. A new action that may run
         # now was charged by register(); a retry, or a side effect that was just
         # approved, is charged here under its own call ID.
@@ -543,14 +555,18 @@ class ToolGateway:
             ))
         return await data.restore(lease, call, registrations)
 
-    async def _valid_approval(self, action: Action, now: datetime) -> str | None:
-        """The approval reference if a live approval covers exactly these arguments."""
+    async def _valid_approval(self, action: Action, now: datetime) -> tuple[str | None, str]:
+        """("approved", ref) | ("rejected", reason) | (None, "") for these arguments."""
         found = await self._repos.approvals.get(action.id, action.request_hash)  # type: ignore[union-attr]
-        if found is None or found.decision is not ApprovalDecision.APPROVE:
-            return None
+        if found is None:
+            return None, ""
         if found.expires_at is not None and found.expires_at <= now:
-            return None
-        return f"{action.id}@{action.request_hash[:12]}"
+            return None, ""
+        if found.decision is ApprovalDecision.REJECT:
+            return "rejected", found.reason or "no reason given"
+        if found.decision is ApprovalDecision.APPROVE:
+            return "approved", f"{action.id}@{action.request_hash[:12]}"
+        return None, ""
 
     async def _reuse(self, scope_id: str, action: Action) -> ToolOutcome:
         """An earlier success of the same call: answer from its stored result."""

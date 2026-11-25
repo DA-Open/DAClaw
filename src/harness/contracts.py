@@ -274,6 +274,10 @@ class HarnessError(Exception):
         self.details = details
 
 
+class ApprovalConflict(HarnessError):
+    """A decision for this (action, arguments) already exists."""
+
+
 class InvalidTransition(HarnessError):
     code = ErrorCode.INVALID_TRANSITION
 

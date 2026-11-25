@@ -195,6 +195,28 @@ class TaskRepository(Protocol):
         """Idempotent. queued/waiting -> cancelled; running -> cancelling;
         cancelling and terminal states are returned unchanged."""
 
+    async def decide_approval(
+        self,
+        scope_id: str,
+        task_id: str,
+        action_id: str,
+        *,
+        request_hash: str,
+        approver: str,
+        decision: str,
+        reason: str,
+        expires_at: datetime | None,
+        now: datetime,
+    ) -> tuple[Task, Approval]:
+        """Record a human decision and requeue the task in one transaction.
+
+        Requires the task to be waiting/approval and the action to be
+        needs_approval with exactly these arguments. Raises ApprovalConflict if
+        this (action, arguments) already has a decision, so two racing requests
+        cannot overwrite each other; raises InvalidTransition or NotFound when
+        the task or action is not in a state where a decision applies.
+        """
+
     async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
         """Move a waiting task back to queued once its wait condition is settled.
 

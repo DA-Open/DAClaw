@@ -32,6 +32,10 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from ..contracts import (
+    InvalidTransition,
+    ApprovalDecision,
+    ApprovalConflict,
+    Approval,
     Action,
     ActionConflict,
     ActionStatus,
@@ -724,6 +728,103 @@ class PgTaskRepository:
             await self._db.status_event(conn, updated, task.status, now, reason="wait condition settled")
             return updated
 
+    async def decide_approval(
+        self,
+        scope_id: str,
+        task_id: str,
+        action_id: str,
+        *,
+        request_hash: str,
+        approver: str,
+        decision: str,
+        reason: str,
+        expires_at: datetime | None,
+        now: datetime,
+    ) -> tuple[Task, Approval]:
+        """One transaction: lock the task, check states, insert, event, requeue."""
+        async with self._db.engine.begin() as conn:
+            row = (
+                await conn.execute(
+                    select(s.tasks)
+                    .where(s.tasks.c.id == task_id, s.tasks.c.scope_id == scope_id)
+                    .with_for_update()
+                )
+            ).mappings().first()
+            if row is None:
+                raise NotFound(f"task {task_id} not found")
+            task = _task(row)
+            if task.status is not TaskStatus.WAITING or task.wait_condition is not WaitCondition.APPROVAL:
+                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
+            arow = (
+                await conn.execute(
+                    select(s.actions)
+                    .where(s.actions.c.id == action_id, s.actions.c.task_id == task.id)
+                    .with_for_update()
+                )
+            ).mappings().first()
+            if arow is None:
+                raise NotFound(f"action {action_id} not found on task {task_id}")
+            action = _action(arow)
+            if action.status is not ActionStatus.NEEDS_APPROVAL or action.request_hash != request_hash:
+                raise InvalidTransition("the action is not waiting for approval with these arguments")
+            approval = Approval(
+                action_id=action.id,
+                request_hash=request_hash,
+                approver=approver,
+                decision=ApprovalDecision(decision),
+                reason=reason,
+                expires_at=expires_at,
+                decided_at=now,
+            )
+            inserted = (
+                await conn.execute(
+                    pg_insert(s.approvals)
+                    .values(
+                        id=f"apr_{action.id}",
+                        action_id=action.id,
+                        request_hash=request_hash,
+                        decision=str(approval.decision),
+                        body=approval.model_dump(mode="json"),
+                    )
+                    .on_conflict_do_nothing(index_elements=["action_id", "request_hash"])
+                    .returning(*s.approvals.c)
+                )
+            ).mappings().first()
+            if inserted is None:
+                raise ApprovalConflict(f"action {action.id} already has a decision for these arguments")
+            await self._db.append_event(
+                conn,
+                Event(
+                    scope_id=task.scope_id,
+                    task_id=task.id,
+                    type=EventType.APPROVAL_DECIDED,
+                    payload={
+                        "action_id": action.id,
+                        "tool": action.tool,
+                        "decision": str(approval.decision),
+                        "approver": approver,
+                    },
+                    occurred_at=now,
+                    received_at=now,
+                ),
+            )
+            updated_row = (
+                await conn.execute(
+                    update(s.tasks)
+                    .where(s.tasks.c.id == task.id)
+                    .values(
+                        status=TaskStatus.QUEUED.value,
+                        wait_condition=None,
+                        version=task.version + 1,
+                        updated_at=now,
+                    )
+                    .returning(*s.tasks.c)
+                )
+            ).mappings().one()
+            updated = _task(updated_row)
+            await self._db.status_event(conn, updated, task.status, now, reason="approval decided")
+            return updated, approval
+
     async def revoke_subscription(self, scope_id, subscription_id, now):
         from .postgres_proactive import lock_scope, PgSubscriptionRepository
         async with self._db.engine.begin() as conn:
@@ -1122,7 +1223,7 @@ class PgRepositories(Repositories):
             await conn.execute(select(s.tasks.c.id).union_all(
                 select(s.subscriptions.c.id), select(s.subscription_events.c.event_id),
                 select(s.inbox_items.c.id), select(s.delivery_counters.c.dedup_key),
-                select(s.memories.c.id),
+                select(s.memories.c.id), select(s.approvals.c.id),
             ).limit(0))
 
     async def close(self) -> None:

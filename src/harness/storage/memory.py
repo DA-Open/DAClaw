@@ -15,6 +15,10 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from ..contracts import (
+    InvalidTransition,
+    ApprovalDecision,
+    ApprovalConflict,
+    Approval,
     Action,
     ActionConflict,
     ActionStatus,
@@ -79,6 +83,7 @@ class _Store:
         self.verifications: dict[str, VerificationResult] = {}
         self.reservations: dict[str, UsageReservation] = {}
         self.reservation_results: dict[str, ReservationResult] = {}
+        self.approvals: dict[tuple[str, str], Approval] = {}
 
     def unsettled(self, task_id: str) -> list[Action]:
         return [
@@ -480,6 +485,71 @@ class InMemoryTaskRepository:
             return _copy(updated)
 
 
+    async def decide_approval(
+        self,
+        scope_id: str,
+        task_id: str,
+        action_id: str,
+        *,
+        request_hash: str,
+        approver: str,
+        decision: str,
+        reason: str,
+        expires_at: datetime | None,
+        now: datetime,
+    ) -> tuple[Task, Approval]:
+        async with self._s.lock:
+            task = self._s.tasks.get(task_id)
+            if task is None or task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            if task.status is not TaskStatus.WAITING or task.wait_condition is not WaitCondition.APPROVAL:
+                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
+            action = self._s.actions.get(action_id)
+            if action is None or action.task_id != task.id:
+                raise NotFound(f"action {action_id} not found on task {task_id}")
+            if action.status is not ActionStatus.NEEDS_APPROVAL or action.request_hash != request_hash:
+                raise InvalidTransition(
+                    "the action is not waiting for approval with these arguments"
+                )
+            key = (action.id, request_hash)
+            if key in self._s.approvals:
+                raise ApprovalConflict(f"action {action.id} already has a decision for these arguments")
+            approval = Approval(
+                action_id=action.id,
+                request_hash=request_hash,
+                approver=approver,
+                decision=ApprovalDecision(decision),
+                reason=reason,
+                expires_at=expires_at,
+                decided_at=now,
+            )
+            self._s.approvals[key] = approval
+            self._s.append_event(
+                Event(
+                    scope_id=task.scope_id,
+                    task_id=task.id,
+                    type=EventType.APPROVAL_DECIDED,
+                    payload={
+                        "action_id": action.id,
+                        "tool": action.tool,
+                        "decision": str(approval.decision),
+                        "approver": approver,
+                    },
+                    occurred_at=now,
+                    received_at=now,
+                )
+            )
+            updated = _replace(
+                task,
+                status=TaskStatus.QUEUED,
+                wait_condition=None,
+                version=task.version + 1,
+                updated_at=now,
+            )
+            self._s.tasks[task.id] = updated
+            self._s.status_event(updated, task.status, now, reason="approval decided")
+            return _copy(updated), approval
+
     async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
         async with self._s.lock:
             task = self._s.tasks.get(task_id)
@@ -792,5 +862,5 @@ class InMemoryRepositories(Repositories):
             subscriptions=InMemorySubscriptionRepository(store),
             delivery=InMemoryDeliveryRepository(store),
             memories=InMemoryMemoryStore(store),
-            approvals=InMemoryApprovalRepository(),
+            approvals=InMemoryApprovalRepository(store),
         )
