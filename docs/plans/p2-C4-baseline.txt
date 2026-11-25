@@ -1,0 +1,25 @@
+P2 C4 baseline — 2026-11-24
+BASE: 5d765337222ebc2bc87d8b50123a0b6bd07eea9a
+Branch: feat/harness-p2-delivery
+Source worktree: E:\Desktop\研0\DAClaw-worktrees\harness-p2-delivery
+Test copy: /home/xue/harness-p2-C4-check.3hM6pD/repo
+Environment: WSL 2 Ubuntu-22.04; /home/xue/venvs/docker-harness-review/bin/python (3.11.15)
+Database: fixture-managed temporary postgres:16 container; DARAOS_HARNESS_TEST_DSN unset
+Command: python -m pytest tests/harness_runtime -q -n0 -o addopts="" -m "integration or not integration"
+Pytest exit code: 0
+Result: 740 passed in 89.76s (0:01:29)
+Failed/error test IDs: 0 (empty list)
+
+Full pytest output:
+........................................................................ [  9%]
+........................................................................ [ 19%]
+........................................................................ [ 29%]
+........................................................................ [ 38%]
+........................................................................ [ 48%]
+........................................................................ [ 58%]
+........................................................................ [ 68%]
+........................................................................ [ 77%]
+........................................................................ [ 87%]
+........................................................................ [ 97%]
+....................                                                     [100%]
+740 passed in 89.76s (0:01:29)

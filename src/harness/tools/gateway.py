@@ -168,7 +168,7 @@ class ToolGateway:
         artifact = None
         # Cached content must obey current permissions, including subscription
         # revocation and (for incidental Main reads) freshness.
-        if connector is not None and call.tool in {"artifacts.read", "background_results.read"}:
+        if connector is not None and call.tool in {"artifacts.read", "background_results.read", "background_results.mention"}:
             problem = _schema_problem(connector.spec, call.args)
             if problem is not None:
                 return _refused(ToolStatus.FAILED, ErrorCode.INVALID_REQUEST, problem)

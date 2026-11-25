@@ -56,7 +56,7 @@ class PgDeliveryRepository:
             await conn.execute(update(s.inbox_items).where(s.inbox_items.c.id == item.id).values(body=_dump(item)))
             return NoticeReservation(outcome="reserved", dedup_key=item.dedup_key, notice_id=item.id, expires_at=item.valid_until)
 
-    async def ack(self, scope_id, item_id, status, label, now):
+    async def ack(self, scope_id, item_id, status, label, label_source, now):
         async with self._db.engine.begin() as conn:
             await lock_scope(conn, scope_id)
             item = await self._get(conn, scope_id, item_id)
@@ -70,7 +70,7 @@ class PgDeliveryRepository:
                 rows = (await conn.execute(select(s.subscription_events).where(s.subscription_events.c.task_id == item.task_id))).mappings().all()
                 for row in rows:
                     record = AdmissionDecision.model_validate(row["body"])
-                    record.backfill_label, record.backfilled_at = label, now
+                    record.backfill_label, record.label_source, record.backfilled_at = label, label_source, now
                     await conn.execute(update(s.subscription_events).where(
                         s.subscription_events.c.subscription_id == record.subscription_id,
                         s.subscription_events.c.event_id == record.event_id).values(body=_dump(record)))

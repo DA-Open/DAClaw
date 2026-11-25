@@ -184,9 +184,12 @@ async def test_data_card_end_to_end_and_tamper_failure(repos, tmp_path, corrupt)
     assert await s.delivery.materials(main.model_copy(update={"goal": "Unrelated astronomy"})) == []
     first = await s.delivery.read("s1", item.id)
     assert first["card"]["profile"]["tables"][0]["row_count"] == 3
-    assert (await s.delivery.read("s1", item.id))["notice"] == "already_reserved"
+    second = await s.delivery.read("s1", item.id)
+    assert second["card"] == first["card"] and second["notice"] == "read"
+    assert (await s.delivery.mention("s1", item.id))["notice"] == "reserved"
+    assert (await s.delivery.mention("s1", item.id))["notice"] == "already_reserved"
     assert (await s.delivery.inbox("s1"))[0].mode == "digest"
-    await repos.delivery.ack("s1", item.id, "handled", "useful", utcnow())
+    await repos.delivery.ack("s1", item.id, "handled", "useful", label_source="explicit", now=utcnow())
     assert (await repos.subscriptions.decisions("s1", sub.id))[0].backfill_label == "useful"
     await s.proactive.on_event(event(path, "v2"))
     assert await s.delivery.materials(main) == []

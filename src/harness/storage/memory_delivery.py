@@ -36,20 +36,23 @@ class InMemoryDeliveryRepository:
             self._s.inbox[item.id] = _replace(item, notice_reserved=True, mode="digest" if item.mode == "notify" else item.mode)
             return NoticeReservation(outcome="reserved", dedup_key=item.dedup_key, notice_id=item.id, expires_at=item.valid_until)
 
-    async def ack(self, scope_id, item_id, status, label, now):
+    async def ack(self, scope_id, item_id, status, label, label_source, now):
         async with self._s.lock:
             item = self._s.inbox.get(item_id)
             if item is None or item.scope_id != scope_id:
                 raise NotFound("inbox item not found")
-            self._s.inbox[item.id] = _replace(item, status=status)
-            self._s.notices[(scope_id, item.dedup_key)] = NoticeRecord(scope_id=scope_id,
-                dedup_key=item.dedup_key, task_id=item.task_id, channel="inbox",
-                severity=item.score, valid_until=item.valid_until)
+            item = _replace(item, status=status)
             if label:
                 for key, record in self._s.subscription_events.items():
                     if record.task_id == item.task_id:
-                        self._s.subscription_events[key] = _replace(record, backfill_label=label, backfilled_at=now)
-            return _copy(self._s.inbox[item.id])
+                        self._s.subscription_events[key] = _replace(
+                            record, backfill_label=label, label_source=label_source, backfilled_at=now
+                        )
+            self._s.inbox[item.id] = item
+            self._s.notices[(scope_id, item.dedup_key)] = NoticeRecord(scope_id=scope_id,
+                dedup_key=item.dedup_key, task_id=item.task_id, channel="inbox",
+                severity=item.score, valid_until=item.valid_until)
+            return _copy(item)
 
 
 def publish(store, item, now):

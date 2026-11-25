@@ -77,11 +77,14 @@ class DeliveryService:
         item = await self.repos.delivery.get(scope_id, item_id)
         if not await self.accessible(scope_id, item, explicit=explicit):
             raise NotFound("background result is unavailable, expired or superseded")
-        if not explicit:
-            notice = await self.repos.delivery.reserve_notice(item, "main", self.clock())
-            if notice.outcome != "reserved":
-                return {"notice": notice.outcome, "detail": "This result was already mentioned; do not repeat it."}
         task = await self.repos.tasks.get(scope_id, item.task_id)
         content = await self.artifacts.read(item.result_ref, Actor(scope_id=scope_id, actor_id=task.actor_id))
-        return {"notice": "requested" if explicit else "reserved", "valid_until": item.valid_until.isoformat(),
+        return {"notice": "requested" if explicit else "read", "valid_until": item.valid_until.isoformat(),
                 "data_version": item.data_version, "card": json.loads(content.content)}
+
+    async def mention(self, scope_id, item_id):
+        item = await self.repos.delivery.get(scope_id, item_id)
+        if not await self.accessible(scope_id, item):
+            raise NotFound("background result is unavailable, expired or superseded")
+        notice = await self.repos.delivery.reserve_notice(item, "main", self.clock())
+        return {"notice": notice.outcome, "valid_until": item.valid_until.isoformat()}

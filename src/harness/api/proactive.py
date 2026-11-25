@@ -36,10 +36,18 @@ class CreateEvent(BaseModel):
     data: DataEvent
 
 
+FeedbackLabel = Literal["useful", "not_useful", "harmful"]
+
+
 class Ack(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["read", "handled", "ignored"]
-    label: Literal["useful", "not_useful", "harmful"] | None = None
+    label: FeedbackLabel | None = None
+
+
+class DecisionLabel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: FeedbackLabel
 
 
 def routes(system):
@@ -72,6 +80,12 @@ def routes(system):
         rows = await system.repos.subscriptions.decisions(request.state.actor.scope_id, subscription_id)
         return Response("".join(r.model_dump_json() + "\n" for r in rows), media_type="application/x-ndjson")
 
+    @router.post("/subscriptions/{subscription_id}/decisions/{task_id}/label")
+    async def label_decision(subscription_id: str, task_id: str, payload: DecisionLabel, request: Request):
+        return await system.repos.subscriptions.label_decision(
+            request.state.actor.scope_id, subscription_id, task_id, payload.label, system.delivery.clock()
+        )
+
     @router.post("/events", status_code=202)
     async def event(payload: CreateEvent, request: Request):
         if payload.source == "scheduler" or payload.data.kind == "schedule":
@@ -86,7 +100,13 @@ def routes(system):
 
     @router.post("/inbox/{item_id}/ack")
     async def ack(item_id: str, payload: Ack, request: Request):
-        label = payload.label or {"read": None, "handled": "useful", "ignored": "not_useful"}[payload.status]
-        return await system.repos.delivery.ack(request.state.actor.scope_id, item_id, payload.status, label, system.delivery.clock())
+        if payload.label is not None:
+            label, source = payload.label, "explicit"
+        else:
+            label, source = {"read": (None, None), "handled": ("useful", "behavior"),
+                             "ignored": ("not_useful", "behavior")}[payload.status]
+        return await system.repos.delivery.ack(
+            request.state.actor.scope_id, item_id, payload.status, label, label_source=source, now=system.delivery.clock()
+        )
 
     return router
