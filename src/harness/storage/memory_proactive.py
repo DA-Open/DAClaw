@@ -57,6 +57,12 @@ class InMemorySubscriptionRepository:
                          if e.scope_id == scope_id and e.subject_ref == subject_ref
                          and e.type == EventType.EXTERNAL and e.source != "scheduler"), None)
 
+    async def changes(self, scope_id, subject_ref, since, until, *, source):
+        async with self._s.lock:
+            events = [e for e in self._s.events if e.scope_id == scope_id and e.subject_ref == subject_ref
+                      and e.type == EventType.EXTERNAL and e.source == source and since < e.occurred_at <= until]
+            return [_copy(e) for e in sorted(events, key=lambda e: (e.occurred_at, e.seq))]
+
     async def pending_events(self):
         async with self._s.lock:
             deferred = {r.event_id for r in self._s.subscription_events.values() if r.decision == "defer"}

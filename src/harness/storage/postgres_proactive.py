@@ -85,6 +85,15 @@ class PgSubscriptionRepository:
                 .order_by(s.events.c.seq.desc()).limit(1))).mappings().first()
             return _event(row) if row else None
 
+    async def changes(self, scope_id, subject_ref, since, until, *, source):
+        async with self._db.engine.connect() as conn:
+            rows = (await conn.execute(select(s.events).where(
+                s.events.c.scope_id == scope_id, s.events.c.subject_ref == subject_ref,
+                s.events.c.type == "external", s.events.c.source == source,
+                s.events.c.occurred_at > since, s.events.c.occurred_at <= until,
+            ).order_by(s.events.c.occurred_at, s.events.c.seq))).mappings()
+            return [_event(r) for r in rows]
+
     async def pending_events(self):
         async with self._db.engine.connect() as conn:
             deferred = select(s.subscription_events.c.event_id).where(s.subscription_events.c.decision == "defer")

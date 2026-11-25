@@ -18,7 +18,7 @@ class CreateSubscription(BaseModel):
     resources: list[str] = Field(min_length=1, max_length=128)
     event_filter: dict[str, str] = Field(default_factory=dict)
     schedule: str | None = None
-    capability_ref: Literal["data_card@1"] = "data_card@1"
+    capability_ref: Literal["data_card@1", "personal_watch@1"] = "data_card@1"
     limits: Limits = Field(default_factory=lambda: Limits(timeout_sec=600, max_model_calls=10, max_tool_calls=30, max_total_tokens=50000))
     daily_budget: Usage = Field(default_factory=default_daily_budget)
     proactivity: ProactivityLevel = ProactivityLevel.NORMAL

@@ -58,6 +58,7 @@ from .tasks.proactive_controller import ProactiveController
 from .tasks.recovery import Recovery
 from .tasks.scheduler import Scheduler
 from .personal.memory import MemoryService
+from .personal.calendar_source import MockCalendarSource
 from .tools.connectors import MemoryReadConnector, MemorySearchConnector
 
 if TYPE_CHECKING:
@@ -282,7 +283,7 @@ def build_system(
         tasks=tasks,
         proactive=proactive,
         delivery=delivery,
-        scheduler=Scheduler(repos, proactive, recovery, clock=clock),
+        scheduler=Scheduler(repos, proactive, recovery, MockCalendarSource(), clock=clock),
         memory=memory,
         _data=connect,
         _owned_pg=owned_pg,

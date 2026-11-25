@@ -1,0 +1,7 @@
+id: personal_watch
+version: "1"
+instructions_ref: ../prompts/personal_watch.md
+tools: [memory.search, memory.read, artifacts.write]
+result_artifact: decision
+verifiers: [artifact_readable, decision_schema, decision_evidence]
+default_mode: draft_only
