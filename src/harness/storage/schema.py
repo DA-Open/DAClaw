@@ -232,6 +232,13 @@ inbox_items = Table("inbox_items", metadata,
     Column("subscription_id", Text, ForeignKey("subscriptions.id"), nullable=False),
     Column("task_id", Text, ForeignKey("tasks.id"), nullable=False, unique=True),
     Column("status", Text, nullable=False), Column("body", JSONB, nullable=False))
+approvals = Table("approvals", metadata,
+    Column("id", Text, primary_key=True),
+    Column("action_id", Text, ForeignKey("actions.id"), nullable=False, index=True),
+    Column("request_hash", Text, nullable=False),
+    Column("decision", Text, nullable=False),
+    Column("body", JSONB, nullable=False),
+    UniqueConstraint("action_id", "request_hash"))
 delivery_counters = Table("delivery_counters", metadata,
     Column("scope_id", Text, primary_key=True), Column("dedup_key", Text, primary_key=True),
     Column("body", JSONB, nullable=False))
@@ -255,6 +262,7 @@ Index("uq_memories_task", memories.c.scope_id, memories.c.source_ref, memories.c
 
 __all__ = [
     "actions",
+    "approvals",
     "artifacts",
     "attempts",
     "events",

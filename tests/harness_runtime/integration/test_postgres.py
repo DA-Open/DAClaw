@@ -23,6 +23,10 @@ for _mod in ("sqlalchemy", "asyncpg", "alembic"):
 from sqlalchemy import inspect, text  # noqa: E402
 
 from harness.contracts import (  # noqa: E402
+    InvalidTransition,
+    WaitCondition,
+    ApprovalDecision,
+    ActionStatus,
     Action,
     ErrorCode,
     Event,
@@ -252,9 +256,53 @@ async def test_event_cursor_does_not_skip_a_late_commit(pools, second_kind):
 # -- migrations ------------------------------------------------------------------------
 
 
+@pytest.mark.asyncio
+async def test_approval_decision_is_atomic(pools):
+    """One transaction decides: stale hash and double decisions are refused."""
+    store = pools[0]
+    other = pools[1]
+    task = (await store.tasks.create(make_task("approve-me"))).task
+    lease = await store.tasks.claim("w1", [RunLane.FOREGROUND], TTL, T0)
+    action = Action(
+        task_id=task.id,
+        attempt_id=lease.attempt_id,
+        logical_key="mail.1.0",
+        tool="mail.send",
+        request_hash="h1",
+        read_only=False,
+        status=ActionStatus.NEEDS_APPROVAL,
+    )
+    await store.actions.register(action)
+    waiting = TaskOutcome(status=TaskStatus.WAITING, wait_condition=WaitCondition.APPROVAL)
+    await store.tasks.commit(lease, waiting, T0)
+
+    with pytest.raises(InvalidTransition):
+        await store.tasks.decide_approval(
+            "s1", task.id, action.id, request_hash="h2", approver="u1",
+            decision="approve", reason="", expires_at=None, now=T0,
+        )
+
+    decided, approval = await store.tasks.decide_approval(
+        "s1", task.id, action.id, request_hash="h1", approver="u1",
+        decision="approve", reason="", expires_at=None, now=T0,
+    )
+    assert decided.status is TaskStatus.QUEUED and decided.wait_condition is None
+    assert approval.decision is ApprovalDecision.APPROVE
+    # Readable from another connection, and the JSONB body is a document.
+    found = await other.approvals.get(action.id, "h1")
+    assert found is not None and found.approver == "u1"
+
+    with pytest.raises(InvalidTransition):
+        # The task left waiting, so a second decision no longer applies.
+        await other.tasks.decide_approval(
+            "s1", task.id, action.id, request_hash="h1", approver="u2",
+            decision="reject", reason="", expires_at=None, now=T0,
+        )
+
+
 def test_one_migration_head():
     # Two people branching from the same revision give two heads; merge them.
-    assert heads() == ["0004"]
+    assert heads() == ["0005"]
 
 
 @pytest.mark.asyncio
