@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 import signal
+import sys
 import time
 from uuid import uuid4
 
@@ -18,7 +19,10 @@ from harness.storage.schema import usage_reservations
 from ._p1_acceptance_helpers import external_service, finish, marker, release, worker_child
 from .test_processes import AUTH_A, api_server, process_setup  # noqa: F401 -- shared PG fixture
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(sys.platform == "win32", reason="uses POSIX signals (SIGKILL/SIGSTOP/SIGCONT) and pipe select"),
+]
 USAGE = ("model_calls", "tool_calls", "input_tokens", "output_tokens")
 
 

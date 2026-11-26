@@ -1,63 +1,27 @@
 # P1-ACC 本地交付报告 · 2026-11-26
 
-**验收通过。** BASE `1982cd26` 的完整 Harness 为 962 通过。加入六个跨进程验收场景后，Harness 为 968 通过，连同四项 packaging metadata 检查为 972 通过，0 失败、0 错误、0 跳过。正式 JUnit 的六条 P1 用例各有一条可解析的 `acceptance_evidence`，覆盖强杀、重领、重复审批、三类取消、旧租约、自动和人工对账、补充输入恢复。新增失败集合与 BASE 失败集合均为空。
+正式验收 1008 项通过，0 失败、0 错误、0 跳过，含全部 4 项 packaging metadata 及六个真实跨进程 P1 场景。上游 R2b 为 `94a356ff`，已包含 `origin/DaraOS` 的 `9aadb65c`。本阶段的 rebase 起点为 `d594a28e`。相对新 R2b，`src/` 新增和删除均为 0。
 
-拉取后 `origin/DaraOS` 为 `4a7abe38`。本地 `feat/harness-p1-r2-completion` 的提交为 `1982cd2646d4d4ab26c8186288ffd8ed80b8cac7`，该提交包含上述远端基线。所有交付文件位于从 R2b 新建的 `test/harness-p1-acceptance` 分支。交付前核对了两个受保护的工作区。主仓保留原有未跟踪文档，R2b 工作区仍干净且指向 BASE。
+## 本轮改动
 
-## 改动清单
+- `tests/harness_runtime/integration/test_p1_acceptance.py` 在 Windows 上标明 POSIX 信号和 pipe select 依赖，Linux 正式运行执行了全部六条。
+- `tests/harness_runtime/integration/_p1_acceptance_helpers.py` 使用 1.0 秒读超时；对端收到并登记请求后等待 2.5 秒，稳定触发客户端读超时。
+- 本报告与 [P1 正式验收报告](2026-11-26-harness-p1-acceptance.md) 同步替换两处指向仓库外的 Markdown 链接，保留可复制的相对路径与下列校验和。
 
-| 新文件 | 内容 |
-| --- | --- |
-| `tests/harness_runtime/integration/test_p1_acceptance.py` | 六条集成用例，复用 P0 的真实 API 与 PG fixture，将观测写入 JUnit，并独立核对持久化用量、HTTP 产物与服务端请求。 |
-| `tests/harness_runtime/integration/_p1_acceptance_helpers.py` | 本机 HTTP 对端及服务端请求记录，独立 Worker 与 Scheduler 入口，已提交检查点的观察点和旧租约探针。 |
-| `docs/plans/p1-ACC-baseline.txt` | 开发前在 R2b BASE 上运行完整 Harness 的原始输出。 |
-| `docs/plans/2026-11-26-harness-p1-acceptance.md` | 按 P0 格式列出复现命令、验收矩阵、真实输入输出、错误分类与验证范围。 |
-| `docs/plans/p1-ACC-report.md` | 本交付记录，含 TDD 和三项工程检查输出。 |
+JUnit 文件为 `outputs/p1-acceptance-20261126/p1-acceptance.xml`，SHA-256 为 `fb36d5b518c41468d64d5ec6448b55310621e78372f288ac31e967c7c9014197`。共 1008 个 testcase，P0 与 P1 合计 12 份 `acceptance_evidence`。脱敏时改写 21 处临时目录前缀、2 处固有测试参数路径及套件主机名。六份 P1 证据在原始和导出 XML 中的 JSON 内容相同，再读回目标文件计算散列也一致。
 
-机器可读的[完整 JUnit](../../../../outputs/p1-acceptance-20261126/p1-acceptance.xml) 作为本地运行产物保存在工作树外。该文件包含 972 个 testcase，原有 P0 与新增 P1 合计 12 项 `acceptance_evidence`。导出时替换旧证据中的临时路径前缀、主机名及两个既有测试参数里的示例路径。已逐条核对六条 P1 证据一致，并扫描本机路径、凭据和数据库连接串，命中数均为 0。SHA-256 为 `cae5f36ffaea1c3806c4e14cb0bca630b60f691cc8094ad164667254e5c6b82c`。
+## 基线、红灯和回归
 
-## 基线与先红后绿
+最初开发六条场景时，旧 R2b `1982cd26` 的基线为 962 项通过。在补齐跨进程辅助模块前，pytest 以 `ModuleNotFoundError` 报告 `_p1_acceptance_helpers` 缺失；完成后六条最初定向测试均通过。原始基线继续保留。[最初的 BASE 输出](p1-ACC-baseline.txt)
 
-1. 在独立 worktree 的 BASE 上先运行完整 Harness。基线日志记录 `962 passed in 184.50s (0:03:04)`。[基线原始输出](p1-ACC-baseline.txt)
-2. 写完六条用例，在测试辅助模块尚未创建时运行定向测试。pytest 退出码为 2，收集阶段输出如下。
+上游完成终审修复后，`94a356ff` 完整 Harness 为 998 项通过，`d594a28e` 的完整 Harness 与 packaging 基线为 `1008 passed in 294.70s (0:04:54)`。本次 S7 的离线检查读取测试标记和超时调用参数，变更前断言失败，修改后通过。
 
 ```text
-E   ModuleNotFoundError: No module named 'tests.harness_runtime.integration._p1_acceptance_helpers'
-ERROR tests/harness_runtime/integration/test_p1_acceptance.py
-!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+POSIX-only marker=False; read_timeout=0.7; delayed_response=2
+POSIX-only marker=True; read_timeout=1.0; delayed_response=2.5
 ```
 
-3. 加入测试辅助模块后，首轮六场景定向运行得到 `6 passed in 86.49s (0:01:26)`。之后补充超时错误码、对账事件、回执的交叉断言，并核对运行中取消前后的模型调用 ID。最终版六条用例均在下列两次完整运行中通过。
-
-## 必做检查的原始输出
-
-### 1. 完整 Harness 与正式 JUnit
-
-在 WSL 虚拟环境执行通用工程约定命令。以下为 stdout/stderr 合并输出。
-
-```bash
-python -m pytest tests/harness_runtime -q -n0 -o addopts="" -m "integration or not integration"
-```
-
-```text
-........................................................................ [  7%]
-........................................................................ [ 14%]
-........................................................................ [ 22%]
-........................................................................ [ 29%]
-........................................................................ [ 37%]
-........................................................................ [ 44%]
-........................................................................ [ 52%]
-........................................................................ [ 59%]
-........................................................................ [ 66%]
-........................................................................ [ 74%]
-........................................................................ [ 81%]
-........................................................................ [ 89%]
-........................................................................ [ 96%]
-................................                                         [100%]
-968 passed in 272.46s (0:04:32)
-```
-
-Card 2 的正式验收另外包含四项 packaging metadata 检查，并写出 JUnit XML。
+在仅有回环网络、已清除 `FEISHU_TEST_*` 的 WSL 测试进程中执行正式验收，共用临时 PostgreSQL 16。pytest 参数如下。
 
 ```bash
 python -m pytest tests/harness_runtime tests/test_packaging_metadata.py \
@@ -68,74 +32,52 @@ python -m pytest tests/harness_runtime tests/test_packaging_metadata.py \
 ```text
 ........................................................................ [  7%]
 ........................................................................ [ 14%]
-........................................................................ [ 22%]
-........................................................................ [ 29%]
-........................................................................ [ 37%]
-........................................................................ [ 44%]
-........................................................................ [ 51%]
-........................................................................ [ 59%]
-........................................................................ [ 66%]
-........................................................................ [ 74%]
-........................................................................ [ 81%]
-........................................................................ [ 88%]
-........................................................................ [ 96%]
-....................................                                     [100%]
-972 passed in 282.46s (0:04:42)
+........................................................................ [ 21%]
+........................................................................ [ 28%]
+........................................................................ [ 35%]
+........................................................................ [ 42%]
+........................................................................ [ 50%]
+........................................................................ [ 57%]
+........................................................................ [ 64%]
+........................................................................ [ 71%]
+........................................................................ [ 78%]
+........................................................................ [ 85%]
+........................................................................ [ 92%]
+........................................................................ [100%]
+1008 passed in 279.65s (0:04:39)
 ```
 
-### 2. 防御性写法检查
+## 同一份 JUnit 的六项观测
 
-在创建该 worktree 的 Git for Windows Bash 中执行以下原命令。`git diff` 退出码 0，`grep` 退出码 1，标准输出为 0 字节，无命中项。
-
-```bash
-git diff 1982cd26 -- 'src/harness/*.py' ':!src/harness/contracts.py' ':!src/harness/interfaces.py' ':!src/harness/storage/repositories.py' \
-  | grep -nE '^\+.*(except Exception|except:|getattr\([^)]*,[^)]*,|hasattr\(|self\._\w+ is not None)|^\+\s+def __init__\([^)]*=None|^\+ {8,}(from \.|import )'
-```
-
-将 grep 的 stdout 接入 `wc -c`，记录字节数和三个命令的退出码，原始输出如下。
-
-```text
-0
-git/grep/wc: 0 1 0
-```
-
-### 3. 源码行数与文件范围
-
-```bash
-git diff --numstat 1982cd26 -- src/ ':!src/harness/prompts' ':!src/harness/capabilities' ':!src/harness/README.md' \
-  | awk '{s+=$1} END {print s}'
-```
-
-空 numstat 输入使 `s` 未赋值。将原始 stdout 交给 `od -An -tx1`，观察到单个换行字节。
-
-```text
- 0a
-git/awk/od: 0 0 0
-```
-
-对整个 `src/` 补做数值统计，并核对源码差异、源码未跟踪文件和已有测试的改动。
-
-```text
-$ git diff --numstat 1982cd26 -- src/ | awk '{s+=$1} END {print s+0}'
-0
-$ git diff --quiet 1982cd26 -- src/
-$ echo $?
-0
-$ git ls-files --others --exclude-standard -- src/
-$ git diff --name-only --diff-filter=MDRT 1982cd26 -- tests/
-```
-
-四条核对命令中，后两条标准输出为空。`git diff --name-status 1982cd26` 的五项全部为 `A`，与上方清单一致。`git diff --check 1982cd26` 通过。
-
-## 验收数据与停止项
-
-| 实测边界 | 本轮正式数据 |
+| 场景 | 实测 |
 | --- | --- |
-| 强杀恢复 | `SIGKILL` 退出 -9，回收数 1，两代模型/工具调用为 1/1 与 2/1，PG 汇总 5534 token 与 HTTP 一致。首个工具真实执行 1 次。 |
-| 提交与审批幂等 | 提交 202/202/409，审批 200/200/409，决定事件 1 条，外部执行 1 次。 |
-| 取消与清理 | 待批取消后执行 0 次，运行中取消后新增动作 0 个，未知动作对账后 `cleanup=done`，任务保持 `cancelled`。 |
-| 租约隔离 | 旧 Worker 的心跳和提交均被 `StaleLease` 拒绝，获胜产物引用及终态版本 5 保持一致。 |
-| 未知副作用 | 超时错误码 `deadline_exceeded`。自动和人工两条路径各有 1 次 `/execute` 与 1 次 `/reconcile`，均取得回执并成功。 |
-| 补充输入 | 旧版本 HTTP 409、越界 HTTP 400、合法补件 HTTP 200。新引用在第二代模型输入中出现一次，对应文件内容进入已验证的产物。 |
+| 强杀恢复 | 退出 -9，回收 1，检查点 tools_completed，动作 step-1.0 实际执行 1 次。Attempt 退出顺序为 lease_expired → succeeded，产物 HTTP 200。模型/工具调用 3/2，总 token 5534。 |
+| 提交与审批幂等 | 提交 HTTP 202/202/409，审批 HTTP 200/200/409，决定事件 1 条，外部执行 1 次。重启前后任务 ID 相同为 true。 |
+| 三类取消 | 待批取消后批准 HTTP 409，外部执行 0 次。运行中取消前后各有 1/1 个动作；未知动作清理 pending_reconciliation → done，终态 cancelled。 |
+| 旧租约 | 旧 Worker 的 heartbeat、commit 分别得到 StaleLease、StaleLease，committed=false。新结果版本 5 → 5，产物引用一致为 true。 |
+| 未知副作用 | 自动路径 /execute → /reconcile，对账 succeeded。人工路径 /execute → /reconcile，对账 unsupported → succeeded，裁决 HTTP 200。错误码 deadline_exceeded。 |
+| 补充输入 | 旧版本、越界输入分别为 409 version_conflict、400 forbidden，合法恢复 HTTP 200。新输入在模型上下文出现 1 次，验证 inconclusive → passed，终态 succeeded。 |
 
-本轮没有触发生产缺陷停止条件。提交范围限于上述五个新增文件，`src/` 新增与删除均为 0，已有测试修改数为 0。提交仅保存在本地分支，未推送，未创建 PR。测试使用脚本模型和模拟外部 HTTP 服务，具体证据及适用范围见[正式验收报告](2026-11-26-harness-p1-acceptance.md)。
+## 工程检查
+
+相对 `94a356ff` 的防御性 grep 标准输出为 0 字节，`git diff` 退出 0，`grep` 退出 1。
+
+```bash
+git diff 94a356ff -- 'src/harness/*.py' ':!src/harness/contracts.py' ':!src/harness/interfaces.py' ':!src/harness/storage/repositories.py' | grep -nE '^\+.*(except Exception|except:|getattr\([^)]*,[^)]*,|hasattr\(|self\._\w+ is not None)|^\+\s+def __init__\([^)]*=None|^\+ {8,}(from \.|import )'
+git diff --numstat 94a356ff -- src/ | awk '{s+=$1} END {print s+0}'
+```
+
+```text
+0
+```
+
+`git diff --exit-code 94a356ff -- src/` 输出为空，退出 0。Phase 1 工作树干净且指向 `94a356ff`。本阶段交付提交可用 `git log -1 -- docs/plans/p1-ACC-report.md` 定位。R4 工作树此时干净，仍位于 `8159be78`。本轮增量只涉及上列两份测试和两份报告。
+
+本轮完整文件增减统计（相对 `d594a28e`）
+
+```text
+23	22	docs/plans/2026-11-26-harness-p1-acceptance.md
+46	104	docs/plans/p1-ACC-report.md
+2	2	tests/harness_runtime/integration/_p1_acceptance_helpers.py
+5	1	tests/harness_runtime/integration/test_p1_acceptance.py
+```

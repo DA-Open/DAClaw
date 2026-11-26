@@ -1,30 +1,31 @@
 # Harness P1 跨进程验收 · 2026-11-26
 
-在本地 R2b 提交 `1982cd26` 上，规范第 8 节的五项可靠执行标准及 R2b 的 `/resume` 恢复链路全部通过。验收矩阵和强杀恢复用量取自同一次正式 JUnit 运行。
+在本地 R2b 提交 `94a356ff` 上，六个跨进程场景全部通过。验收工作树的 rebase 起点为 `d594a28e`，包含主干 `9aadb65c`。下文所有本轮观测均取自同一次正式 JUnit。
 
 ## 结果与复现命令
 
 | 范围 | 实测结果 | 用时 |
 | --- | --- | ---: |
-| BASE 完整 Harness | 962 通过 | 184.50 秒 |
-| 加入六条用例后的完整 Harness | 968 通过 | 272.46 秒 |
-| 完整 Harness 与 packaging metadata | 972 通过，0 失败、0 错误、0 跳过 | 282.46 秒 |
-| 上一行中的 P1 跨进程用例 | 6 通过，每条各有一个 `acceptance_evidence` | 88.83 秒（六条 JUnit case 用时之和） |
+| R2b BASE 完整 Harness | 998 通过 | 196.97 秒 |
+| `d594a28e` 修改前完整 Harness 与 packaging metadata | 1008 通过 | 294.70 秒 |
+| 正式验收，含 4 项 packaging metadata | 1008 通过，0 失败、0 错误、0 跳过 | 279.65 秒 |
+| 上一行中的 P1 跨进程用例 | 6 通过，每条各有 1 份 `acceptance_evidence` | 93.53 秒（六条 JUnit case 用时之和） |
 
-环境为 WSL Ubuntu 22.04、Python 3.11.15、pytest 9.0.2、SQLAlchemy 2.0.48、asyncpg 0.31.0、FastAPI 0.133.1、uvicorn 0.41.0 和 httpx 0.28.1。PG fixture 在 Docker 中启动一次性的 `postgres:16`，执行迁移，并在各场景间清表。API 由 `python -m harness.api` 启动。各 Worker 和 Scheduler 使用独立 Python 进程与工作目录，共享数据库、策略文件和产物目录。租约为 2 秒，心跳间隔和首次对账宽限期均为 1 秒。超时场景中，对端登记请求后延迟 2 秒，连接器的 HTTP 读超时为 0.7 秒。
+环境为 WSL Ubuntu 22.04、Python 3.11.15 和 pytest 9.0.2。测试及其子进程只使用回环接口，`FEISHU_TEST_*` 变量数为 0。一次性 Docker `postgres:16` 禁用网络，通过私有 Unix 套接字提供真实 PostgreSQL。API 以 `python -m harness.api` 启动，各 Worker 和 Scheduler 使用独立进程与工作目录，共享数据库、策略和产物目录。租约为 2 秒，心跳间隔与首次对账宽限期均为 1 秒。对端登记请求后延迟 2.5 秒，连接器的 HTTP 读超时为 1.0 秒。六个场景使用 POSIX 信号和 pipe select，原生 Windows 由模块标记跳过。
 
-在验收分支的仓库根目录，激活已安装 Harness 测试依赖的 WSL Python 环境，确认 Docker 可用后运行下列命令。
+从验收工作树运行下列命令。先激活 Harness 的 Linux 环境，将 `DARAOS_HARNESS_TEST_DSN` 指向已启动的专用临时 PostgreSQL Unix 套接字；测试会清理其中的数据。
 
 ```bash
-unset DARAOS_HARNESS_TEST_DSN
-export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="$PWD/src:$PWD"
-python -m pytest tests/harness_runtime tests/test_packaging_metadata.py \
+set +x
+for name in ${!FEISHU_TEST_@}; do unset "$name"; done
+unset DARAOS_HARNESS_FEISHU_APP_ID DARAOS_HARNESS_FEISHU_APP_SECRET
+export PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$PWD/src:$PWD"
+bwrap --unshare-net --dev-bind / / -- python -m pytest tests/harness_runtime tests/test_packaging_metadata.py \
   -q -n0 -o addopts="" -m "integration or not integration" \
   -o junit_family=xunit1 --junitxml=p1-acceptance.xml
 ```
 
-回放单个场景时，将下方用例名接到 `tests/harness_runtime/integration/test_p1_acceptance.py::` 后面，保留相同的 pytest 选项。下列脚本读取六个场景的观测字段。
+单个场景可按 `tests/harness_runtime/integration/test_p1_acceptance.py::<用例名>` 回放。下面的脚本读取六份观测。
 
 ```python
 import json
@@ -32,22 +33,22 @@ from xml.etree import ElementTree
 
 for case in ElementTree.parse("p1-acceptance.xml").iter("testcase"):
     if case.get("classname", "").endswith(".test_p1_acceptance"):
-        entry = case.find("properties/property[@name='acceptance_evidence']")
-        print(case.get("name"), json.loads(entry.get("value")))
+        item = case.find("properties/property[@name='acceptance_evidence']")
+        print(case.get("name"), json.loads(item.get("value")))
 ```
 
-本轮共享的 [JUnit XML](../../../../outputs/p1-acceptance-20261126/p1-acceptance.xml) 含全套 972 条结果。导出时将旧 P0 属性中 21 处临时目录前缀改为相对路径，同时替换套件主机名和两个既有 SQL 测试参数里的示例绝对路径。API 路由、动作标识、回执及断言结果均按实测值保留。导出前后已逐条比对六条 P1 属性的 JSON 内容。文件 SHA-256 为 `cae5f36ffaea1c3806c4e14cb0bca630b60f691cc8094ad164667254e5c6b82c`。
+JUnit 文件保存在 `outputs/p1-acceptance-20261126/p1-acceptance.xml`，SHA-256 为 `fb36d5b518c41468d64d5ec6448b55310621e78372f288ac31e967c7c9014197`。文件包含 1008 条测试结果、12 条 `acceptance_evidence`。导出时替换套件主机名、21 处旧 P0 临时目录前缀和 2 处固有测试参数路径。导出前后逐条比较六条 P1 属性的完整 JSON，内容相同。
 
 ## 验收矩阵
 
-| 要求 | 实际观察 | 跨进程用例 |
+| 要求 | JUnit 实际观察 | 跨进程用例 |
 | --- | --- | --- |
-| 强杀后回收并续跑 | HTTP 可读的检查点为 `tools_completed`，保存了首个动作且待执行列表为空。父进程 `kill()` 后退出码 -9，租约到期后 Scheduler 回收 1 个任务。两代 Attempt 的退出原因依次为 `lease_expired`、`succeeded`。`step-1.0` 在动作表中有一行，读连接器实际执行一次，最终草稿 HTTP 200。 | `test_p1_worker_kill_reclaim_and_resume_across_processes` |
-| 重复提交与审批 | API 重启前后，同键同内容得到同一任务，再用同键改内容返回冲突。三次 HTTP 依次为 202/202/409。同人批准、重复批准、改为拒绝依次为 200/200/409。数据库事件经 trace 读到一次 `approve`，服务端只收到一次 `/execute`。 | `test_p1_duplicate_submit_and_approval_execute_once` |
-| 取消后无新动作 | 待批动作变 `failed`，取消后批准返 409，外部执行 0 次。运行中取消前后模型调用 ID 列表相同，动作表均只有同一条 `files.read`。含未知动作的任务先报告 `pending_reconciliation`，对账后 `done`，取消后的状态事件没有再次入队。 | `test_p1_cancel_running_waiting_and_unknown_cleanup` |
-| 旧 Worker 无法覆盖结果 | 领取后暂停旧进程的心跳，回收并由新 Worker 完成。恢复旧进程后，持原租约真实调用 `heartbeat` 与 `commit(cancelled)`，均得到 `StaleLease`。两次 HTTP 读取的终态、`result_ref` 和版本 5 一致。 | `test_p1_stale_worker_cannot_heartbeat_or_commit` |
-| 未知副作用不盲重试 | 服务端先登记动作，再让连接器读响应超时。自动路径对账返回 `succeeded`，动作里的回执与服务登记值一致。人工路径先观测到 `unsupported` 和 `needs_manual_confirmation=true`，通过 `/resolve` 得到可读取的裁决回执。每条路径各有 1 次执行、1 次对账，最终均为 `succeeded`。 | `test_p1_unknown_side_effect_reconciles_without_blind_retry` |
-| 等待补充输入后恢复 | 第一代进入 `waiting/input`。旧版本与越界输入分别返回 409 version_conflict 与 400 forbidden，任务版本保持不变。提交正确版本后 HTTP 200、状态 `queued`。第二代模型输入出现一次新增引用，真实读取 `supplement.md`，HTTP 产物含本轮运行生成的文件内容。两次验证为 `inconclusive`、`passed`。 | `test_p1_waiting_input_resume_across_processes` |
+| 强杀恢复 | 退出 -9，回收 1，检查点 tools_completed，动作 step-1.0 实际执行 1 次。Attempt 退出顺序为 lease_expired → succeeded，产物 HTTP 200。模型/工具调用 3/2，总 token 5534。 | `test_p1_worker_kill_reclaim_and_resume_across_processes` |
+| 提交与审批幂等 | 提交 HTTP 202/202/409，审批 HTTP 200/200/409，决定事件 1 条，外部执行 1 次。重启前后任务 ID 相同为 true。 | `test_p1_duplicate_submit_and_approval_execute_once` |
+| 三类取消 | 待批取消后批准 HTTP 409，外部执行 0 次。运行中取消前后各有 1/1 个动作；未知动作清理 pending_reconciliation → done，终态 cancelled。 | `test_p1_cancel_running_waiting_and_unknown_cleanup` |
+| 旧租约 | 旧 Worker 的 heartbeat、commit 分别得到 StaleLease、StaleLease，committed=false。新结果版本 5 → 5，产物引用一致为 true。 | `test_p1_stale_worker_cannot_heartbeat_or_commit` |
+| 未知副作用 | 自动路径 /execute → /reconcile，对账 succeeded。人工路径 /execute → /reconcile，对账 unsupported → succeeded，裁决 HTTP 200。错误码 deadline_exceeded。 | `test_p1_unknown_side_effect_reconciles_without_blind_retry` |
+| 补充输入 | 旧版本、越界输入分别为 409 version_conflict、400 forbidden，合法恢复 HTTP 200。新输入在模型上下文出现 1 次，验证 inconclusive → passed，终态 succeeded。 | `test_p1_waiting_input_resume_across_processes` |
 
 ## 实测输入、输出与错误分类
 

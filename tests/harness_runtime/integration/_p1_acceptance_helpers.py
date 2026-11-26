@@ -69,7 +69,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/execute" and body["mode"] in ("auto", "manual"):
             # The service has accepted the operation. Withhold the HTTP response
             # beyond the connector's read timeout, then close the connection.
-            time.sleep(2)
+            time.sleep(2.5)
             return
         payload = json.dumps(reply).encode()
         self.send_response(200)
@@ -130,7 +130,7 @@ def finish(process):
 
 
 async def exchange(url, path, action, body):
-    async with httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(5, read=0.7), trust_env=False) as client:
+    async with httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(5, read=1.0), trust_env=False) as client:
         response = await client.post(path, json=body, headers={"Idempotency-Key": action})
         return response.raise_for_status().json()
 
