@@ -101,7 +101,8 @@ async def test_recompute_in_builder(tmp_path, datasets):
     assert EventType.RECOMPUTE_RECORDED in kinds
     # The new evidence is a normal query artifact.
     query_refs = result["queries"][0]["query_ref"]
-    stored = await kit.store.read(query_refs, ACTOR)
+    assert query_refs.startswith("query:")
+    stored = await kit.store.read(query_refs.removeprefix("query:"), ACTOR)
     assert json.loads(stored.content)["row_count"] == 1
 
 

@@ -132,9 +132,8 @@ class System:
             tools=PolicyToolCatalog(self.policy, self.gateway.specs),
             capabilities=self.packs,
             clock=self.clock,
-        
             recomputer=NoRecompute(),
-)
+        )
 
     async def claim(self):
         """A claimed task on the data pack (fakes.claimed_task fixes the draft pack)."""

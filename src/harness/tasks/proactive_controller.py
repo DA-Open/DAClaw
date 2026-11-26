@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..personal.analysis_types import AnalysisWatch, BaselineBody, SourceChangedEvent
 from ..personal.analysis_admission import decide_analysis
+from ..personal.memory import is_current
 from ..contracts import (
     Acceptance, Actor, AdmissionDecision, AgentRole, CheckSpec, Event,
     EventType, Limits, RunLane, Subscription, SubscriptionStatus, Task, TaskOrigin,
@@ -166,6 +167,8 @@ class ProactiveController:
         record, text = await self.memories.read(sub.scope_id, "harness", memory_id)
         if record.kind.value != "analysis" or str(record.version) != version:
             raise ValueError("baseline_ref must name a current ANALYSIS memory")
+        if not is_current(record, self.clock()):
+            raise ValueError("baseline_ref must name a current ANALYSIS memory")
         body = BaselineBody.model_validate_json(text)
         if not body.sources or sub.subject_ref not in {source.path for source in body.sources}:
             raise ValueError("baseline does not depend on this subject")
@@ -219,7 +222,14 @@ class ProactiveController:
                 window = PersonalWindowEvent.model_validate(event.payload)
                 changes = await self.repos.subscriptions.changes(
                     event.scope_id, sub.subject_ref, window.since, window.until, source="mock_calendar")
-            baseline = await self._baseline(sub) if sub.capability_ref == "analysis_watch@1" else None
+            baseline = None
+            if sub.capability_ref == "analysis_watch@1":
+                try:
+                    baseline = await self._baseline(sub)
+                except (ValueError, NotFound):
+                    # The baseline ended: record it for this subscription and keep
+                    # going, the other subscriptions still need their decision.
+                    baseline = None
             def evaluate(current, tasks, records, usage):
                 if current.capability_ref == "analysis_watch@1":
                     record = decide_analysis(current, event, baseline.model_dump(), tasks, records, usage, now,

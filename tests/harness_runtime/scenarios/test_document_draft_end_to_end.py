@@ -70,9 +70,8 @@ class System:
             tools=PolicyToolCatalog(self.policy, self.gateway.specs),
             capabilities=self.packs,
             clock=self.clock,
-        
             recomputer=NoRecompute(),
-)
+        )
 
     def draft_id(self):
         return self._draft

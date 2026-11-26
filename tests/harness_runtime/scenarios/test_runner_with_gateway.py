@@ -59,9 +59,8 @@ class World:
             instructions=StaticInstructions({"main@1": "You draft documents."}),
             tools=PolicyToolCatalog(self.policy, [c.spec for c in self.connectors]),
             clock=self.clock,
-        
             recomputer=NoRecompute(),
-)
+        )
         context = await builder.build(self.task, MAIN_PROFILE, self.execution.lease)
         self.outcome = await runner.run(context, MAIN_PROFILE, self.execution)
         return self.outcome

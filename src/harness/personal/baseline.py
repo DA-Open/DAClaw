@@ -7,6 +7,8 @@ answer has already reached the user before this starts.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 from collections.abc import Callable
@@ -15,6 +17,7 @@ from pathlib import Path
 
 from ..contracts import (
     ActionStatus,
+    Actor,
     AgentRole,
     HarnessError,
     MemoryKind,
@@ -60,7 +63,7 @@ class BaselineWriter:
         if not queries:
             return
         sources = await self._sources(task)
-        if sources is None:
+        if not sources:
             return
         body = json.dumps({
             "task_id": task.id,
@@ -71,7 +74,7 @@ class BaselineWriter:
             "answer": await self._answer(task, outcome),
         }, ensure_ascii=False, sort_keys=True)
         tables = [label for source in sources for label in source["tables"]]
-        tags = list(dict.fromkeys([*tables, *[source["path"].rsplit("/", 1)[-1].split(".")[0] for source in sources]]))
+        tags = list(dict.fromkeys([*tables, *[Path(source["path"]).stem for source in sources]]))
         await self._memories.remember(
             task.scope_id,
             "harness",
@@ -92,8 +95,10 @@ class BaselineWriter:
         found = []
         for ref in refs:
             evidence = json.loads((await self._artifacts.read(ref, self._actor(task))).content)
-            csv = (await self._artifacts.read(evidence["csv_ref"], self._actor(task))).content.decode("utf-8")
-            rows = [line.split(",") for line in csv.splitlines()[1:1 + INLINE_VALUES]]
+            text = (await self._artifacts.read(evidence["csv_ref"], self._actor(task))).content.decode("utf-8")
+            reader = csv.reader(io.StringIO(text))
+            next(reader, None)
+            rows = [row for _, row in zip(range(INLINE_VALUES), reader)]
             found.append({
                 "query_ref": ref,
                 "sql": evidence["sql"],
@@ -117,11 +122,16 @@ class BaselineWriter:
             if not data.get("sha256") or not data.get("tables"):
                 log.warning("task %s connected %s before digests were recorded", task.id, args.get("path"))
                 return None
+            path = args["path"]
+            if any(source["path"] == path for source in sources):
+                # Connecting the same file twice is one source.
+                continue
             sources.append({
-                "path": args["path"],
+                "path": path,
                 "sha256": data["sha256"],
                 "size_bytes": data["size_bytes"],
-                "kind": Path(args["path"]).suffix.lower().lstrip("."),
+                # The connector normalises .ddb to duckdb; reuse its answer.
+                "kind": data.get("kind") or Path(path).suffix.lower().lstrip("."),
                 "table": data["table"],
                 "tables": data["tables"],
                 "row_count": data["row_count"],
@@ -140,9 +150,7 @@ class BaselineWriter:
                 lines.append(line)
         return "\n".join(lines).strip()[:ANSWER_CHARS]
 
-    def _actor(self, task: Task):
-        from ..contracts import Actor
-
+    def _actor(self, task: Task) -> Actor:
         return Actor(actor_id="harness", scope_id=task.scope_id)
 
 

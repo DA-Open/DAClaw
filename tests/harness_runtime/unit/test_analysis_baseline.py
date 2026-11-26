@@ -192,3 +192,31 @@ async def test_source_change_admits_without_io(repos, tmp_path):
     assert decisions[-1].decision == "admit" and decisions[-1].reason == "source_changed"
     assert "recompute" not in json.dumps(decisions[-1].input_snapshot)
     assert len(await repos.actions.list_for_task(task.id)) == before
+
+
+async def test_admission_order_and_ended_baseline(repos, tmp_path):
+    """A revoked permission or a dead baseline outranks "nothing changed"."""
+    from harness.contracts import AdmissionDecision, Subscription, Usage
+    from harness.personal.analysis_admission import decide_analysis
+
+    kit = Kit(tmp_path, repos)
+    event = Event(
+        scope_id="s1", type=EventType.EXTERNAL, source="data_watch", source_event_id="e1",
+        subject_ref="/tmp/data.duckdb",
+        payload={"kind": "source_changed", "path": "/tmp/data.duckdb", "sha256": "a" * 64, "size_bytes": 1},
+        occurred_at=kit.clock(), received_at=kit.clock(),
+    )
+    sub = Subscription(scope_id="s1", owner_id="u1", goal=GOAL, subject_ref="/tmp/data.duckdb",
+                       resources=["/tmp/data.duckdb"], capability_ref="analysis_watch@1",
+                       event_filter={"kind": "source_changed"},
+                       baseline_ref="memory:mem_1@1",
+                       watch={"query_index": 0, "column": "revenue", "min_relative_change": 0.05})
+    baseline = {"sources": [{"path": "/tmp/data.duckdb", "sha256": "a" * 64}]}
+
+    revoked = decide_analysis(sub, event, baseline, [], [], Usage(), kit.clock(), 2, allowed=False)
+    assert revoked.decision == "skip" and revoked.reason == "resource_permission_revoked"
+    ended = decide_analysis(sub, event, None, [], [], Usage(), kit.clock(), 2, allowed=True)
+    assert ended.decision == "skip" and ended.reason == "baseline_ended"
+    unchanged = decide_analysis(sub, event, baseline, [], [], Usage(), kit.clock(), 2, allowed=True)
+    assert unchanged.reason == "unchanged_source"
+    assert unchanged.input_snapshot["daily_budget"]["tool_calls"] == sub.daily_budget.tool_calls

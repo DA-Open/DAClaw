@@ -28,7 +28,7 @@ def active(sub: Subscription, now: datetime) -> bool:
 def decide_analysis(
     sub: Subscription,
     event,
-    baseline: dict,
+    baseline: dict | None,
     tasks,
     records,
     daily_usage,
@@ -36,17 +36,30 @@ def decide_analysis(
     scope_limit: int,
     allowed: bool,
 ) -> AdmissionDecision:
-    """Admit, skip or defer; the reason string is what tests and traces read."""
+    """Admit, skip or defer; the reason string is what tests and traces read.
+
+    Order follows the task card: a dead subscription or baseline outranks a
+    revoked permission, which outranks "nothing changed" and every defer.
+    """
     data = SourceChangedEvent.model_validate(event.payload)
     own = [t for t in tasks if t.subscription_id == sub.id]
     prior = [r for r in records if r.task_id and any(t.id == r.task_id for t in own)]
-    source = next((s for s in baseline["sources"] if s["path"] == data.path), None)
-    last_admit = next((r for r in reversed(records) if r.decision == "admit"), None)
+    sources = (baseline or {}).get("sources", [])
+    source = next((s for s in sources if s["path"] == data.path), None)
+    last_admit = next(
+        (r for r in reversed(records)
+         if r.decision == "admit" and r.input_snapshot.get("path") == data.path),
+        None,
+    )
     old_sha = last_admit.input_snapshot.get("new_sha256") if last_admit else None
 
     decision, reason = "admit", "source_changed"
     if not active(sub, now):
         decision, reason = "skip", "subscription_inactive"
+    elif baseline is None:
+        decision, reason = "skip", "baseline_ended"
+    elif not allowed:
+        decision, reason = "skip", "resource_permission_revoked"
     elif source is None:
         decision, reason = "skip", "source_not_in_baseline"
     elif data.sha256 == source["sha256"] or data.sha256 == old_sha:
@@ -59,8 +72,6 @@ def decide_analysis(
         decision, reason = "defer", "daily_budget"
     elif sum(t.agent_role.value == "proactive" and t.status in UNFINISHED for t in tasks) >= scope_limit:
         decision, reason = "defer", "scope_capacity"
-    elif not allowed:
-        decision, reason = "skip", "resource_permission_revoked"
 
     return AdmissionDecision(
         subscription_id=sub.id,
@@ -78,6 +89,7 @@ def decide_analysis(
             "watch": sub.watch,
             "subscription_version": sub.version,
             "daily_usage": daily_usage.model_dump(),
+            "daily_budget": sub.daily_budget.model_dump(),
             "scope_limit": scope_limit,
             "resources_allowed": allowed,
         },

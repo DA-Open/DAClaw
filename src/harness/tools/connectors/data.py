@@ -700,6 +700,7 @@ def _connected(name: str, meta: dict[str, Any], *, reused: bool) -> ToolResult:
             "columns": columns,
             "row_count": meta["row_count"],
             "tables": meta["tables"],
+            "kind": meta["kind"],
             "sha256": meta.get("sha256"),
             "size_bytes": meta.get("size_bytes"),
         },

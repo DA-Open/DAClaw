@@ -29,8 +29,9 @@ from harness.context.builder import SimpleContextBuilder, StaticInstructions, St
 from harness.runtime.models import ModelConfig, create_adapter  # noqa: E402
 from harness.runtime.runner import AgentRunner  # noqa: E402
 from harness.storage.memory import InMemoryRepositories  # noqa: E402
-from tests.harness_runtime.fakes import NoRecompute, (  # noqa: E402
+from tests.harness_runtime.fakes import (  # noqa: E402
     MAIN_PROFILE,
+    NoRecompute,
     READ,
     WRITE,
     FakeGateway,

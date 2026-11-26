@@ -52,9 +52,8 @@ async def test_tool_hungry_model_wraps_up_with_a_verified_result():
         instructions=StaticInstructions({"main@1": "You draft documents."}),
         tools=StaticToolCatalog([READ, WRITE]),
         clock=clock,
-    
         recomputer=NoRecompute(),
-)
+    )
     context = await builder.build(task, MAIN_PROFILE, execution.lease)
 
     outcome = await runner.run(context, MAIN_PROFILE, execution)

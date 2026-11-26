@@ -73,9 +73,8 @@ class Setup:
                 instructions=StaticInstructions({"main@1": "Current instructions"}),
                 tools=StaticToolCatalog([self.connector.spec]),
                 clock=self.clock,
-            
                 recomputer=NoRecompute(),
-),
+            ),
             self.store,
         )
         self.runner = AgentRunner(
