@@ -4,12 +4,14 @@ from datetime import timedelta
 
 import pytest
 
+from harness import contracts
 from harness.contracts import (
-    Action, ActionStatus, ApprovalConflict, ApprovalDecision, EventType, InvalidTransition, NotFound,
-    TaskOutcome, TaskStatus, WaitCondition,
+    Action, ActionStatus, AgentRole, ApprovalConflict, ApprovalDecision, ErrorCode, EventType,
+    HarnessError, InvalidTransition, NotFound, RunLane, Subscription, Task, TaskOrigin, TaskOutcome,
+    TaskRequest, TaskStatus, TriggerType, VersionConflict, WaitCondition,
 )
 
-from .test_repositories import OTHER, T0, TTL, claimed, repos
+from .test_repositories import ACTOR, OTHER, T0, TTL, claimed, repos
 
 pytestmark = pytest.mark.asyncio
 
@@ -75,6 +77,8 @@ async def test_cancel_only_voids_this_tasks_pending_actions(repos, requeue_first
     for action in preserved:
         assert await repos.actions.get(task.id, action.logical_key) == action
     assert await repos.actions.get(peer.id, peer_action.logical_key) == peer_action
+    events = await repos.events.list(task.scope_id, task.id)
+    assert events[-1].payload["voided_action_ids"] == sorted(a.id for a in pending)
 
 
 async def test_cancelling_active_attempt_preserves_pending_action(repos):
@@ -151,3 +155,76 @@ async def test_reparked_approval_can_change_to_reject_only_after_expiry(repos):
     history = await repos.events.list(task.scope_id, task.id)
     assert history[:len(before)] == before
     assert [e.payload["decision"] for e in history if e.type is EventType.APPROVAL_DECIDED] == ["approve", "reject"]
+
+
+async def assert_cancelled_actions(repos, task, pending, kept, now):
+    assert (await repos.tasks.get(task.scope_id, task.id)).status is TaskStatus.CANCELLED
+    for action in pending:
+        stored = await repos.actions.get(task.id, action.logical_key)
+        assert stored.status is ActionStatus.FAILED and stored.updated_at == now
+    for action in kept:
+        assert await repos.actions.get(task.id, action.logical_key) == action
+    events = await repos.events.list(task.scope_id, task.id)
+    cancelled, = (e for e in events if e.type is EventType.TASK_STATUS_CHANGED and e.payload["to"] == "cancelled")
+    assert cancelled.payload["voided_action_ids"] == sorted(a.id for a in pending)
+    assert all("voided_action_ids" not in e.payload for e in events if e != cancelled)
+
+
+async def test_running_cancel_commit_voids_pending_approval(repos):
+    task, action = await pending_approval(repos)
+    await repos.tasks.decide_approval(task.scope_id, task.id, action.id, request_hash=action.request_hash,
+                                     approver=task.actor_id, decision="approve", reason="",
+                                     expires_at=T0 + timedelta(hours=1), now=T0)
+    lease = await repos.tasks.claim("approved-worker", [task.run_lane], TTL, T0)
+    second = await register_side_effect(repos, lease, "second", ActionStatus.NEEDS_APPROVAL)
+    kept = [await register_side_effect(repos, lease, status.value, status) for status in (
+        ActionStatus.PLANNED, ActionStatus.RUNNING, ActionStatus.UNKNOWN, ActionStatus.SUCCEEDED, ActionStatus.FAILED)]
+    now = T0 + timedelta(seconds=1)
+    assert (await repos.tasks.request_cancel(task.scope_id, task.id, "stop", now)).status is TaskStatus.CANCELLING
+    await repos.tasks.commit(lease, TaskOutcome(status=TaskStatus.CANCELLED), now)
+    await assert_cancelled_actions(repos, task, [action, second], kept, now)
+
+
+async def test_revoke_subscription_voids_pending_approval(repos):
+    sub = await repos.subscriptions.create(Subscription(
+        scope_id=ACTOR.scope_id, owner_id=ACTOR.actor_id, goal="watch", event_filter={"source": "fixture"},
+        capability_ref="data_card@1",
+    ))
+    origin = TaskOrigin(agent_role=AgentRole.PROACTIVE, agent_profile_ref="proactive@1", run_lane=RunLane.BACKGROUND,
+                        trigger_type=TriggerType.EVENT, subscription_id=sub.id)
+    task = Task.new(TaskRequest(request_key="sub", goal="watch", capability_ref=sub.capability_ref), ACTOR, origin, now=T0)
+    await repos.tasks.create(task)
+    lease = await repos.tasks.claim("active", [task.run_lane], TTL, T0)
+    action = await register_side_effect(repos, lease, "pending", ActionStatus.NEEDS_APPROVAL)
+    kept = await register_side_effect(repos, lease, "unknown", ActionStatus.UNKNOWN)
+    await repos.tasks.commit(lease, TaskOutcome(status=TaskStatus.WAITING, wait_condition=WaitCondition.APPROVAL), T0)
+    now = T0 + timedelta(seconds=1)
+    await repos.tasks.revoke_subscription(task.scope_id, sub.id, now)
+    await assert_cancelled_actions(repos, task, [action], [kept], now)
+
+
+async def test_reclaim_cancelling_voids_pending_approval(repos):
+    task, lease = await claimed(repos)
+    action = await register_side_effect(repos, lease, "pending", ActionStatus.NEEDS_APPROVAL)
+    kept = await register_side_effect(repos, lease, "planned", ActionStatus.PLANNED)
+    assert (await repos.tasks.request_cancel(task.scope_id, task.id, "stop", T0)).status is TaskStatus.CANCELLING
+    now = lease.lease_expires_at
+    assert await repos.tasks.reclaim_expired(now, 3) == 1
+    await assert_cancelled_actions(repos, task, [action], [kept], now)
+
+
+async def test_resume_repo_enforces_max_input_refs(repos):
+    task, lease = await claimed(repos)
+    waiting = await repos.tasks.commit(lease, TaskOutcome(status=TaskStatus.WAITING, wait_condition=WaitCondition.INPUT), T0)
+    refs = [f"input-{i}" for i in range(129)]
+    events = await repos.events.list(task.scope_id, task.id)
+    with pytest.raises(VersionConflict):
+        await repos.tasks.resume(task.scope_id, task.id, expected_version=waiting.version - 1, input_refs=refs, now=T0)
+    with pytest.raises(HarnessError) as caught:
+        await repos.tasks.resume(task.scope_id, task.id, expected_version=waiting.version, input_refs=refs, now=T0)
+    assert type(caught.value) is contracts.InvalidRequest and caught.value.code is ErrorCode.INVALID_REQUEST
+    assert await repos.tasks.get(task.scope_id, task.id) == waiting
+    assert await repos.events.list(task.scope_id, task.id) == events
+    accepted = await repos.tasks.resume(task.scope_id, task.id, expected_version=waiting.version,
+                                        input_refs=[*refs[:-1], refs[0]], now=T0)
+    assert accepted.input_refs == refs[:-1]

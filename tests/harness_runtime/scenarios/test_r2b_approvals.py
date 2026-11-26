@@ -11,7 +11,7 @@ import pytest_asyncio
 from harness.api import TokenAuth, create_app, token_digest
 from harness.app import HarnessSystem, build_system
 from harness.config import HarnessConfig
-from harness.contracts import Action, ActionStatus, EventType, ReconcileResult, TaskStatus, WaitCondition
+from harness.contracts import Action, ActionStatus, EventType, ReconcileResult, TaskOutcome, TaskStatus, WaitCondition
 from harness.runtime.models import ScriptedModelAdapter, result_step, tool_step
 from harness.tools.connectors import p0_connectors
 
@@ -120,6 +120,24 @@ async def test_get_task_exposes_version_and_pending_approvals(case):
     (requested,) = await case.events(EventType.APPROVAL_REQUESTED)
     assert requested.payload["action_id"] == item["action_id"]
     assert requested.payload["request_hash"] == item["request_hash"]
+
+
+async def test_pending_approvals_only_shown_while_waiting_for_approval(case):
+    waiting = (await case.client.get(case.url)).json()
+    assert [a["action_id"] for a in waiting["pending_approvals"]] == [case.action.id]
+    assert (await case.decide("approve")).status_code == 200
+    queued = (await case.client.get(case.url)).json()
+    assert queued["status"] == "queued" and queued["pending_approvals"] == []
+    assert (await case.stored_action()).status is ActionStatus.NEEDS_APPROVAL
+    lease = await case.system.tasks.claim("worker", [(await case.task()).run_lane])
+    running = (await case.client.get(case.url)).json()
+    assert running["status"] == "running" and running["pending_approvals"] == []
+    await case.system.tasks.request_cancel(ACTOR.scope_id, case.action.task_id, "stop")
+    cancelling = (await case.client.get(case.url)).json()
+    assert cancelling["status"] == "cancelling" and cancelling["pending_approvals"] == []
+    await case.system.tasks.commit(lease, TaskOutcome(status=TaskStatus.CANCELLED))
+    cancelled = (await case.client.get(case.url)).json()
+    assert cancelled["status"] == "cancelled" and cancelled["pending_approvals"] == []
 
 
 async def test_duplicate_approval_is_idempotent(case):

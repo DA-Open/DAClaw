@@ -171,3 +171,87 @@ git diff --numstat 4a7abe38 -- src/ ':!src/harness/prompts' ':!src/harness/capab
 基线和最终回归的失败集合相同，仅有 `test_fingerprint_skip_and_diff_after_baseline[postgres]`。两次均在取订阅决策列表的最后一项时得到 `kind=None`，断言期望 `diff`。该 PostgreSQL 查询没有指定排序，测试依赖返回顺序。P2 订阅模块属于本卡的禁止修改范围。[失败断言](../../tests/harness_runtime/scenarios/test_proactive.py) · [PostgreSQL 订阅读取](../../src/harness/storage/postgres_proactive.py)
 
 交付文件全部位于 R2b 允许清单。主仓库工作区保留原状，交付方式为独立分支本地提交。任务卡规定的停止条件均未触发。
+
+## Claude 终审修复与 `9aadb65c` 复验
+
+R2b 从 `1982cd26` 无冲突 rebase 到 `origin/DaraOS` 的 `9aadb65c`，得到本轮增量起点 `fd343774`。上文记录的指纹排序问题已由主干 #37、#39 修复。PostgreSQL 现在按决策时间及事件序号排序。本轮基线与最终回归均覆盖了原先偶发失败的用例。[排序实现](../../src/harness/storage/postgres_proactive.py)
+
+| 项目 | 实现与观测 |
+| --- | --- |
+| M5、S3 | `request_cancel`、`commit`、`revoke_subscription`、`reclaim_expired` 在落入 `cancelled` 时，于同一把内存锁或同一 PostgreSQL 事务内把本任务的待批动作改为 `failed`，同步更新时间。状态事件仅在确有作废动作时携带排序后的 `voided_action_ids`。覆盖相邻任务及五种其他动作状态。 |
+| M5，HTTP | `GET /tasks/{id}` 只在 `waiting/approval` 查询并展示待批项。批准入队后，即使动作仍是 `needs_approval`，列表也为空。 |
+| S1 | 合并后最多 128 条输入引用。内存和 PostgreSQL 都在仓储校验状态、版本、去重后的数量。超限返回 `InvalidRequest`，任务及事件不变。HTTP 的请求体长度约束复用同一常量。 |
+| S8 | WSL 的 pytest 及子进程只有回环网络，`FEISHU_TEST_*` 环境变量数为 0。Docker 使用禁用网络的本地 PostgreSQL 16，通过私有 Unix 套接字连接。 |
+
+`fd343774` 修改前的完整 Harness 基线为 `988 passed in 185.71s (0:03:05)`。下列红灯均在添加断言后、修改 `src/` 前取得。旧实现保留了其他取消路径上的待批动作，批准入队后仍展示待批项，直接调用仓储也接受了 129 条引用。定向复跑结果紧随失败列表。
+
+```text
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_cancel_only_voids_this_tasks_pending_actions[memory-waiting]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_cancel_only_voids_this_tasks_pending_actions[memory-queued]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_cancel_only_voids_this_tasks_pending_actions[postgres-waiting]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_cancel_only_voids_this_tasks_pending_actions[postgres-queued]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_running_cancel_commit_voids_pending_approval[memory]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_running_cancel_commit_voids_pending_approval[postgres]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_revoke_subscription_voids_pending_approval[memory]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_revoke_subscription_voids_pending_approval[postgres]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_reclaim_cancelling_voids_pending_approval[memory]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_reclaim_cancelling_voids_pending_approval[postgres]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_resume_repo_enforces_max_input_refs[memory]
+FAILED tests/harness_runtime/unit/test_r2b_repositories.py::test_resume_repo_enforces_max_input_refs[postgres]
+FAILED tests/harness_runtime/scenarios/test_r2b_approvals.py::test_pending_approvals_only_shown_while_waiting_for_approval[memory]
+FAILED tests/harness_runtime/scenarios/test_r2b_approvals.py::test_pending_approvals_only_shown_while_waiting_for_approval[postgres]
+14 failed, 4 passed, 28 deselected in 5.09s
+..................                                                       [100%]
+18 passed, 28 deselected in 5.96s
+```
+
+完整回归命令与最终原始输出如下。
+
+```bash
+python -m pytest tests/harness_runtime -q -n0 -o addopts="" -m "integration or not integration"
+```
+
+```text
+........................................................................ [  7%]
+........................................................................ [ 14%]
+........................................................................ [ 21%]
+........................................................................ [ 28%]
+........................................................................ [ 36%]
+........................................................................ [ 43%]
+........................................................................ [ 50%]
+........................................................................ [ 57%]
+........................................................................ [ 64%]
+........................................................................ [ 72%]
+........................................................................ [ 79%]
+........................................................................ [ 86%]
+........................................................................ [ 93%]
+..............................................................           [100%]
+998 passed in 196.97s (0:03:16)
+```
+
+防御性检查相对 `9aadb65c`，增量相对 `fd343774`。`git diff` 成功，`grep` 返回 1，标准输出为空。源码新增 53 行，上限为 80 行。
+
+```bash
+git diff 9aadb65c -- 'src/harness/*.py' ':!src/harness/contracts.py' ':!src/harness/interfaces.py' ':!src/harness/storage/repositories.py' | grep -nE '^\+.*(except Exception|except:|getattr\([^)]*,[^)]*,|hasattr\(|self\._\w+ is not None)|^\+\s+def __init__\([^)]*=None|^\+ {8,}(from \.|import )'
+git diff --numstat fd343774 -- src/ ':!src/harness/prompts' ':!src/harness/capabilities' ':!src/harness/README.md' | awk '{s+=$1} END {print s+0}'
+```
+
+```text
+53
+```
+
+本阶段收尾时，R2b 的交付提交由本分支 `git log -1 -- docs/plans/p1-R2b-report.md` 定位。P1-ACC 和 R4 两个工作树仍分别位于 `581674fd`、`8159be78`，均干净；后续阶段以新 R2b 为基点。最终三段提交号随总交付提供。
+
+本轮完整文件增减统计（相对 `fd343774`）
+
+```text
+84	0	docs/plans/p1-R2b-report.md
+8	1	src/harness/README.md
+5	6	src/harness/api/app.py
+4	0	src/harness/contracts.py
+19	8	src/harness/storage/memory.py
+18	8	src/harness/storage/postgres.py
+7	1	src/harness/storage/repositories.py
+19	1	tests/harness_runtime/scenarios/test_r2b_approvals.py
+80	3	tests/harness_runtime/unit/test_r2b_repositories.py
+```

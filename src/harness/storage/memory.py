@@ -350,7 +350,7 @@ class InMemoryTaskRepository:
                 if attempt is not None and attempt.ended_at is None:
                     self._s.attempts[attempt.id] = _replace(attempt, ended_at=now, exit_reason="lease_expired")
                 self._s.tasks[task.id] = updated
-                self._s.status_event(updated, task.status, now, attempt_id=attempt.id if attempt else None)
+                self._record_transition(updated, task.status, now, attempt_id=attempt.id if attempt else None)
                 recovered += 1
             return recovered
 
@@ -450,13 +450,28 @@ class InMemoryTaskRepository:
                 extra["error_code"] = str(outcome.error.code)
             if outcome.artifact_refs:
                 extra["artifact_refs"] = list(outcome.artifact_refs)
-            self._s.status_event(updated, old, now, attempt_id=attempt.id, **extra)
+            self._record_transition(updated, old, now, attempt_id=attempt.id, **extra)
             if inbox is not None and updated.status == TaskStatus.SUCCEEDED:
                 from .memory_delivery import publish
                 publish(self._s, inbox, now)
                 updated = _replace(updated, result_expires_at=inbox.valid_until)
                 self._s.tasks[task.id] = updated
             return _copy(updated)
+
+    def _invalidate_pending_approvals(self, task_id: str, now: datetime) -> list[str]:
+        voided = []
+        for action in self._s.actions.values():
+            if action.task_id == task_id and action.status is ActionStatus.NEEDS_APPROVAL:
+                self._s.actions[action.id] = _replace(action, status=ActionStatus.FAILED, updated_at=now)
+                voided.append(action.id)
+        return sorted(voided)
+
+    def _record_transition(self, task: Task, old: TaskStatus, now: datetime, **extra: Any) -> None:
+        if task.status is TaskStatus.CANCELLED:
+            voided = self._invalidate_pending_approvals(task.id, now)
+            if voided:
+                extra["voided_action_ids"] = voided
+        self._s.status_event(task, old, now, **extra)
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str, now: datetime) -> Task:
         async with self._s.lock:
@@ -481,11 +496,7 @@ class InMemoryTaskRepository:
                 updated_at=now,
             )
             self._s.tasks[task.id] = updated
-            if target is TaskStatus.CANCELLED:
-                for action in self._s.actions.values():
-                    if action.task_id == task.id and action.status is ActionStatus.NEEDS_APPROVAL:
-                        self._s.actions[action.id] = _replace(action, status=ActionStatus.FAILED, updated_at=now)
-            self._s.status_event(updated, old, now, reason=reason)
+            self._record_transition(updated, old, now, reason=reason)
             return _copy(updated)
 
     async def resume(
@@ -612,7 +623,7 @@ class InMemoryTaskRepository:
                 changed = _replace(task, status=status, wait_condition=None, cancel_requested_at=now,
                                    cancel_reason="subscription revoked", version=task.version + 1, updated_at=now)
                 self._s.tasks[task.id] = changed
-                self._s.status_event(changed, task.status, now)
+                self._record_transition(changed, task.status, now)
             for item in getattr(self._s, "inbox", {}).values():
                 if item.subscription_id == sub.id and item.status == "pending":
                     item.status = "cancelled"

@@ -282,6 +282,10 @@ class InvalidTransition(HarnessError):
     code = ErrorCode.INVALID_TRANSITION
 
 
+class InvalidRequest(HarnessError):
+    code = ErrorCode.INVALID_REQUEST
+
+
 class VersionConflict(HarnessError):
     code = ErrorCode.VERSION_CONFLICT
 

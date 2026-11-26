@@ -38,6 +38,7 @@ from ..contracts import (
     AttemptLease,
     ErrorCode,
     Event,
+    InvalidRequest,
     InvalidTransition,
     NoticeReservation,
     ReservationResult,
@@ -58,6 +59,8 @@ from ..contracts import (
 from ..interfaces import MemoryStore
 from ..proactive_types import InboxItem
 
+MAX_INPUT_REFS = 128
+
 
 def new_resume_inputs(task: Task, expected_version: int, input_refs: list[str]) -> list[str]:
     """Validate the observed task version and return only the newly supplied references."""
@@ -65,7 +68,10 @@ def new_resume_inputs(task: Task, expected_version: int, input_refs: list[str]) 
         raise InvalidTransition(f"task {task.id} is not waiting for input")
     if task.version != expected_version:
         raise VersionConflict(f"task {task.id} is at version {task.version}, expected {expected_version}")
-    return [ref for ref in dict.fromkeys(input_refs) if ref not in task.input_refs]
+    added = [ref for ref in dict.fromkeys(input_refs) if ref not in task.input_refs]
+    if len(task.input_refs) + len(added) > MAX_INPUT_REFS:
+        raise InvalidRequest(f"a task can have at most {MAX_INPUT_REFS} input references")
+    return added
 
 
 def round_attempts(statuses: Iterable[str]) -> int:

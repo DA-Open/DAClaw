@@ -403,7 +403,9 @@ checkpoint with no pending calls, it appends them to the saved conversation.
 A stale version returns 409 `version_conflict`. Other task states return
 409 `invalid_transition`.
 
-**Deciding an approval.** Each entry in `pending_approvals` gives the
+**Deciding an approval.** Only a task in `waiting/approval` lists
+actions in `pending_approvals`. All other states return an empty list.
+Each entry gives the
 `action_id`, `tool`, `logical_key`, `request_hash`, `args_ref` and `created_at`.
 Read the arguments through `GET /artifacts/{args_ref}` and send the matching
 hash with the decision. The `approval_requested` event also carries the hash.
@@ -420,6 +422,11 @@ worker finds an expired approval while replaying the call, it parks the task
 for approval again. The owner can then submit a fresh decision for the same
 action and hash. This also covers a retry after reconciliation marked the
 action `failed`.
+
+Every transition into `cancelled` voids the task's pending approvals in the
+same transaction, including cancellation at commit, subscription revocation
+and recovery of an expired lease. The status event lists the affected action
+IDs in sorted order under `voided_action_ids` when any were voided.
 
 **Artifact downloads** support `offset` / `length` query parameters or one
 `Range: bytes=start-end` header (open-ended and suffix ranges also work).

@@ -53,9 +53,10 @@ from ..contracts import (
     TaskRequest,
     TaskStatus,
     TriggerType,
+    WaitCondition,
     utcnow,
 )
-from ..storage.repositories import new_resume_inputs
+from ..storage.repositories import MAX_INPUT_REFS
 from ..trace import build_trace
 from ..tasks.recovery import needs_manual_confirmation
 from ..tools.gateway import reconciliation_history
@@ -72,7 +73,6 @@ MAIN_PROFILE = "main@1"
 STOPPED = frozenset({TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.WAITING})
 MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
 MAX_GOAL_CHARACTERS = 32_768
-MAX_INPUT_REFS = 128
 MAX_INPUT_REF_CHARACTERS = 4_096
 
 
@@ -291,7 +291,9 @@ def create_app(
     async def get_task(task_id: str, request: Request) -> dict[str, Any]:
         who = actor(request)
         task = await own_task(who, task_id)
-        actions = await system.repos.actions.list_for_task(task.id)
+        actions = []
+        if task.status is TaskStatus.WAITING and task.wait_condition is WaitCondition.APPROVAL:
+            actions = await system.repos.actions.list_for_task(task.id)
         unsettled = await system.repos.actions.list_unsettled(task.id)
         history = await reconciliation_history(system.repos.events, task)
         return task_view(task) | {
@@ -324,9 +326,6 @@ def create_app(
         if task.actor_id != who.actor_id:
             raise ApiError(403, ErrorCode.FORBIDDEN, "only the task actor may resume it")
         check_inputs(who, payload.input_refs)
-        additional = new_resume_inputs(task, payload.expected_version, payload.input_refs)
-        if len(task.input_refs) + len(additional) > MAX_INPUT_REFS:
-            raise ApiError(400, ErrorCode.INVALID_REQUEST, f"a task can have at most {MAX_INPUT_REFS} input references")
         resumed = await system.tasks.resume(
             who.scope_id, task_id, expected_version=payload.expected_version, input_refs=payload.input_refs
         )

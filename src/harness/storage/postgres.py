@@ -537,7 +537,7 @@ class PgTaskRepository:
                     await conn.execute(update(s.attempts).where(
                         s.attempts.c.id == attempt_id, s.attempts.c.ended_at.is_(None)
                     ).values(ended_at=now, exit_reason="lease_expired"))
-                await self._db.status_event(
+                await self._record_transition(
                     conn, _task(updated), task.status, now, attempt_id=attempt_id
                 )
             return len(rows)
@@ -657,13 +657,27 @@ class PgTaskRepository:
                 extra["error_code"] = str(outcome.error.code)
             if outcome.artifact_refs:
                 extra["artifact_refs"] = list(outcome.artifact_refs)
-            await self._db.status_event(conn, updated, old, now, attempt_id=attempt.id, **extra)
+            await self._record_transition(conn, updated, old, now, attempt_id=attempt.id, **extra)
             if inbox is not None and updated.status == TaskStatus.SUCCEEDED:
                 from .postgres_delivery import publish
                 await publish(self._db, conn, inbox, now)
                 await conn.execute(update(s.tasks).where(s.tasks.c.id == updated.id).values(result_expires_at=inbox.valid_until))
                 updated = updated.model_copy(update={"result_expires_at": inbox.valid_until})
             return updated
+
+    async def _invalidate_pending_approvals(self, conn: AsyncConnection, task_id: str, now: datetime) -> list[str]:
+        ids = await conn.scalars(update(s.actions).where(
+            s.actions.c.task_id == task_id, s.actions.c.status == ActionStatus.NEEDS_APPROVAL.value,
+        ).values(status=ActionStatus.FAILED.value, updated_at=now).returning(s.actions.c.id))
+        return sorted(ids)
+
+    async def _record_transition(self, conn: AsyncConnection, task: Task, old: TaskStatus, now: datetime,
+                                 **extra: Any) -> None:
+        if task.status is TaskStatus.CANCELLED:
+            voided = await self._invalidate_pending_approvals(conn, task.id, now)
+            if voided:
+                extra["voided_action_ids"] = voided
+        await self._db.status_event(conn, task, old, now, **extra)
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str, now: datetime) -> Task:
         async with self._db.engine.begin() as conn:
@@ -695,11 +709,7 @@ class PgTaskRepository:
                 )
             ).mappings().one()
             updated = _task(updated_row)
-            if target is TaskStatus.CANCELLED:
-                await conn.execute(update(s.actions).where(
-                    s.actions.c.task_id == task.id, s.actions.c.status == ActionStatus.NEEDS_APPROVAL.value,
-                ).values(status=ActionStatus.FAILED.value, updated_at=now))
-            await self._db.status_event(conn, updated, task.status, now, reason=reason)
+            await self._record_transition(conn, updated, task.status, now, reason=reason)
             return updated
 
     async def resume(
@@ -877,7 +887,7 @@ class PgTaskRepository:
                 task.version += 1
                 task.updated_at = now
                 await conn.execute(update(s.tasks).where(s.tasks.c.id == task.id).values(**_task_row(task)))
-                await self._db.status_event(conn, task, old, now)
+                await self._record_transition(conn, task, old, now)
             await conn.execute(update(s.inbox_items).where(s.inbox_items.c.subscription_id == sub.id,
                                s.inbox_items.c.status == "pending").values(status="cancelled"))
             return sub
