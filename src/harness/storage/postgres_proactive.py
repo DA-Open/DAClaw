@@ -1,5 +1,5 @@
 """PostgreSQL subscription transactions; no tools or model calls under locks."""
-from sqlalchemy import select, update, func
+from sqlalchemy import DateTime, cast, select, update, func
 from sqlalchemy.dialects.postgresql import insert
 
 from ..contracts import (
@@ -67,8 +67,19 @@ class PgSubscriptionRepository:
     async def decisions(self, scope_id, subscription_id):
         async with self._db.engine.connect() as conn:
             await self._get(conn, scope_id, subscription_id)
-            return [AdmissionDecision.model_validate(b) for b in (await conn.execute(select(s.subscription_events.c.body)
-                    .where(s.subscription_events.c.subscription_id == subscription_id))).scalars()]
+            # Newest last: callers read the tail as "the most recent decision",
+            # and without an order PostgreSQL may return rows in any sequence.
+            rows = (await conn.execute(
+                select(s.subscription_events.c.body)
+                .where(s.subscription_events.c.subscription_id == subscription_id)
+                # Order by the timestamp itself: the text form sorts ".100000Z"
+                # before "Z" because "." < "Z", so sub-second rows would come first.
+                .order_by(
+                    cast(s.subscription_events.c.body["decided_at"].astext, DateTime(timezone=True)),
+                    s.subscription_events.c.event_id,
+                )
+            )).scalars()
+            return [AdmissionDecision.model_validate(b) for b in rows]
 
     async def label_decision(self, scope_id, subscription_id, task_id, label, now):
         events = s.subscription_events
