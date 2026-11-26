@@ -31,6 +31,7 @@ from harness.runtime.runner import AgentRunner  # noqa: E402
 from harness.storage.memory import InMemoryRepositories  # noqa: E402
 from tests.harness_runtime.fakes import (  # noqa: E402
     MAIN_PROFILE,
+    NoRecompute,
     READ,
     WRITE,
     FakeGateway,
@@ -76,7 +77,9 @@ async def main() -> int:
         repos,
         instructions=StaticInstructions({"main@1": "You are the Main agent of DaraOS. You write short documents."}),
         tools=StaticToolCatalog([READ, WRITE]),
-    )
+    
+        recomputer=NoRecompute(),
+)
     context = await builder.build(task, MAIN_PROFILE, execution.lease)
     outcome = await runner.run(context, MAIN_PROFILE, execution)
 

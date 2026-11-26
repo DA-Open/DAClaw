@@ -15,7 +15,7 @@ from harness.storage.memory import InMemoryRepositories
 from harness.tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
 from harness.tools.connectors import p0_connectors
 
-from ..fakes import ACTOR, MAIN_PROFILE, Clock, FakeVerifier, MemoryArtifactStore, claimed_task
+from ..fakes import NoRecompute, ACTOR, MAIN_PROFILE, Clock, FakeVerifier, MemoryArtifactStore, claimed_task
 
 pytestmark = pytest.mark.asyncio
 
@@ -59,6 +59,7 @@ class World:
             instructions=StaticInstructions({"main@1": "You draft documents."}),
             tools=PolicyToolCatalog(self.policy, [c.spec for c in self.connectors]),
             clock=self.clock,
+            recomputer=NoRecompute(),
         )
         context = await builder.build(self.task, MAIN_PROFILE, self.execution.lease)
         self.outcome = await runner.run(context, MAIN_PROFILE, self.execution)

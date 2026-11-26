@@ -15,7 +15,7 @@ from harness.runtime.models import ScriptedModelAdapter, result_step, tool_step
 from harness.runtime.runner import AgentRunner
 from harness.storage.memory import InMemoryRepositories
 
-from ..fakes import MAIN_PROFILE, READ, WRITE, Clock, FakeGateway, FakeVerifier, MemoryArtifactStore, claimed_task
+from ..fakes import NoRecompute, MAIN_PROFILE, READ, WRITE, Clock, FakeGateway, FakeVerifier, MemoryArtifactStore, claimed_task
 
 pytestmark = pytest.mark.asyncio
 
@@ -52,6 +52,7 @@ async def test_tool_hungry_model_wraps_up_with_a_verified_result():
         instructions=StaticInstructions({"main@1": "You draft documents."}),
         tools=StaticToolCatalog([READ, WRITE]),
         clock=clock,
+        recomputer=NoRecompute(),
     )
     context = await builder.build(task, MAIN_PROFILE, execution.lease)
 

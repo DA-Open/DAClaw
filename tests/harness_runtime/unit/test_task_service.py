@@ -56,6 +56,7 @@ def service(tmp_path, **config):
         capabilities=CapabilityRegistry.builtin(),
         agents=AgentRegistry.builtin(),
         clock=clock,
+        after_commit=[],
     )
     return svc, repos, clock
 

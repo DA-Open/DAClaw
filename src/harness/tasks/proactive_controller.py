@@ -4,6 +4,9 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from ..personal.analysis_types import AnalysisWatch, BaselineBody, SourceChangedEvent
+from ..personal.analysis_admission import decide_analysis
+from ..personal.memory import is_current
 from ..contracts import (
     Acceptance, Actor, AdmissionDecision, AgentRole, CheckSpec, Event,
     EventType, Limits, RunLane, Subscription, SubscriptionStatus, Task, TaskOrigin,
@@ -97,8 +100,9 @@ def decide(sub, event, tasks, records, daily_usage, now, scope_limit, allowed):
 
 
 class ProactiveController:
-    def __init__(self, repos, tasks, policy, *, scope_limit=2, clock=utcnow):
+    def __init__(self, repos, tasks, policy, *, memories=None, scope_limit=2, clock=utcnow):
         self.repos, self.tasks, self.policy = repos, tasks, policy
+        self.memories = memories
         self.scope_limit, self.clock = scope_limit, clock
 
     async def create_subscription(self, sub: Subscription) -> Subscription:
@@ -118,6 +122,8 @@ class ProactiveController:
             if not self.policy.check_path(Path(sub.subject_ref).expanduser().resolve(),
                                           scope_id=sub.scope_id, role=AgentRole.MAIN).allowed:
                 raise PermissionError("subscription resources exceed the user's main whitelist")
+        elif sub.capability_ref == "analysis_watch@1":
+            await self._check_analysis_subscription(sub)
         elif sub.capability_ref != "data_card@1":
             raise ValueError("Q1-Q3 subscriptions support data_card@1")
         self.tasks.prepare(self._request(sub, "validate"), Actor(scope_id=sub.scope_id, actor_id=sub.owner_id),
@@ -130,7 +136,53 @@ class ProactiveController:
             update={"daily_budget": _daily_budget_at_creation(sub)}
         ))
 
+    async def _check_analysis_subscription(self, sub: Subscription) -> None:
+        if not sub.baseline_ref or not sub.watch:
+            raise ValueError("analysis_watch requires baseline_ref and watch")
+        if sub.schedule or sub.event_filter != {"kind": "source_changed"}:
+            raise ValueError('analysis_watch requires empty schedule and event_filter {"kind": "source_changed"}')
+        body = await self._baseline(sub)
+        spec = AnalysisWatch.model_validate(sub.watch)
+        if spec.query_index >= len(body.queries):
+            raise ValueError("watch.query_index is not in the baseline")
+        query = body.queries[spec.query_index]
+        if spec.column not in query.columns:
+            raise ValueError(f"watch.column {spec.column!r} is not in that query")
+        if query.row_count != 1:
+            raise ValueError("analysis_watch can only watch a query with exactly one row")
+        if sub.subject_ref != body.sources[0].path:
+            raise ValueError("subject_ref must be the baseline's first source")
+        if sorted(sub.resources) != sorted(source.path for source in body.sources):
+            raise ValueError("resources must be exactly the baseline's sources")
+        for path in sub.resources:
+            for role in (AgentRole.PROACTIVE, AgentRole.MAIN):
+                if not self.policy.check_path(Path(path).expanduser().resolve(), scope_id=sub.scope_id,
+                                              role=role).allowed:
+                    raise PermissionError("subscription resources exceed both whitelists")
+
+    async def _baseline(self, sub: Subscription) -> BaselineBody:
+        if self.memories is None:
+            raise ValueError("analysis_watch needs the memory service")
+        memory_id, _, version = (sub.baseline_ref or "").removeprefix("memory:").partition("@")
+        record, text = await self.memories.read(sub.scope_id, "harness", memory_id)
+        if record.kind.value != "analysis" or str(record.version) != version:
+            raise ValueError("baseline_ref must name a current ANALYSIS memory")
+        if not is_current(record, self.clock()):
+            raise ValueError("baseline_ref must name a current ANALYSIS memory")
+        body = BaselineBody.model_validate_json(text)
+        if not body.sources or sub.subject_ref not in {source.path for source in body.sources}:
+            raise ValueError("baseline does not depend on this subject")
+        return body
+
     def _request(self, sub, event_id):
+        if sub.capability_ref == "analysis_watch@1":
+            return TaskRequest(
+                request_key=f"proactive:{sub.id}:{event_id}", goal=sub.goal,
+                input_refs=list(sub.resources), subject_ref=sub.subject_ref, capability_ref=sub.capability_ref,
+                limits=sub.limits, acceptance=Acceptance(required_artifacts=["decision"], checks=[
+                    CheckSpec(id="artifact_readable"), CheckSpec(id="decision_schema"),
+                    CheckSpec(id="decision_evidence"), CheckSpec(id="recompute_replay")]),
+            )
         if sub.capability_ref == "personal_watch@1":
             return TaskRequest(
                 request_key=f"proactive:{sub.id}:{event_id}", goal=sub.goal,
@@ -156,6 +208,8 @@ class ProactiveController:
             raise ValueError("ProactiveController only accepts external data events")
         if event.payload.get("kind") == "personal_window":
             PersonalWindowEvent.model_validate(event.payload)
+        elif event.payload.get("kind") == "source_changed":
+            SourceChangedEvent.model_validate(event.payload)
         else:
             DataEvent.model_validate({k: event.payload.get(k) for k in DataEvent.model_fields})
         event = await self.repos.events.append(event)
@@ -168,8 +222,19 @@ class ProactiveController:
                 window = PersonalWindowEvent.model_validate(event.payload)
                 changes = await self.repos.subscriptions.changes(
                     event.scope_id, sub.subject_ref, window.since, window.until, source="mock_calendar")
+            baseline = None
+            if sub.capability_ref == "analysis_watch@1":
+                try:
+                    baseline = await self._baseline(sub)
+                except (ValueError, NotFound):
+                    # The baseline ended: record it for this subscription and keep
+                    # going, the other subscriptions still need their decision.
+                    baseline = None
             def evaluate(current, tasks, records, usage):
-                if current.capability_ref == "personal_watch@1":
+                if current.capability_ref == "analysis_watch@1":
+                    record = decide_analysis(current, event, baseline.model_dump(), tasks, records, usage, now,
+                                             self.scope_limit, resources_allowed(current, self.policy))
+                elif current.capability_ref == "personal_watch@1":
                     record = decide_personal(current, event, window, changes, tasks, usage, now, self.scope_limit,
                                              resources_allowed(current, self.policy))
                 else:

@@ -21,10 +21,14 @@ Checks on ``create`` (spec 5.1 POST /tasks, 3.1):
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from typing import Protocol
 from datetime import datetime
+
+import logging
 
 from ..config import HarnessConfig
 from ..contracts import (
+    HarnessError,
     Actor,
     ArtifactInput,
     AttemptLease,
@@ -41,9 +45,17 @@ from ..contracts import (
 from ..interfaces import ArtifactStore
 from ..storage.repositories import TaskRepository
 
+log = logging.getLogger(__name__)
+
 
 class UnknownCheck(ValueError):
     """The acceptance asks for a check the capability pack does not offer."""
+
+
+class AfterCommit(Protocol):
+    """Runs after a successful commit; never inside the storage transaction."""
+
+    async def __call__(self, task: Task, outcome: TaskOutcome) -> None: ...
 
 
 class TaskService:
@@ -59,6 +71,7 @@ class TaskService:
         agents=None,
         clock: Callable[[], datetime] = utcnow,
         delivery=None,
+        after_commit: list[AfterCommit],
     ) -> None:
         self._tasks = tasks
         self._config = config
@@ -67,6 +80,7 @@ class TaskService:
         self._agents = agents
         self._clock = clock
         self._delivery = delivery
+        self._after_commit = list(after_commit)
 
     # -- create --------------------------------------------------------------
 
@@ -133,8 +147,20 @@ class TaskService:
             task = await self._tasks.get(lease.scope_id, lease.task_id)
             inbox = await self._delivery.prepare(task, outcome)
             if inbox is not None:
-                return await self._tasks.commit(lease, outcome, self._clock(), inbox=inbox)
-        return await self._tasks.commit(lease, outcome, self._clock())
+                committed = await self._tasks.commit(lease, outcome, self._clock(), inbox=inbox)
+                await self._after_commit_hooks(committed, outcome)
+                return committed
+        committed = await self._tasks.commit(lease, outcome, self._clock())
+        await self._after_commit_hooks(committed, outcome)
+        return committed
+
+    async def _after_commit_hooks(self, task: Task, outcome: TaskOutcome) -> None:
+        """Hooks run outside the transaction; a failing hook never fails the commit."""
+        for hook in self._after_commit:
+            try:
+                await hook(task, outcome)
+            except (HarnessError, OSError, ValueError) as exc:
+                log.warning("after-commit hook %r failed for task %s: %s", hook, task.id, exc)
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str) -> Task:
         return await self._tasks.request_cancel(scope_id, task_id, reason, self._clock())
