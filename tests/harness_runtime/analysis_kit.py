@@ -80,7 +80,7 @@ class Kit:
         self.builder = SimpleContextBuilder(
             repos, instructions=PackageInstructions(),
             tools=PolicyToolCatalog(self.policy, self.gateway.specs),
-            capabilities=self.caps, clock=self.clock, recomputer=self.recomputer,
+            capabilities=self.caps, clock=self.clock, recomputer=self.recomputer, memory=self.memory,
         )
         self.config = HarnessConfig()
 

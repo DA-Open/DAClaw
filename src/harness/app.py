@@ -38,7 +38,7 @@ import yaml
 from .agents import AgentRegistry, PackageInstructions, main_role_whitelist
 from .capabilities import CapabilityRegistry
 from .config import HarnessConfig
-from .context.builder import SimpleContextBuilder
+from .context.builder import SimpleContextBuilder, WatchResumingContextBuilder
 from .context.resume import ResumingContextBuilder
 from .contracts import AgentRole, RunLane, utcnow
 from .interfaces import ModelAdapter
@@ -59,8 +59,10 @@ from .tasks.proactive_controller import ProactiveController
 from .tasks.recovery import Recovery
 from .tasks.scheduler import Scheduler
 from .personal.baseline import BaselineWriter
+from .personal.decision import WatchChecks
 from .personal.memory import MemoryService
 from .personal.recompute import Recomputer
+from .personal.watch_delivery import WatchAfterCommit
 from .personal.calendar_source import MockCalendarSource
 from .tools.connectors import MemoryReadConnector, MemorySearchConnector
 
@@ -236,7 +238,7 @@ def build_system(
             repos = InMemoryRepositories()
     artifacts = FileArtifactStore(config.artifact_root, repos.artifacts)
     memory = MemoryService(repos.memories, artifacts, clock)
-    delivery = DeliveryService(repos, artifacts, policy, clock=clock)
+    delivery = DeliveryService(repos, artifacts, policy, memory=memory, clock=clock)
     connect, *other_data = data_connectors(artifacts)
     profile = DataProfileConnector(artifacts)
     connectors = [
@@ -261,9 +263,15 @@ def build_system(
         data_sessions=connect,
     )
     data_checks = DataCardChecks(repos, policy, clock, profile)
+    watch_checks = WatchChecks(repos, artifacts, repos.memories)
     verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock, checkers={
-        **DEFAULT_CHECKERS, "data_card_schema": data_checks.schema, "stats_replay": data_checks.replay,
+        **DEFAULT_CHECKERS,
+        "data_card_schema": data_checks.schema,
+        "stats_replay": data_checks.replay,
         "feishu_receipt": FeishuReceiptCheck(repos),
+        "decision_schema": watch_checks.decision_schema,
+        "decision_evidence": watch_checks.decision_evidence,
+        "recompute_replay": watch_checks.recompute_replay,
     })
     recomputer = Recomputer(repos, memory, artifacts, policy, clock=clock)
     builder = SimpleContextBuilder(
@@ -274,12 +282,14 @@ def build_system(
         clock=clock,
         delivery=delivery,
         recomputer=recomputer,
+        memory=memory,
     )
-    builder = ResumingContextBuilder(builder, artifacts)
+    builder = WatchResumingContextBuilder(builder, artifacts)
     runner = AgentRunner(repos, model, gateway, verifier, artifacts, reminders=config.budget_reminder, clock=clock)
     tasks = TaskService(
         repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock,
-        delivery=delivery, after_commit=[BaselineWriter(repos, memory, artifacts, clock=clock)],
+        delivery=delivery, after_commit=[BaselineWriter(repos, memory, artifacts, clock=clock),
+                                        WatchAfterCommit(memory, artifacts)],
     )
     proactive = ProactiveController(repos, tasks, policy, memories=memory,
                                     scope_limit=config.background_scope_limit, clock=clock)

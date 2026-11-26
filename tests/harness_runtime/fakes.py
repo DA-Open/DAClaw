@@ -297,3 +297,7 @@ class NoRecompute:
 
     async def ensure(self, task):
         raise AssertionError("recompute is not expected in this test")
+
+
+class NoMemory:
+    """Non-watch tests provide no memory operations to the context builder."""

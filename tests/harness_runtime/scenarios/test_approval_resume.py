@@ -35,7 +35,7 @@ from harness.tasks.approvals import Approvals
 from harness.tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
 from harness.tools.connectors import p0_connectors
 
-from ..fakes import NoRecompute, ACTOR, T0, TTL, Clock
+from ..fakes import NoMemory, NoRecompute, ACTOR, T0, TTL, Clock
 
 pytestmark = pytest.mark.asyncio
 
@@ -85,7 +85,7 @@ async def test_approved_step_runs_once_after_resume(tmp_path):
         tools=PolicyToolCatalog(policy, gateway.specs),
         capabilities=caps,
         clock=clock,
-        recomputer=NoRecompute(),
+        recomputer=NoRecompute(), memory=NoMemory(),
     )
     def submit(ctx):
         written = [
