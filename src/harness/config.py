@@ -7,14 +7,17 @@ Values come from environment variables prefixed ``DARAOS_HARNESS_``. Secrets
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .contracts import Limits, LimitsExceeded
 
 ENV_PREFIX = "DARAOS_HARNESS_"
+MAX_FEISHU_TIMEOUT_SEC = 60.0
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,11 @@ class HarnessConfig:
     budget_reminder: BudgetReminderConfig = field(default_factory=BudgetReminderConfig)
     reconcile_grace_sec: int = 60
     approval_ttl_sec: int = 86400
+    feishu_base_url: str = "https://open.feishu.cn"
+    feishu_app_id_env: str = "DARAOS_HARNESS_FEISHU_APP_ID"
+    feishu_app_secret_env: str = "DARAOS_HARNESS_FEISHU_APP_SECRET"
+    feishu_allowed_recipients: tuple[str, ...] = ()
+    feishu_timeout_sec: float = 10.0
 
     def __post_init__(self) -> None:
         if self.background_scope_limit <= 0:
@@ -97,6 +105,15 @@ class HarnessConfig:
             raise ValueError("reconcile_grace_sec must be positive")
         if self.approval_ttl_sec <= 0:
             raise ValueError("approval_ttl_sec must be positive")
+        if not math.isfinite(self.feishu_timeout_sec) or not 0 < self.feishu_timeout_sec <= MAX_FEISHU_TIMEOUT_SEC:
+            raise ValueError(f"feishu_timeout_sec must be finite, positive and <= {MAX_FEISHU_TIMEOUT_SEC:g}")
+        url = urlsplit(self.feishu_base_url)
+        if url.scheme not in {"http", "https"} or not url.hostname or url.username is not None or url.query or url.fragment:
+            raise ValueError("feishu_base_url must be an HTTP(S) endpoint without credentials, query or fragment")
+        for recipient in self.feishu_allowed_recipients:
+            kind, _, identifier = recipient.partition(":")
+            if not kind or not identifier:
+                raise ValueError("feishu_allowed_recipients entries must have the form <type>:<id>")
         self.caps.check(self.default_limits)
 
     def __repr__(self) -> str:
@@ -124,6 +141,10 @@ class HarnessConfig:
             },
             "reconcile_grace_sec": self.reconcile_grace_sec,
             "approval_ttl_sec": self.approval_ttl_sec,
+            "feishu_base_url": self.feishu_base_url,
+            "feishu_credential_env_names": (self.feishu_app_id_env, self.feishu_app_secret_env),
+            "feishu_allowed_recipient_count": len(self.feishu_allowed_recipients),
+            "feishu_timeout_sec": self.feishu_timeout_sec,
         }
 
     @classmethod
@@ -201,4 +222,11 @@ class HarnessConfig:
             ),
             reconcile_grace_sec=get_int("RECONCILE_GRACE_SEC", 60),
             approval_ttl_sec=get_int("APPROVAL_TTL_SEC", 86400),
+            feishu_base_url=get("FEISHU_BASE_URL") or cls.feishu_base_url,
+            feishu_app_id_env=get("FEISHU_APP_ID_ENV") or cls.feishu_app_id_env,
+            feishu_app_secret_env=get("FEISHU_APP_SECRET_ENV") or cls.feishu_app_secret_env,
+            feishu_allowed_recipients=tuple(
+                entry.strip() for entry in (get("FEISHU_ALLOWED_RECIPIENTS") or "").split(",") if entry.strip()
+            ),
+            feishu_timeout_sec=float(get("FEISHU_TIMEOUT_SEC") or cls.feishu_timeout_sec),
         )

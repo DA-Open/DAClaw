@@ -29,6 +29,7 @@ rule here and the code disagree, fix one of them in the same PR.
 | P1 R1: checkpoints, replay and expired leases | done | tool-step checkpoints, `ResumingContextBuilder`, original-key replay and expired-lease recovery | #27 |
 | P1 R2 approvals and input recovery | done | find pending actions, decide by request hash and resume a task waiting for input by version | #36 / R2b |
 | P1 R3: reconciliation and manual decisions | done | Reconcile uncertain side effects, record the decision and settle reservations atomically, and expose cancellation cleanup through the API | #28 |
+| P1 R4 approved Feishu messages | done | `feishu_message@1` sends text to an allowed recipient and verifies a message receipt | R4 |
 | P1 S1 scheduled recovery | done | `Scheduler.tick` runs recovery for Main and Proactive tasks | #26 |
 | `delivery/`, ProactiveController, subscriptions (P2) | done for Q1–Q3 | trusted events/subscriptions, rules-only admission, scheduler, verified data cards, inbox and Main handoff; [runbook and acceptance](../../docs/plans/2026-11-17-proactive-agent-implementation.md) | `feat/proactive-agent` |
 
@@ -156,7 +157,8 @@ tables do not change later; most come from review comments on the spec.
    is answered `unknown` again, never re-run blindly.
 2. **May it run?** Current lease (else `StaleLease`), no cancel request, not
    past the deadline, known tool, permission check, arguments valid against
-   the tool's `input_schema`, file paths inside the allowed directories.
+   the tool's `input_schema`, file paths inside the allowed directories and
+   `RECIPIENT_ARGS` targets inside the deployment and user whitelists.
    Refusals here return `denied` (or `failed` for bad arguments) with no
    `action_id` and charge nothing.
 3. **Register the action.** Calls with external side effects wait for a valid
@@ -188,15 +190,56 @@ task's `input_refs` get no exemption: whoever creates a task chooses its
 directory are refused. `PolicyToolCatalog` gives ContextBuilder exactly the
 allowed tools, so the model never sees a tool it may not call.
 
-**Connectors** (`tools/connectors/files.py`):
+**Connectors**
 
 | Tool | Read-only | Notes |
 |---|---|---|
 | `files.read` | yes | text only, 5 MB cap, line paging; a page over 6,000 chars is stored as an artifact and returned as a preview plus its ID |
 | `artifacts.read` | yes | this scope's artifacts, text / JSON only, line paging |
 | `artifacts.write` | no | writes a named artifact of this task; no outside side effects |
+| `feishu.send_message` | no | sends approved text through `tools/connectors/feishu.py`; the receipt is the Feishu message ID |
 
-None of them supports `reconcile` (they are local).
+For Feishu, `RECIPIENT_ARGS` identifies the pair `receive_id_type:receive_id`.
+Set `DARAOS_HARNESS_FEISHU_ALLOWED_RECIPIENTS` to comma-separated pairs. An empty
+deployment list denies every recipient. A user's optional `recipients` list under
+`users.<scope>.<role>` can narrow this list further. An empty user list denies all.
+The Gateway checks the pair before registering an action, requesting approval or reserving budget.
+
+The connector reads credentials at request time from the environment variables
+named by `DARAOS_HARNESS_FEISHU_APP_ID_ENV` and `DARAOS_HARNESS_FEISHU_APP_SECRET_ENV`
+(defaults `DARAOS_HARNESS_FEISHU_APP_ID` and `DARAOS_HARNESS_FEISHU_APP_SECRET`).
+`DARAOS_HARNESS_FEISHU_BASE_URL` defaults to `https://open.feishu.cn`, and
+`DARAOS_HARNESS_FEISHU_TIMEOUT_SEC` defaults to 10 seconds and accepts finite
+values greater than zero and at most 60 seconds.
+
+Feishu has no read-only lookup by UUID. Replaying an accepted send with its
+original UUID returns its receipt. If the original never arrived, replay can
+deliver the message for the first time. Before replay the Gateway checks
+cancellation, current tool and recipient grants, and the hash of the stored
+arguments. Cancellation, revoked access or unusable arguments require manual
+confirmation and generate zero Feishu HTTP requests. If a task is cancelled
+with an `unknown` Feishu send, the Gateway blocks replay and the task stays
+at `cleanup=pending_reconciliation`. Once the owner resolves the last
+uncertain action via `POST /tasks/{id}/actions/{action_id}/resolve`,
+cleanup changes to `done`.
+
+Automatic replay stops at an action age of 55 minutes, allowing five minutes
+of margin in Feishu's one-hour UUID window. The connector checks the clock
+again after fetching a token. If approval takes 55 minutes or longer and the
+subsequent send is uncertain, recovery goes directly to manual confirmation.
+Missing creation time also requires manual confirmation.
+
+A first send fails on a definitive rejection or a failed token exchange.
+After an uncertain send, only an HTTP 200 response with code 0 and a nonempty
+message ID confirms delivery. Any other reply or transport error during
+replay leaves the prior delivery unknown.
+
+The `feishu_message@1` result schema requires a summary, a named `receipt`
+artifact and a cited receipt. The pack declares `required_checks: [feishu_receipt]`.
+A create request that omits it from `acceptance.checks` receives HTTP 400
+(`invalid_request`). The Verifier also runs this check for historical tasks
+that omitted it. The cited ID must match both a successful Feishu send by
+this task and the text of its receipt artifact.
 
 **ArtifactStore** (`results/artifacts.py`, `FileArtifactStore`): content goes
 to `<root>/<scope_id>/<sha256[:2]>/<sha256>` with an atomic write (temp file +
@@ -221,7 +264,7 @@ and instructions that ContextBuilder adds to the system prompt. Adding a
 scenario means adding a pack and, if needed, connectors (spec 7).
 
 **Verifier** (`results/verifier.py`, `CapabilityVerifier`). Which checks run
-comes from the task, never from the model:
+comes from the task's acceptance and the capability pack's `required_checks`.
 
 | Check | Source | Fails when |
 |---|---|---|
@@ -231,6 +274,7 @@ comes from the task, never from the model:
 | `required_actions` | `acceptance.required_actions` | never fails in P0; it is `inconclusive` (receipts cannot be checked yet) |
 | `artifact_readable` | `acceptance.checks` | an artifact is missing, in another scope, not text, empty, or its file changed |
 | `required_sections` | `acceptance.checks` with `sections` | a section is not a Markdown heading of the draft |
+| `feishu_receipt` | `acceptance.checks` / pack `required_checks` | this task has no succeeded `feishu.send_message` receipt matching both the candidate's cited receipt and the `receipt` artifact's text |
 
 Overall status: any `failed` → `failed`; otherwise any `inconclusive`, an
 unverified item, or a task with no acceptance conditions at all →

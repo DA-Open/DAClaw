@@ -37,6 +37,7 @@ class UserGrant:
     tools: frozenset[str] | None = None
     paths: tuple[str, ...] = ()
     ref: str | None = None
+    recipients: frozenset[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -72,11 +73,13 @@ class WhitelistPolicy:
     users: Mapping[str, Mapping[AgentRole | str, UserGrant]] = field(default_factory=dict)
     capabilities: Mapping[str, Iterable[str]] = field(default_factory=dict)
     disabled_tools: Iterable[str] = field(default_factory=frozenset)
+    allowed_recipients: Mapping[str, Iterable[str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.roles = {k: frozenset(v) for k, v in self.roles.items()}
         self.capabilities = {k: frozenset(v) for k, v in self.capabilities.items()}
         self.disabled_tools = frozenset(self.disabled_tools)
+        self.allowed_recipients = {tool: frozenset(ids) for tool, ids in self.allowed_recipients.items()}
         self.users = {
             scope: {str(role): grant for role, grant in by_role.items()}
             for scope, by_role in self.users.items()
@@ -127,6 +130,14 @@ class WhitelistPolicy:
         return Decision(True, grant_ref=grant.ref)
 
     # -- resource level -----------------------------------------------------
+
+    def check_recipient(self, tool: str, recipient: str, *, scope_id: str, role: AgentRole | str) -> Decision:
+        if recipient not in self.allowed_recipients.get(tool, ()):
+            return _deny("recipient is outside the deployment whitelist")
+        grant = self.user_grant(scope_id, role)
+        if grant is None or (grant.recipients is not None and recipient not in grant.recipients):
+            return _deny("recipient is outside the user grant")
+        return Decision(True, grant_ref=grant.ref)
 
     def check_path(self, path: Path, *, scope_id: str, role: AgentRole | str) -> Decision:
         """``path`` must already be resolved. Only the user's whitelisted

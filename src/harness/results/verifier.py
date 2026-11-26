@@ -11,9 +11,9 @@ the checks fixed in the task's acceptance at creation time and returns
   (an unknown checker, a check that cannot run). It is never treated as
   passed: the Runner turns it into ``waiting`` for the user (spec 6.3).
 
-Which checks run comes from the task, not the model: the acceptance
-``checks`` (each with its parameters), plus ``required_artifacts`` and the
-capability pack's ``result_schema``, which always apply. A checker named in
+The Verifier runs the task's acceptance ``checks`` (each with its parameters)
+and any missing ``required_checks`` from the capability pack. The task's
+``required_artifacts`` and the pack's ``result_schema`` also apply. A checker named in
 the acceptance but not offered by the pack is reported as unverified rather
 than run, so a request cannot pick checkers the pack never promised.
 
@@ -335,6 +335,10 @@ class CapabilityVerifier:
             )
             for spec in task.acceptance.checks:
                 checks.append(await self._run(spec, ctx, pack, unverified))
+            scheduled = {spec.id for spec in task.acceptance.checks}
+            for required in pack.required_checks:
+                if required not in scheduled:
+                    checks.append(await self._run(CheckSpec(id=required), ctx, pack, unverified))
 
         # The pack's result schema only checks the shape of the claim. A task
         # whose acceptance asks for nothing (no required artifacts, no checks,

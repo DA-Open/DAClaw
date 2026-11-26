@@ -891,6 +891,9 @@ class ActionRef(_Model):
     tool: str
     request_hash: str
     receipt_ref: str | None = None
+    scope_id: str = ""
+    args_ref: str | None = None
+    created_at: datetime | None = None
 
 
 class AuthorizedCall(_Model):
