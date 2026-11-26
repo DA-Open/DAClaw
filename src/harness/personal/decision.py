@@ -37,8 +37,8 @@ class Claim(_Model):
 
 class MemoryProposal(_Model):
     kind: Literal["preference", "fact"]
-    summary: str = Field(max_length=300)
-    text: str = Field(max_length=1000)
+    summary: str = Field(min_length=1, max_length=300)
+    text: str = Field(min_length=1, max_length=1000)
     evidence_refs: EvidenceRefs
 
 
@@ -47,8 +47,8 @@ class ProactiveDecision(_Model):
     decision: Literal["propose_notify", "silent"]
     rationale: str = Field(min_length=1, max_length=400)
     evidence_refs: EvidenceRefs
-    draft: DecisionDraft | None
-    valid_until: AwareDatetime | None
+    draft: DecisionDraft | None = None
+    valid_until: AwareDatetime | None = None
     claims: list[Claim] = Field(default_factory=list, max_length=6)
     observation_digest: str = Field(min_length=1, max_length=200)
     memory_proposals: list[MemoryProposal] = Field(default_factory=list, max_length=3)
@@ -209,7 +209,11 @@ class WatchChecks:
                 raise ValueError("a recompute error cannot support numeric claims")
             return []
 
-        if file_digest(Path(task.subject_ref)) != recompute.new_sha256:
+        sub = await self.repos.subscriptions.get(task.scope_id, task.subscription_id)
+        records = await self.repos.subscriptions.decisions(task.scope_id, sub.id)
+        admission = next(row for row in records if row.task_id == task.id)
+        watched = Path(admission.input_snapshot["path"]).expanduser().resolve()
+        if file_digest(watched) != recompute.new_sha256:
             raise ValueError("source changed again")
         claims = {}
         for claim in decision.claims:
@@ -217,7 +221,6 @@ class WatchChecks:
         if claims.keys() - {query.query_ref for query in recompute.queries}:
             raise ValueError("claim query_ref is outside this recompute")
 
-        sub = await self.repos.subscriptions.get(task.scope_id, task.subscription_id)
         _, body = await read_baseline(self.memories, self.artifacts, ctx.actor, sub.baseline_ref)
         sources = [ReadonlySource(path=Path(source.path), kind=source.kind, primary=source.table, tables=source.tables)
                    for source in body.sources]

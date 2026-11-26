@@ -21,9 +21,11 @@ characters), text (up to 1000) and 1–12 evidence_refs that pass the same check
 Ground every factual statement in evidence_refs. Use the trigger's event: reference, the
 subscription's versioned baseline reference when relevant and the query: references issued by
 this task's recompute. For a normal notification, state which earlier conclusion changed and
-give the old value, new value and evidence. Distinguish a revision to previously counted data
-from new business only when the baseline and recompute establish that distinction. When the
-cause is unclear, describe the observed change and leave the cause open.
+give the old value, new value and evidence. Distinguish a revision to previously counted data from new business when the baseline and
+recompute establish that distinction (for example, if the period's completed order count stays
+unchanged while its revenue total changes, describe it as a revision to previously counted
+records rather than new orders). Only leave the cause open when the baseline and recompute do
+not support distinguishing revision from new business.
 
 If recompute.error is nonempty, choose propose_notify, use the title "监测复算失败", and put
 the recorded error and what needs checking in the body. Leave claims empty. Never invent a

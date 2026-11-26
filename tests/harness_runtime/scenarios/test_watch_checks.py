@@ -218,6 +218,8 @@ async def test_notification_needs_a_trigger_and_strict_expiry(tmp_path, repos, b
     (False, {"draft": None}), (False, {"valid_until": None}),
     (False, {"valid_until": "2026-11-26T02:00:00"}), (False, {"claims": []}),
     (False, {"rationale": ""}), (False, {"evidence_refs": ["event:not-an-id"]}),
+    (False, {"memory_proposals": [{"kind": "preference", "summary": "", "text": "x", "evidence_refs": ["event:evt_" + "1" * 32]}]}),
+    (False, {"memory_proposals": [{"kind": "preference", "summary": "x", "text": "", "evidence_refs": ["event:evt_" + "1" * 32]}]}),
     (True, {"draft": {"title": "一条提醒", "body": "正文"}}),
     (True, {"valid_until": "2026-11-26T02:00:00Z"}),
 ])
@@ -226,6 +228,18 @@ async def test_invalid_calendar_decision_fails_schema(tmp_path, repos, silent, c
     task = await case.run(lambda decision, observation: decision.update(change), silent=silent)
     assert task.status == "failed", task
     assert (await case.checks())["decision_schema"].status == "failed"
+
+
+async def test_silent_decision_may_omit_null_delivery_fields(tmp_path, repos):
+    case = await calendar_case(tmp_path, repos)
+
+    def omit(decision, observation):
+        decision.pop("draft")
+        decision.pop("valid_until")
+
+    task = await case.run(omit, silent=True)
+    assert task.status == "succeeded", task
+    assert (await case.checks())["decision_schema"].status == "passed"
 
 
 async def test_normal_analysis_notification_requires_a_claim(tmp_path, repos):

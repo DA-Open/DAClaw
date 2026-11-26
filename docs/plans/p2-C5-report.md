@@ -93,3 +93,19 @@ git diff --numstat 9aadb65c190172293c466bbe0723d6d9d70cfd79 -- src/ ':!src/harne
 ```
 
 统计包含已加入索引的 `observation.py`、`decision.py` 和 `watch_delivery.py`。与 860 行上限相差 286 行。
+
+## 复核后补充微调与真模型预验
+
+在开 PR 前针对复核意见做了 4 处非阻塞微调，并完成真实模型 M1 / D2 预验：
+
+1. `ProactiveDecision.draft` 与 `valid_until` 补充默认值 `None`（仍由 `delivery_fields` 强制 `propose_notify` 非空、`silent` 为空），避免真实模型在 `silent` 决策省略空字段时误挂 schema；补充 `test_silent_decision_may_omit_null_delivery_fields`。
+2. `MemoryProposal.summary` 与 `text` 补充 `min_length=1`，阻止空白候选写入记忆库；补充两条参数化测试。
+3. `WatchChecks._replay` 改为按准入记录 `input_snapshot["path"]`（`.expanduser().resolve()`）校验文件 `sha256`，与 C3 `Recomputer._run` 的多数据源定位口径一致。
+4. `src/harness/prompts/analysis_watch.md` 补充一行示例说明：当同一期间订单数不变而销售额变化时，应判定为对已计入记录的修订而非新增订单。
+
+复跑结果（WSL 2 + Docker PostgreSQL 16）：
+- 集成测试（`-m integration`）：`276 passed`；非集成测试（`-m "not integration"`）：`750 passed`；合计 **`1026 passed, 0 failed`**（较基线 +114 用例）。
+- 防御性写法检查：**0 处命中**；生产代码新增行数：**577 行**（上限 860 行）。
+- 真实模型预验（`deepseek-chat`，`temperature=0`）：
+  - **M1（日历提醒）**：一次通过（`succeeded`，4/4 checks passed，入箱 1 条，引用日历事件与已确认偏好，写明组会由周五改至周四）。
+  - **D2（3 月补价复核）**：一次通过（`succeeded`，5/5 checks passed 含 DuckDB 现场重跑 `recompute_replay`，入箱 1 条，准确输出 `219912.81 -> 232944.31 / +5.93%` 与订单数 `169 -> 169` 不变，判定为对已计入记录的修订）。
