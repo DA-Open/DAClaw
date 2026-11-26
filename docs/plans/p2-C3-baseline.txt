@@ -1,0 +1,90 @@
+/home/yangxingchang/DA-Research/DAClaw/venv/lib/python3.12/site-packages/pytest_asyncio/plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 24%]
+..........................................F............................. [ 32%]
+........................................................................ [ 40%]
+........................................................................ [ 48%]
+........................................................................ [ 56%]
+...................................F.................................... [ 65%]
+........................................................................ [ 73%]
+........................................................................ [ 81%]
+........................................................................ [ 89%]
+........................................................................ [ 97%]
+......................                                                   [100%]
+=================================== FAILURES ===================================
+___________ test_fingerprint_skip_and_diff_after_baseline[postgres] ____________
+
+repos = PgRepositories(tasks=<harness.storage.postgres.PgTaskRepository object at 0x7fabfd02ecf0>, events=<harness.storage.pos...bject at 0x7fabfd053e90>, approvals=<harness.storage.postgres_approvals.PgApprovalRepository object at 0x7fabfd053e60>)
+tmp_path = PosixPath('/tmp/pytest-of-yangxingchang/pytest-196/test_fingerprint_skip_and_diff1')
+
+    async def test_fingerprint_skip_and_diff_after_baseline(repos, tmp_path):
+        path = dataset(tmp_path)
+        s = system(tmp_path, repos, model=scripted(path))
+        sub = await subscribe(s, path)
+        await s.proactive.on_event(event(path))
+        assert (await s.worker(lanes=[RunLane.BACKGROUND]).run_once()).status == "succeeded"
+        assert await s.proactive.on_event(event(path, "v2", fingerprint="v1")) == []
+>       assert (await repos.subscriptions.decisions("s1", sub.id))[-1].reason == "unchanged_fingerprint"
+E       AssertionError: assert 'new_version' == 'unchanged_fingerprint'
+E         
+E         - unchanged_fingerprint
+E         + new_version
+
+tests/harness_runtime/scenarios/test_proactive.py:485: AssertionError
+_______________ test_responses_round_trip_keeps_reasoning_items ________________
+
+    async def test_responses_round_trip_keeps_reasoning_items():
+>       resp = responses_response(
+            [
+                {"type": "reasoning", "id": "rs_1", "summary": [], "encrypted_content": "enc"},
+                {"type": "function_call", "id": "fc_1", "call_id": "call_7", "name": "files_read", "arguments": '{"path": "a"}', "status": "completed"},
+            ]
+        )
+
+tests/harness_runtime/unit/test_model_adapters.py:341: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+output = [{'type': 'reasoning', 'id': 'rs_1', 'summary': [], 'encrypted_content': 'enc'}, {'type': 'function_call', 'id': 'fc_1', 'call_id': 'call_7', 'name': 'files_read', ...}]
+
+    def responses_response(output):
+>       return Response.model_validate(
+            {
+                "id": "resp_1",
+                "object": "response",
+                "created_at": 0,
+                "model": "gpt",
+                "status": "completed",
+                "output": output,
+                "parallel_tool_calls": True,
+                "tool_choice": "auto",
+                "tools": [],
+                "usage": {
+                    "input_tokens": 50,
+                    "output_tokens": 10,
+                    "total_tokens": 60,
+                    "input_tokens_details": {"cached_tokens": 0},
+                    "output_tokens_details": {"reasoning_tokens": 4},
+                },
+            }
+        )
+E       pydantic_core._pydantic_core.ValidationError: 1 validation error for Response
+E       usage.input_tokens_details.cache_write_tokens
+E         Field required [type=missing, input_value={'cached_tokens': 0}, input_type=dict]
+E           For further information visit https://errors.pydantic.dev/2.14/v/missing
+
+tests/harness_runtime/unit/test_model_adapters.py:318: ValidationError
+=============================== warnings summary ===============================
+tests/harness_runtime/scenarios/test_memory.py: 1 warning
+tests/harness_runtime/unit/test_memory_store.py: 10 warnings
+  /home/yangxingchang/DA-Research/DAClaw/src/harness/storage/postgres_memory.py:70: SADeprecationWarning: The ARRAY.Comparator.any() and ARRAY.Comparator.all() methods for arrays are deprecated for removal, along with the PG-specific Any() and All() functions. See any_() and all_() functions for modern use. (deprecated since: 2.1)
+    s.memories.c.tags_lc.any(term)))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/harness_runtime/scenarios/test_proactive.py::test_fingerprint_skip_and_diff_after_baseline[postgres]
+FAILED tests/harness_runtime/unit/test_model_adapters.py::test_responses_round_trip_keeps_reasoning_items
+2 failed, 884 passed, 11 warnings in 158.48s (0:02:38)

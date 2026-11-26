@@ -290,3 +290,10 @@ class FakeExternalConnector:
         self.reconcile_calls += 1
         self.reconciled_actions.append(action)
         return self.reconcile_result
+
+
+class NoRecompute:
+    """Context builders in tests that never run analysis_watch: recompute must not happen."""
+
+    async def ensure(self, task):
+        raise AssertionError("recompute is not expected in this test")

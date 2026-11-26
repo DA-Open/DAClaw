@@ -31,7 +31,7 @@ from harness.storage.memory import InMemoryRepositories
 from harness.tools import ToolGateway, UserGrant, WhitelistPolicy
 from harness.tools.connectors.files import FilesReadConnector
 
-from ..fakes import ACTOR, MAIN_PROFILE, TTL, Clock, FakeVerifier, MemoryArtifactStore, claimed_task
+from ..fakes import NoRecompute, ACTOR, MAIN_PROFILE, TTL, Clock, FakeVerifier, MemoryArtifactStore, claimed_task
 
 pytestmark = pytest.mark.asyncio
 
@@ -73,7 +73,9 @@ class Setup:
                 instructions=StaticInstructions({"main@1": "Current instructions"}),
                 tools=StaticToolCatalog([self.connector.spec]),
                 clock=self.clock,
-            ),
+            
+                recomputer=NoRecompute(),
+),
             self.store,
         )
         self.runner = AgentRunner(

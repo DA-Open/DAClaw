@@ -57,7 +57,9 @@ from .delivery.service import DeliveryService
 from .tasks.proactive_controller import ProactiveController
 from .tasks.recovery import Recovery
 from .tasks.scheduler import Scheduler
+from .personal.baseline import BaselineWriter
 from .personal.memory import MemoryService
+from .personal.recompute import Recomputer
 from .personal.calendar_source import MockCalendarSource
 from .tools.connectors import MemoryReadConnector, MemorySearchConnector
 
@@ -255,6 +257,7 @@ def build_system(
     data_checks = DataCardChecks(repos, policy, clock, profile)
     verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock,
         checkers={**DEFAULT_CHECKERS, "data_card_schema": data_checks.schema, "stats_replay": data_checks.replay})
+    recomputer = Recomputer(repos, memory, artifacts, policy, clock=clock)
     builder = SimpleContextBuilder(
         repos,
         instructions=PackageInstructions(),
@@ -262,13 +265,16 @@ def build_system(
         capabilities=capabilities,
         clock=clock,
         delivery=delivery,
+        recomputer=recomputer,
     )
     builder = ResumingContextBuilder(builder, artifacts)
     runner = AgentRunner(repos, model, gateway, verifier, artifacts, reminders=config.budget_reminder, clock=clock)
     tasks = TaskService(
-        repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock, delivery=delivery
+        repos.tasks, config, artifacts=artifacts, capabilities=capabilities, agents=agents, clock=clock,
+        delivery=delivery, after_commit=[BaselineWriter(repos, memory, artifacts, clock=clock)],
     )
-    proactive = ProactiveController(repos, tasks, policy, scope_limit=config.background_scope_limit, clock=clock)
+    proactive = ProactiveController(repos, tasks, policy, memories=memory,
+                                    scope_limit=config.background_scope_limit, clock=clock)
     recovery = Recovery(repos.tasks, config, clock, gateway=gateway, actions=repos.actions, events=repos.events)
     return HarnessSystem(
         config=config,

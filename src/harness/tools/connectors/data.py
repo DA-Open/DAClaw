@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import csv
 import io
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -145,6 +146,90 @@ class DataRegistration:
     path: Path
     table: str
     tables: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class ReadonlySource:
+    """One file a read-only run may touch, and how its views were named."""
+
+    path: Path
+    kind: str
+    primary: str
+    tables: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class ReadonlyResult:
+    columns: list[str]
+    rows: list[tuple]
+    row_count: int
+    capped: bool
+
+
+def file_digest(path: Path) -> str:
+    """sha256 of the file as it is now, read in 1 MiB chunks."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def open_readonly(sources: list[ReadonlySource]) -> duckdb.DuckDBPyConnection:
+    """A DuckDB connection holding exactly these sources, nothing else.
+
+    Paths outside the sources are refused by DuckDB itself; the SQL text is
+    checked separately by run_readonly. Views are rebuilt from the recorded
+    mapping, so the SQL a baseline stored still resolves.
+    """
+    paths = [str(source.path) for source in sources]
+    allowed = paths + [p + ".wal" for p in paths if Path(p).suffix.lower() in (".duckdb", ".ddb")]
+    con = duckdb.connect(":memory:", config={"threads": "2", "memory_limit": "2GB",
+                                             "allow_persistent_secrets": "false"})
+    try:
+        con.execute("SET allowed_paths = ?", [allowed])
+        con.execute("SET enable_external_access = false")
+        for index, source in enumerate(sources):
+            _create_source_views(con, source, index)
+    except (duckdb.Error, ValueError, OSError):
+        con.close()
+        raise
+    return con
+
+
+def _create_source_views(con: duckdb.DuckDBPyConnection, source: ReadonlySource, index: int) -> None:
+    if source.kind == "duckdb":
+        alias = f"source_db_{index}"
+        con.execute(f"ATTACH {_literal(source.path)} AS {alias} (READ_ONLY)")
+        rows = con.execute(
+            "SELECT schema_name, table_name FROM duckdb_tables() WHERE database_name = ? "
+            "ORDER BY schema_name, table_name",
+            [alias],
+        ).fetchall()
+        current = {table if schema == "main" else f"{schema}.{table}": (schema, table) for schema, table in rows}
+        if source.tables is None or set(current) != set(source.tables):
+            raise ValueError("source tables changed")
+        for label, view in source.tables.items():
+            schema, table = current[label]
+            con.execute(
+                f"CREATE VIEW {_quoted(view)} AS SELECT * FROM {alias}.{_quoted(schema)}.{_quoted(table)}"
+            )
+        return
+    reader = {"csv": "read_csv_auto", "tsv": "read_csv_auto", "parquet": "read_parquet"}[source.kind]
+    options = ", delim='\t'" if source.kind == "tsv" else ""
+    con.execute(
+        f"CREATE VIEW {_quoted(source.primary)} AS SELECT * FROM {reader}({_literal(source.path)}{options})"
+    )
+
+
+def run_readonly(con: duckdb.DuckDBPyConnection, sql: str) -> ReadonlyResult:
+    """Run one read-only statement under the same gate as data.query."""
+    problem = _check_select(con, sql)
+    if problem is not None:
+        raise ValueError(problem)
+    rows, columns = _run(con, sql, MAX_ROWS)
+    total, capped = _count(con, sql, len(rows))
+    return ReadonlyResult(columns=columns, rows=rows, row_count=total, capped=capped)
 
 
 DATA_LIST = ToolSpec(
@@ -366,11 +451,15 @@ class DataConnector(_Base):
             tables[name] = name
             setup.append(f"CREATE VIEW {_quoted(name)} AS SELECT * FROM {reader}({_literal(path)}{options})")
             view_statements = setup
+        digest = file_digest(path)
         for statement in view_statements:
             con.execute(statement)
         columns, rows = _describe(con, name)
         return {"path": str(path), "kind": kind, "tables": tables, "primary": name,
-                "columns": columns, "row_count": rows, "setup": setup}
+                "columns": columns, "row_count": rows, "setup": setup,
+                # Recorded at connect time, not at commit: a file swapped while
+                # the task runs must not get its old numbers paired with a new hash.
+                "sha256": digest, "size_bytes": path.stat().st_size}
 
     # -- data.query --------------------------------------------------------
 
@@ -383,14 +472,13 @@ class DataConnector(_Base):
         session = self._sessions.get((call.scope_id, call.task_id, call.attempt_id))
         if session is None or not session.views:
             return _failed(ErrorCode.INVALID_REQUEST, "connect a table with data.connect before querying")
-        problem = _check_select(session.connection, sql)
-        if problem is not None:
-            return _failed(ErrorCode.INVALID_REQUEST, problem)
         try:
-            rows, columns = _run(session.connection, sql, MAX_ROWS)
-            total, capped = _count(session.connection, sql, len(rows))
+            result = run_readonly(session.connection, sql)
+        except ValueError as exc:
+            return _failed(ErrorCode.INVALID_REQUEST, str(exc))
         except duckdb.Error as exc:
             return _failed(ErrorCode.TOOL_ERROR, _short(f"query failed: {exc}"))
+        rows, columns, total, capped = result.rows, result.columns, result.row_count, result.capped
         query_id = new_id("q")
         preview = rows[:limit]
         csv_ref = await self._artifacts.put(
@@ -607,7 +695,14 @@ def _connected(name: str, meta: dict[str, Any], *, reused: bool) -> ToolResult:
     return ToolResult(
         status=ToolStatus.SUCCEEDED,
         summary=f"{head}\nColumns: {body}",
-        data={"table": name, "columns": columns, "row_count": meta["row_count"], "tables": meta["tables"]},
+        data={
+            "table": name,
+            "columns": columns,
+            "row_count": meta["row_count"],
+            "tables": meta["tables"],
+            "sha256": meta.get("sha256"),
+            "size_bytes": meta.get("size_bytes"),
+        },
     )
 
 

@@ -1,0 +1,18 @@
+# Proactive pack: re-check an analysis baseline when its source bytes change.
+# Fixed per task by capability_ref "analysis_watch@1"; the numbers come from the
+# recompute artifact, the model only decides whether they are worth telling.
+id: analysis_watch
+version: "1"
+description: Compare a new data version with the stored baseline and decide whether to tell the user.
+instructions_ref: ../prompts/analysis_watch.md
+tools:
+  - memory.search
+  - memory.read
+  - artifacts.write
+result_artifact: decision
+verifiers:
+  - artifact_readable
+  - decision_schema
+  - decision_evidence
+  - recompute_replay
+default_mode: draft_only

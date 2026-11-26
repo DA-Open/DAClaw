@@ -7,6 +7,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..contracts import ErrorCode, Event, EventType, Limits, ProactivityLevel, Subscription, Usage
+from ..personal.analysis_types import SourceChangedEvent
 from ..proactive_types import DataEvent, default_daily_budget
 from .errors import ApiError
 
@@ -18,7 +19,7 @@ class CreateSubscription(BaseModel):
     resources: list[str] = Field(min_length=1, max_length=128)
     event_filter: dict[str, str] = Field(default_factory=dict)
     schedule: str | None = None
-    capability_ref: Literal["data_card@1", "personal_watch@1"] = "data_card@1"
+    capability_ref: Literal["data_card@1", "personal_watch@1", "analysis_watch@1"] = "data_card@1"
     limits: Limits = Field(default_factory=lambda: Limits(timeout_sec=600, max_model_calls=10, max_tool_calls=30, max_total_tokens=50000))
     daily_budget: Usage = Field(default_factory=default_daily_budget)
     proactivity: ProactivityLevel = ProactivityLevel.NORMAL
@@ -26,6 +27,8 @@ class CreateSubscription(BaseModel):
     quiet_hours: tuple[int, int] = (0, 0)
     focus: list[str] = Field(default_factory=list, max_length=64)
     expires_at: datetime | None = None
+    baseline_ref: str | None = Field(None, max_length=200)
+    watch: dict | None = None
 
 
 class CreateEvent(BaseModel):
@@ -33,7 +36,7 @@ class CreateEvent(BaseModel):
     source: str = Field(min_length=1, max_length=200)
     source_event_id: str = Field(min_length=1, max_length=200)
     subject_ref: str = Field(min_length=1, max_length=4096)
-    data: DataEvent
+    data: DataEvent | SourceChangedEvent
 
 
 FeedbackLabel = Literal["useful", "not_useful", "harmful"]
