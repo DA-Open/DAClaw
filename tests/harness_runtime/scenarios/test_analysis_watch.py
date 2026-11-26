@@ -162,3 +162,27 @@ async def test_file_changed_again_before_recompute(tmp_path, datasets):
     task = await build_context(kit, created[0])
     _ref, result = await recompute_of(kit, task)
     assert "changed again" in result["error"]
+
+
+async def test_ended_baseline_skips_without_blocking_other_subscriptions(tmp_path, datasets):
+    kit, controller, sub, v1 = await setup(tmp_path, datasets=datasets)
+    b1, = await kit.repos.memories.list("s1", now=kit.clock())
+    _, body = await kit.memory.read("s1", "u1", b1.id)
+    b2 = await kit.memory.remember(
+        "s1", "u1", "analysis", body, status="confirmed", summary="copy", tags=b1.tags,
+        source_ref="user:u1", subject_ref=str(v1), expires_at=None,
+    )
+    other = await controller.create_subscription(Subscription(
+        scope_id="s1", owner_id="u1", goal="盯住三月订单数", subject_ref=str(v1), resources=[str(v1)],
+        capability_ref="analysis_watch@1", event_filter={"kind": "source_changed"},
+        baseline_ref=f"memory:{b2.id}@{b2.version}", watch=COUNT_WATCH,
+    ))
+    await kit.memory.forget("s1", "u1", b1.id)
+    kit.close_sessions()
+    v2 = place(tmp_path, datasets[1])
+    created = await controller.on_event(changed(v2, "v2"))
+    assert len(created) == 1
+    ended_decisions = await kit.repos.subscriptions.decisions("s1", sub.id)
+    assert ended_decisions[-1].decision == "skip" and ended_decisions[-1].reason == "baseline_ended"
+    other_decisions = await kit.repos.subscriptions.decisions("s1", other.id)
+    assert other_decisions[-1].decision == "admit" and other_decisions[-1].task_id == created[0].task_id
