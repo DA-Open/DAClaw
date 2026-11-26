@@ -15,19 +15,21 @@ rule here and the code disagree, fix one of them in the same PR.
 | `contracts.py` shared types, task state machine | — | done | PR-A |
 | `config.py` (env `DARAOS_HARNESS_*`) | — | done | PR-A |
 | `interfaces.py` module Protocols (spec 5.2) | done | — | PR-A |
-| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migrations `0001`–`0003`); selected by `build_system` from `database_dsn` | PR-A / PR-B / Proactive Q1–Q3 |
+| `storage/` repositories | done | in-memory and PostgreSQL (`PgRepositories`, Alembic migrations `0001`–`0005`), selected by `build_system` from `database_dsn` | PR-A / PR-B / Proactive Q1–Q3 / #36 |
 | `tasks/` TaskService + worker | done | `python -m harness.worker`; PostgreSQL workers can claim tasks submitted by a separate API process | PR-C / PR-B (2b) |
 | `app.py` wiring, permissions file | — | `build_system`, `HarnessSystem.lifespan`, `DARAOS_HARNESS_POLICY_FILE` | PR-C / PR-B (2b) |
 | `trace.py` task timeline | — | done (`--trace`) | PR-C |
 | `runtime/` AgentRunner, ModelAdapter, budget | done | done | PR-D |
-| `context/` ContextBuilder | done | minimal (no memory, no token cut) | PR-D |
+| `context/` ContextBuilder | done | builds the task brief and restores checkpoint history with current instructions, permissions and additional inputs | PR-D / P1 |
 | `tools/` ToolGateway, Policy, connectors | done | done (P0: `files.read`, `artifacts.read`, `artifacts.write`) | PR-E |
 | `results/` ArtifactStore, Verifier | done | done (`FileArtifactStore`, `CapabilityVerifier` with `artifact_readable`, `required_sections`) | PR-E / PR-F |
 | `agents/`, `capabilities/` profiles, capability packs | done (AgentRegistry) | done (Main profile, `document_draft@1`) | PR-F |
-| `api/` POST/GET/cancel tasks, SSE events, trace, artifacts | — | `python -m harness.api`; token auth; API-only process with PostgreSQL or `--with-worker` in one process | PR-G / PR-B (2b) |
+| `api/` tasks, approvals, reconciliation, SSE events, trace, artifacts | — | `python -m harness.api` with token auth, using PostgreSQL for separate workers or `--with-worker` in one process | PR-G / PR-B (2b) / P1 |
 | P0 acceptance scenarios | — | passed on the integrated branch: real API/Worker + PostgreSQL scenarios and runtime/transaction boundary tests; [acceptance record](../../docs/plans/2026-11-17-harness-p0-acceptance.md) | PR-H / #22 |
 | P1 R1: checkpoints, replay and expired leases | done | tool-step checkpoints, `ResumingContextBuilder`, original-key replay and expired-lease recovery | #27 |
+| P1 R2 approvals and input recovery | done | find pending actions, decide by request hash and resume a task waiting for input by version | #36 / R2b |
 | P1 R3: reconciliation and manual decisions | done | Reconcile uncertain side effects, record the decision and settle reservations atomically, and expose cancellation cleanup through the API | #28 |
+| P1 S1 scheduled recovery | done | `Scheduler.tick` runs recovery for Main and Proactive tasks | #26 |
 | `delivery/`, ProactiveController, subscriptions (P2) | done for Q1–Q3 | trusted events/subscriptions, rules-only admission, scheduler, verified data cards, inbox and Main handoff; [runbook and acceptance](../../docs/plans/2026-11-17-proactive-agent-implementation.md) | `feat/proactive-agent` |
 
 ## Who does what
@@ -43,7 +45,7 @@ Each row has exactly one owner. A module that is not the owner does not do it.
 | Set `deadline` | `TaskRepository.claim`, on the first claim; later claims keep it | Runner, API |
 | Assemble the model input | `ContextBuilder` | Runner |
 | Reserve and settle **model** usage | Runner: `UsageRepository.reserve` before each call, `settle` after | ModelAdapter, `commit` |
-| Reserve **tool** usage | ToolGateway: `ActionRepository.register(..., reserve=...)` in one step | Runner, Connector |
+| Reserve **tool** usage | ToolGateway reserves at registration for new local calls and after approval for external side effects. | Runner, Connector |
 | Generate `logical_key` | Runner, from the durable step number (`step-<n>.<call>`, counted over the whole task, never the attempt ID) | the model, Gateway |
 | Check grants and approvals | ToolGateway (`tools/policy.py`) | Runner, Connector |
 | Call external services | Connector, only from an `AuthorizedCall` | anything else |
@@ -104,7 +106,7 @@ tables do not change later; most come from review comments on the spec.
 | `Subscription` | A standing goal: trigger (event filter or schedule), capability, limits, delivery mode, result TTL and the resources it may read (P2) |
 | `NoticeRequest` / `NoticeReservation` | Asking to tell the user: cross-channel dedup key and a user-level quota checked atomically; reserved / already reserved / suppressed (P1/P2) |
 | `OutboxItem` / `DeliveryOutcome` | Queued delivery and what one attempt established; only DELIVERED carries a receipt (P1/P2) |
-| `Approval` / `Grant` | A human decision bound to action_id + request_hash; and `tool:target` authorization (P1, type only: P0 still uses the two whitelists) |
+| `Approval` / `Grant` | An approval records the owner's decision for an action ID and request hash. Tool grants come from the role and user whitelists. |
 | `MemoryRecord` | Versioned fact / preference / result with CONFIRMED vs CANDIDATE; text lives in ArtifactStore (P2) |
 | `UsageReservation` (`usage_records` table) | The spec asks for idempotent accounting per call ID but names no table |
 | `Task.lease_epoch`, `Task.current_attempt_id` | Reject a stale worker by checking one row |
@@ -157,7 +159,8 @@ tables do not change later; most come from review comments on the spec.
    the tool's `input_schema`, file paths inside the allowed directories.
    Refusals here return `denied` (or `failed` for bad arguments) with no
    `action_id` and charge nothing.
-3. **Register and reserve** one tool call in one step.
+3. **Register the action.** Calls with external side effects wait for a valid
+   approval before reserving tool budget. Other new calls reserve at registration.
 4. **Run the connector** with an `AuthorizedCall`. Just before running, the
    task is read again: a cancel that arrived after step 2 still stops the call
    (spec 4.4), releasing the reservation. The call is bounded by the task
@@ -311,8 +314,7 @@ stores the checkpoint as a JSON artifact and points the task at it.
    run `AgentRunner` with `lease_lost` wired to the heartbeat;
 4. `commit` the outcome. If the lease was lost (`StaleLease` from a
    heartbeat or from the Runner) it commits nothing and reports
-   `lease_lost`; explicit `Recovery.tick` calls inspect the expired lease.
-   S1 will connect these ticks to a long-running process. A missing profile
+   `lease_lost`. A missing profile
    or a context-build error is committed as `failed`
    (`internal`) so the task does not hang.
 
@@ -328,8 +330,8 @@ fails the task with its reference instead of restarting its work.
 memory and PostgreSQL. Cancellation wins; unresolved side effects wait for
 reconciliation; other tasks requeue until `max_attempts` (default 3) is
 reached, then fail with `lease_lost`. Recovery preserves cumulative usage,
-deadline and artifacts. It is not yet called by a continuous scheduler;
-that integration belongs to S1.
+deadline and artifacts. The scheduler runs this tick before processing
+subscriptions on each pass.
 
 ```bash
 python -m harness.worker --once --submit task.json --model-config model.yaml --print-result
@@ -373,15 +375,17 @@ With no file, no scope has any tool.
 
 ## HTTP API
 
-`api/app.py`, run with `python -m harness.api` (spec 5.1; P0 subset):
+Run the HTTP API in `api/app.py` with `python -m harness.api` (spec 5.1).
 
 | Route | Does |
 |---|---|
 | `POST /tasks` | `Idempotency-Key` header required; 202 with `task_id`, `agent_role`, `run_lane`, `status`, `events_url` |
-| `GET /tasks/{id}` | status, wait reason, usage, remaining budget, `result_ref`, error |
+| `GET /tasks/{id}` | status, `version`, `wait_condition`, `pending_approvals`, `cleanup`, `unsettled_actions`, usage, remaining budget, `result_ref` and error |
 | `GET /tasks/{id}/events` | SSE; `Last-Event-ID` resumes; one `final` event after the task stops (succeeded, failed, cancelled or waiting); a dropped client does not cancel the task |
-| `POST /tasks/{id}/cancel` | idempotent; body `{"reason": "..."}` optional |
-| `POST /tasks/{id}/approvals/{action_id}` | approve or reject one side-effecting action; body `{"decision": "approve|reject", "request_hash": "...", "reason"?, "expires_in_sec"?}`; the decision is bound to that hash, and approving requeues the task |
+| `POST /tasks/{id}/cancel` | idempotent, with optional body `{"reason": "..."}`. Cancelling a queued or waiting task marks its `needs_approval` actions `failed` in the same transaction. |
+| `POST /tasks/{id}/resume` | requeue a task waiting for input with `expected_version` from GET and optional `input_refs`. Returns 200 with the updated task view. |
+| `POST /tasks/{id}/approvals/{action_id}` | submit `decision` (`approve` or `reject`) and `request_hash`, with optional `reason` and `expires_in_sec`. Returns the decision, task status and `expires_at`. |
+| `POST /tasks/{id}/actions/{action_id}/resolve` | record the owner's confirmation about an uncertain side effect. Send `outcome` as `happened` or `not_happened`. |
 | `GET /tasks/{id}/trace` | `trace.build_trace` JSON |
 | `GET /artifacts/{id}` | whole content (200), or a byte range (206); 5 MiB max per call |
 
@@ -391,9 +395,31 @@ Proactive Q1–Q3 also exposes `POST/GET /subscriptions`,
 These use the same bearer-token identity and scope isolation. See the
 [Proactive runbook](../../docs/plans/2026-11-17-proactive-agent-implementation.md)
 for event payloads, permissions, the scheduler and separate background workers.
-Checkpoint replay is implemented in the worker, and approvals are decided over
-HTTP (see the route above). A resume endpoint is still missing: a task that
-waits for input has to be recreated, not continued.
+
+**Resuming with input.** The task owner can resume a `waiting/input` task
+with the version returned by GET. New references are appended once, in request
+order. The worker includes them in the initial task brief. When restoring a
+checkpoint with no pending calls, it appends them to the saved conversation.
+A stale version returns 409 `version_conflict`. Other task states return
+409 `invalid_transition`.
+
+**Deciding an approval.** Each entry in `pending_approvals` gives the
+`action_id`, `tool`, `logical_key`, `request_hash`, `args_ref` and `created_at`.
+Read the arguments through `GET /artifacts/{args_ref}` and send the matching
+hash with the decision. The `approval_requested` event also carries the hash.
+Either decision requeues the task. On replay, the gateway executes an approved
+call and returns a denial for a rejected call.
+
+An approval defaults to 86,400 seconds. Set `DARAOS_HARNESS_APPROVAL_TTL_SEC`
+to a positive integer to change the default, or pass `expires_in_sec` on the
+request. A rejection has `expires_at: null` and stays in force. After the task
+is requeued, the same actor can repeat a valid decision for the same action and
+hash with a 200 response, a single decision event and no version increment.
+A conflicting decision or a decision on a `cancelled` task returns 409. If a
+worker finds an expired approval while replaying the call, it parks the task
+for approval again. The owner can then submit a fresh decision for the same
+action and hash. This also covers a retry after reconciliation marked the
+action `failed`.
 
 **Artifact downloads** support `offset` / `length` query parameters or one
 `Range: bytes=start-end` header (open-ended and suffix ranges also work).
@@ -424,11 +450,13 @@ token is checked before the body is read. The body may not carry
 `scope_id`, `actor_id`, `agent_role` or `run_lane` (400): the role is always
 `main`, and `prefer_background` only picks the lane. Another scope's task or
 artifact is 404, the same answer as a missing one. Files in `input_refs`
-must sit in the caller's whitelisted directories (400 at submit time).
+must sit in the caller's whitelisted directories (400 at submission or resume).
+Another actor in the same scope receives 403 for resume, approval and manual resolution.
 
 **Request bounds.** `goal` is 1–32,768 Unicode characters. `input_refs`
-contains at most 128 references, each at most 4,096 characters. Exceeding
-any of these limits returns 400 `invalid_request` before creating a task.
+contains at most 128 references, each at most 4,096 characters. The merged
+list after a resume also has a 128-reference limit. Exceeding these bounds
+returns 400 `invalid_request`.
 
 **SSE capacity.** Each API process accepts at most 64 active event streams,
 with at most 4 per authenticated scope (shared across that scope's tokens).
@@ -580,7 +608,6 @@ expired leases and actions awaiting reconciliation.
 
 | Item | Decided | When |
 |---|---|---|
-| `approvals` table | Done: an action with outside side effects is registered as `needs_approval`, waits for a decision bound to `action_id + request_hash`, and runs once approved; the task moves waiting/approval -> queued. `grants` still do not exist: authorisation is the role whitelist and the user whitelist in `tools/policy.py` | P1 |
 | Proactive external delivery / outbox | Q1–Q3 subscriptions, scheduler, verified data cards and inbox are implemented; external sends, receipts, unknown reconciliation and notification quotas remain unimplemented | Q4 / P1 |
 | Memory beyond the spec's minimal MemoryStore | Waiting on the stability question in the spec review | after P0 |
 | Wrap-up turn (keep one model call for returning the result) | Implemented, on by default; needs the spec author's OK | PR-D review |

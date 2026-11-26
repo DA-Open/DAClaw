@@ -50,7 +50,7 @@ from ..contracts import (
     assert_transition,
     new_id,
 )
-from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
+from .repositories import ActionRegistration, CreateResult, Repositories, new_resume_inputs, recovery_status, round_attempts
 from .memory_store import InMemoryMemoryStore
 
 M = TypeVar("M", bound=BaseModel)
@@ -481,9 +481,28 @@ class InMemoryTaskRepository:
                 updated_at=now,
             )
             self._s.tasks[task.id] = updated
+            if target is TaskStatus.CANCELLED:
+                for action in self._s.actions.values():
+                    if action.task_id == task.id and action.status is ActionStatus.NEEDS_APPROVAL:
+                        self._s.actions[action.id] = _replace(action, status=ActionStatus.FAILED, updated_at=now)
             self._s.status_event(updated, old, now, reason=reason)
             return _copy(updated)
 
+    async def resume(
+        self, scope_id: str, task_id: str, *, expected_version: int, input_refs: list[str], now: datetime,
+    ) -> Task:
+        async with self._s.lock:
+            task = self._s.task(task_id)
+            if task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            added = new_resume_inputs(task, expected_version, input_refs)
+            updated = _replace(
+                task, input_refs=task.input_refs + added, status=TaskStatus.QUEUED,
+                wait_condition=None, version=task.version + 1, updated_at=now,
+            )
+            self._s.tasks[task.id] = updated
+            self._s.status_event(updated, task.status, now, reason="resumed_with_input", added_input_refs=added)
+            return _copy(updated)
 
     async def decide_approval(
         self,
@@ -502,17 +521,25 @@ class InMemoryTaskRepository:
             task = self._s.tasks.get(task_id)
             if task is None or task.scope_id != scope_id:
                 raise NotFound(f"task {task_id} not found")
-            if task.status is not TaskStatus.WAITING or task.wait_condition is not WaitCondition.APPROVAL:
-                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
             action = self._s.actions.get(action_id)
             if action is None or action.task_id != task.id:
                 raise NotFound(f"action {action_id} not found on task {task_id}")
+            key = (action.id, request_hash)
+            existing = self._s.approvals.get(key)
+            waiting = task.status is TaskStatus.WAITING and task.wait_condition is WaitCondition.APPROVAL
+            expired = existing is not None and existing.expires_at is not None and existing.expires_at <= now
+            if (
+                existing is not None and existing.approver == approver and str(existing.decision) == decision
+                and not expired and not waiting and task.status is not TaskStatus.CANCELLED
+            ):
+                return _copy(task), _copy(existing)
+            if not waiting:
+                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
             if action.status is not ActionStatus.NEEDS_APPROVAL or action.request_hash != request_hash:
                 raise InvalidTransition(
                     "the action is not waiting for approval with these arguments"
                 )
-            key = (action.id, request_hash)
-            if key in self._s.approvals:
+            if existing is not None and not (existing.decision is ApprovalDecision.APPROVE and expired):
                 raise ApprovalConflict(f"action {action.id} already has a decision for these arguments")
             approval = Approval(
                 action_id=action.id,
@@ -548,7 +575,7 @@ class InMemoryTaskRepository:
             )
             self._s.tasks[task.id] = updated
             self._s.status_event(updated, task.status, now, reason="approval decided")
-            return _copy(updated), approval
+            return _copy(updated), _copy(approval)
 
     async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
         async with self._s.lock:

@@ -329,14 +329,20 @@ class ToolGateway:
                     action.id,
                 )
             if verdict is None:
-                if registration.created:
+                repark = action.status is ActionStatus.FAILED
+                if repark:
+                    await self._repos.actions.update(action.id, ActionStatus.NEEDS_APPROVAL, now=now)
+                if registration.created or repark:
                     await self._repos.events.append(
                         Event(
                             scope_id=task.scope_id,
                             task_id=task.id,
                             attempt_id=lease.attempt_id,
                             type=EventType.APPROVAL_REQUESTED,
-                            payload={"action_id": action.id, "tool": call.tool, "logical_key": call.logical_key},
+                            payload={
+                                "action_id": action.id, "tool": call.tool, "logical_key": call.logical_key,
+                                "request_hash": action.request_hash,
+                            },
                             occurred_at=now,
                             received_at=now,
                         )
@@ -560,13 +566,11 @@ class ToolGateway:
         found = await self._repos.approvals.get(action.id, action.request_hash)  # type: ignore[union-attr]
         if found is None:
             return None, ""
-        if found.expires_at is not None and found.expires_at <= now:
-            return None, ""
-        if found.decision is ApprovalDecision.REJECT:
-            return "rejected", found.reason or "no reason given"
         if found.decision is ApprovalDecision.APPROVE:
+            if found.expires_at is not None and found.expires_at <= now:
+                return None, ""
             return "approved", f"{action.id}@{action.request_hash[:12]}"
-        return None, ""
+        return "rejected", found.reason or "no reason given"
 
     async def _reuse(self, scope_id: str, action: Action) -> ToolOutcome:
         """An earlier success of the same call: answer from its stored result."""

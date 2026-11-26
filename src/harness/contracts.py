@@ -282,6 +282,10 @@ class InvalidTransition(HarnessError):
     code = ErrorCode.INVALID_TRANSITION
 
 
+class VersionConflict(HarnessError):
+    code = ErrorCode.VERSION_CONFLICT
+
+
 class IdempotencyConflict(HarnessError):
     """Same idempotency key, different request content (HTTP 409)."""
 

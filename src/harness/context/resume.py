@@ -1,10 +1,12 @@
 """Restore durable tool progress while rebuilding current permissions."""
 
+import re
+
 from pydantic import BaseModel, ValidationError
 
 from ..contracts import Actor, AgentProfile, AttemptLease, Checkpoint, ContextBundle, HarnessError, NotFound, Task
 from ..interfaces import ArtifactStore, ContextBuilder
-from ..runtime.messages import Message
+from ..runtime import messages as msg
 
 
 class CheckpointUnreadable(HarnessError):
@@ -13,7 +15,7 @@ class CheckpointUnreadable(HarnessError):
 
 class _SavedCheckpoint(BaseModel):
     checkpoint: Checkpoint
-    messages: list[Message]
+    messages: list[msg.Message]
 
 
 class ResumingContextBuilder:
@@ -32,7 +34,21 @@ class ResumingContextBuilder:
             saved = _SavedCheckpoint.model_validate_json(artifact.content)
         except (NotFound, ValidationError) as exc:
             raise CheckpointUnreadable(f"checkpoint {task.checkpoint_ref}: {exc}") from exc
+        messages = context.messages[:1] + [message.to_dict() for message in saved.messages[1:]]
+        if not saved.checkpoint.pending_calls and task.input_refs:
+            # Match complete references in briefs and user prose. Prefer the full
+            # name when two paths share a prefix, including a prefix ending in a space.
+            refs = sorted(set(task.input_refs), key=len, reverse=True)
+            literals = [re.escape(ref) or r"(?<=^- )$" for ref in refs]
+            pattern = re.compile(r"(?<!\S)(?:" + "|".join(literals) + r")(?!\S)", re.MULTILINE)
+            shown = {
+                match.group() for message in saved.messages[1:] if message.role == "user"
+                for match in pattern.finditer(message.content)
+            }
+            new_refs = [ref for ref in task.input_refs if ref not in shown]
+            if new_refs:
+                messages.append(msg.user("Additional inputs provided on resume:\n" + "\n".join(f"- {r}" for r in new_refs)))
         return context.model_copy(update={
-            "messages": context.messages[:1] + [message.to_dict() for message in saved.messages[1:]],
+            "messages": messages,
             "checkpoint": saved.checkpoint,
         })

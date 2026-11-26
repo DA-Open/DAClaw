@@ -80,6 +80,7 @@ class HarnessConfig:
     caps: DeploymentCaps = field(default_factory=DeploymentCaps)
     budget_reminder: BudgetReminderConfig = field(default_factory=BudgetReminderConfig)
     reconcile_grace_sec: int = 60
+    approval_ttl_sec: int = 86400
 
     def __post_init__(self) -> None:
         if self.background_scope_limit <= 0:
@@ -94,6 +95,8 @@ class HarnessConfig:
             raise ValueError("SSE connection limits must be positive")
         if self.reconcile_grace_sec <= 0:
             raise ValueError("reconcile_grace_sec must be positive")
+        if self.approval_ttl_sec <= 0:
+            raise ValueError("approval_ttl_sec must be positive")
         self.caps.check(self.default_limits)
 
     def __repr__(self) -> str:
@@ -120,6 +123,7 @@ class HarnessConfig:
                 "reserve_model_calls": self.budget_reminder.reserve_model_calls,
             },
             "reconcile_grace_sec": self.reconcile_grace_sec,
+            "approval_ttl_sec": self.approval_ttl_sec,
         }
 
     @classmethod
@@ -196,4 +200,5 @@ class HarnessConfig:
                 ),
             ),
             reconcile_grace_sec=get_int("RECONCILE_GRACE_SEC", 60),
+            approval_ttl_sec=get_int("APPROVAL_TTL_SEC", 86400),
         )

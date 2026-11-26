@@ -165,5 +165,10 @@ class TaskService:
     async def request_cancel(self, scope_id: str, task_id: str, reason: str) -> Task:
         return await self._tasks.request_cancel(scope_id, task_id, reason, self._clock())
 
+    async def resume(self, scope_id: str, task_id: str, *, expected_version: int, input_refs: list[str]) -> Task:
+        return await self._tasks.resume(
+            scope_id, task_id, expected_version=expected_version, input_refs=input_refs, now=self._clock()
+        )
+
     async def revoke_subscription(self, scope_id: str, subscription_id: str):
         return await self._tasks.revoke_subscription(scope_id, subscription_id, self._clock())

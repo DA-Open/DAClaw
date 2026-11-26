@@ -162,6 +162,7 @@ class HarnessSystem:
     memory: MemoryService
     _data: DataConnector
     _owned_pg: PgRepositories | None = field(default=None, repr=False)
+    clock: Callable[[], datetime] = utcnow
 
     @asynccontextmanager
     async def lifespan(self):
@@ -294,4 +295,5 @@ def build_system(
         memory=memory,
         _data=connect,
         _owned_pg=owned_pg,
+        clock=clock,
     )

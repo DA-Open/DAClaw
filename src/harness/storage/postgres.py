@@ -68,7 +68,7 @@ from ..contracts import (
     new_id,
 )
 from . import schema as s
-from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
+from .repositories import ActionRegistration, CreateResult, Repositories, new_resume_inputs, recovery_status, round_attempts
 from .postgres_memory import PgMemoryStore
 
 _LEASED = (TaskStatus.RUNNING.value, TaskStatus.CANCELLING.value)
@@ -695,9 +695,32 @@ class PgTaskRepository:
                 )
             ).mappings().one()
             updated = _task(updated_row)
+            if target is TaskStatus.CANCELLED:
+                await conn.execute(update(s.actions).where(
+                    s.actions.c.task_id == task.id, s.actions.c.status == ActionStatus.NEEDS_APPROVAL.value,
+                ).values(status=ActionStatus.FAILED.value, updated_at=now))
             await self._db.status_event(conn, updated, task.status, now, reason=reason)
             return updated
 
+    async def resume(
+        self, scope_id: str, task_id: str, *, expected_version: int, input_refs: list[str], now: datetime,
+    ) -> Task:
+        async with self._db.engine.begin() as conn:
+            task = await self._db.lock_task(conn, task_id)
+            if task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            added = new_resume_inputs(task, expected_version, input_refs)
+            row = (await conn.execute(
+                update(s.tasks).where(s.tasks.c.id == task.id).values(
+                    input_refs=task.input_refs + added, status=TaskStatus.QUEUED.value,
+                    wait_condition=None, version=task.version + 1, updated_at=now,
+                ).returning(*s.tasks.c)
+            )).mappings().one()
+            updated = _task(row)
+            await self._db.status_event(
+                conn, updated, task.status, now, reason="resumed_with_input", added_input_refs=added,
+            )
+            return updated
 
     async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
         async with self._db.engine.begin() as conn:
@@ -741,7 +764,7 @@ class PgTaskRepository:
         expires_at: datetime | None,
         now: datetime,
     ) -> tuple[Task, Approval]:
-        """One transaction: lock the task, check states, insert, event, requeue."""
+        """Lock the task, action and decision before deciding whether to requeue."""
         async with self._db.engine.begin() as conn:
             row = (
                 await conn.execute(
@@ -753,8 +776,6 @@ class PgTaskRepository:
             if row is None:
                 raise NotFound(f"task {task_id} not found")
             task = _task(row)
-            if task.status is not TaskStatus.WAITING or task.wait_condition is not WaitCondition.APPROVAL:
-                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
             arow = (
                 await conn.execute(
                     select(s.actions)
@@ -765,8 +786,22 @@ class PgTaskRepository:
             if arow is None:
                 raise NotFound(f"action {action_id} not found on task {task_id}")
             action = _action(arow)
+            key = (s.approvals.c.action_id == action.id, s.approvals.c.request_hash == request_hash)
+            body = await conn.scalar(select(s.approvals.c.body).where(*key).with_for_update())
+            existing = Approval.model_validate(body) if body is not None else None
+            waiting = task.status is TaskStatus.WAITING and task.wait_condition is WaitCondition.APPROVAL
+            expired = existing is not None and existing.expires_at is not None and existing.expires_at <= now
+            if (
+                existing is not None and existing.approver == approver and str(existing.decision) == decision
+                and not expired and not waiting and task.status is not TaskStatus.CANCELLED
+            ):
+                return task, existing
+            if not waiting:
+                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
             if action.status is not ActionStatus.NEEDS_APPROVAL or action.request_hash != request_hash:
                 raise InvalidTransition("the action is not waiting for approval with these arguments")
+            if existing is not None and not (existing.decision is ApprovalDecision.APPROVE and expired):
+                raise ApprovalConflict(f"action {action.id} already has a decision for these arguments")
             approval = Approval(
                 action_id=action.id,
                 request_hash=request_hash,
@@ -776,22 +811,18 @@ class PgTaskRepository:
                 expires_at=expires_at,
                 decided_at=now,
             )
-            inserted = (
-                await conn.execute(
+            values = {"decision": str(approval.decision), "body": _dump(approval)}
+            if existing is None:
+                stmt = (
                     pg_insert(s.approvals)
-                    .values(
-                        id=f"apr_{action.id}",
-                        action_id=action.id,
-                        request_hash=request_hash,
-                        decision=str(approval.decision),
-                        body=approval.model_dump(mode="json"),
-                    )
+                    .values(id=f"apr_{action.id}", action_id=action.id, request_hash=request_hash, **values)
                     .on_conflict_do_nothing(index_elements=["action_id", "request_hash"])
-                    .returning(*s.approvals.c)
+                    .returning(s.approvals.c.id)
                 )
-            ).mappings().first()
-            if inserted is None:
-                raise ApprovalConflict(f"action {action.id} already has a decision for these arguments")
+                if await conn.scalar(stmt) is None:
+                    raise ApprovalConflict(f"action {action.id} already has a decision for these arguments")
+            else:
+                await conn.execute(update(s.approvals).where(*key).values(**values))
             await self._db.append_event(
                 conn,
                 Event(
