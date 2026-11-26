@@ -1,5 +1,5 @@
 """PostgreSQL subscription transactions; no tools or model calls under locks."""
-from sqlalchemy import select, update, func
+from sqlalchemy import DateTime, cast, select, update, func
 from sqlalchemy.dialects.postgresql import insert
 
 from ..contracts import (
@@ -72,7 +72,12 @@ class PgSubscriptionRepository:
             rows = (await conn.execute(
                 select(s.subscription_events.c.body)
                 .where(s.subscription_events.c.subscription_id == subscription_id)
-                .order_by(s.subscription_events.c.body["decided_at"].astext, s.subscription_events.c.event_id)
+                # Order by the timestamp itself: the text form sorts ".100000Z"
+                # before "Z" because "." < "Z", so sub-second rows would come first.
+                .order_by(
+                    cast(s.subscription_events.c.body["decided_at"].astext, DateTime(timezone=True)),
+                    s.subscription_events.c.event_id,
+                )
             )).scalars()
             return [AdmissionDecision.model_validate(b) for b in rows]
 
