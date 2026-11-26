@@ -74,9 +74,10 @@ class PgSubscriptionRepository:
                 .where(s.subscription_events.c.subscription_id == subscription_id)
                 # Order by the timestamp itself: the text form sorts ".100000Z"
                 # before "Z" because "." < "Z", so sub-second rows would come first.
+                .select_from(s.subscription_events.join(s.events, s.events.c.id == s.subscription_events.c.event_id))
                 .order_by(
                     cast(s.subscription_events.c.body["decided_at"].astext, DateTime(timezone=True)),
-                    s.subscription_events.c.event_id,
+                    s.events.c.seq,
                 )
             )).scalars()
             return [AdmissionDecision.model_validate(b) for b in rows]
