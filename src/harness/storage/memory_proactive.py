@@ -43,7 +43,8 @@ class InMemorySubscriptionRepository:
         async with self._s.lock:
             self._get(scope_id, subscription_id)
             found = [r for r in self._s.subscription_events.values() if r.subscription_id == subscription_id]
-            return [_copy(r) for r in sorted(found, key=lambda r: (r.decided_at, r.event_id))]
+            order = {event.id: index for index, event in enumerate(self._s.events)}
+            return [_copy(r) for r in sorted(found, key=lambda r: (r.decided_at, order.get(r.event_id, 0)))]
 
     async def label_decision(self, scope_id, subscription_id, task_id, label, now):
         async with self._s.lock:
