@@ -370,6 +370,29 @@ def test_tool_map_feeds_the_policy():
     assert CapabilityRegistry.builtin().tool_map()["document_draft@1"] == {"files.read", "artifacts.read", "artifacts.write"}
 
 
+@pytest.mark.parametrize(("fields", "expected"), [
+    ({}, ()), ({"required_checks": []}, ()),
+    ({"required_checks": ["second", "first", "second"]}, ("second", "first")),
+])
+def test_pack_required_checks_preserve_order(tmp_path, fields, expected):
+    path = tmp_path / "pack.yaml"
+    path.write_text(json.dumps({"id": "x", "version": "1", "tools": [], "verifiers": ["first", "second"],
+                                **fields}), encoding="utf-8")
+    assert load_pack(path).required_checks == expected
+
+
+@pytest.mark.parametrize(("required", "problem"), [
+    ("first", "list"), (None, "list"), ([1], "list"), ([""], "list"), ([" "], "list"),
+    (["first", "unknown"], "verifiers"),
+])
+def test_pack_refuses_invalid_required_checks(tmp_path, required, problem):
+    path = tmp_path / "pack.yaml"
+    path.write_text(json.dumps({"id": "x", "version": "1", "tools": [], "verifiers": ["first"],
+                                "required_checks": required}), encoding="utf-8")
+    with pytest.raises(CapabilityError, match=f"required_checks.*{problem}"):
+        load_pack(path)
+
+
 def test_duplicate_pack_is_refused():
     pack = CapabilityPack(id="x", version="1", tools=frozenset(), verifiers=())
     with pytest.raises(CapabilityError):
@@ -415,7 +438,7 @@ def test_main_profile_registry():
     assert main_role_whitelist() == {
         "main_tools@1": {
             "files.read", "artifacts.read", "artifacts.write", "background_results.read", "background_results.mention",
-            "data.list", "data.connect", "data.query",
+            "data.list", "data.connect", "data.query", "feishu.send_message",
         },
         "proactive_tools@1": {"data.profile", "data.connect", "data.query", "artifacts.read", "artifacts.write",
                               "memory.search", "memory.read"},

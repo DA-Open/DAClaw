@@ -18,8 +18,8 @@ Rules from spec 7:
 * ``tools`` is what the pack needs, not a grant. The tools a task may call
   are this list intersected with the role and user whitelists
   (``WhitelistPolicy.capabilities`` gets ``tool_map()``).
-* ``verifiers`` are the checkers this pack offers; the task's acceptance
-  picks which ones run (``results/verifier.py``).
+* ``verifiers`` lists the checks offered by the pack. Its ``required_checks``
+  must be included in every task's acceptance and always run at verification.
 
 Adding a scenario means adding a pack (and connectors if it needs new tools);
 the scheduler, state machine and delivery do not change.
@@ -49,6 +49,7 @@ _KEYS = {
     "result_schema",
     "result_artifact",
     "verifiers",
+    "required_checks",
     "default_mode",
 }
 _REQUIRED = {"id", "version", "tools", "verifiers"}
@@ -74,6 +75,7 @@ class CapabilityPack:
     default_mode: str = "draft_only"
     description: str = ""
     source: str = field(default="", compare=False)
+    required_checks: tuple[str, ...] = ()
 
     @property
     def ref(self) -> str:
@@ -114,6 +116,12 @@ def load_pack(path: Path) -> CapabilityPack:
         raise CapabilityError(f"{path.name}: tools must be a list of tool names")
     if not isinstance(verifiers, list) or not all(isinstance(v, str) and v for v in verifiers):
         raise CapabilityError(f"{path.name}: verifiers must be a list of checker names")
+    required_checks = data.get("required_checks", [])
+    if not isinstance(required_checks, list) or not all(isinstance(c, str) and c.strip() for c in required_checks):
+        raise CapabilityError(f"{path.name}: required_checks must be a list of nonempty checker names")
+    for name in required_checks:
+        if name not in verifiers:
+            raise CapabilityError(f"{path.name}: required_checks names {name!r}, missing from verifiers")
 
     base = path.parent
     instructions_ref = None
@@ -148,6 +156,7 @@ def load_pack(path: Path) -> CapabilityPack:
         version=version,
         tools=frozenset(tools),
         verifiers=tuple(verifiers),
+        required_checks=tuple(dict.fromkeys(required_checks)),
         instructions_ref=instructions_ref,
         result_schema=schema,
         result_artifact=result_artifact,

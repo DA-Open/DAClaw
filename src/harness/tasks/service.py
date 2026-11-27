@@ -33,6 +33,7 @@ from ..contracts import (
     ArtifactInput,
     AttemptLease,
     Checkpoint,
+    InvalidRequest,
     NotFound,
     RunLane,
     Task,
@@ -106,6 +107,10 @@ class TaskService:
                 f"{pack.ref} does not offer the check(s) {', '.join(unknown)}; "
                 f"it offers {', '.join(pack.verifiers) or 'none'}"
             )
+        provided = {c.id for c in request.acceptance.checks}
+        missing = [name for name in pack.required_checks if name not in provided]
+        if missing:
+            raise InvalidRequest(f"{pack.ref} requires acceptance check(s) {', '.join(missing)}")
 
     def _check_profile(self, origin: TaskOrigin) -> None:
         if self._agents is None:

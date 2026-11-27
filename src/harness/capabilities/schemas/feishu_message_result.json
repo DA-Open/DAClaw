@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "feishu_message result",
+  "type": "object",
+  "required": ["summary", "artifact_refs"],
+  "properties": {
+    "summary": {"type": "string", "minLength": 1},
+    "artifact_refs": {
+      "type": "object",
+      "required": ["receipt"],
+      "properties": {"receipt": {"type": "string", "minLength": 1}}
+    },
+    "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "required_action_receipts": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  },
+  "anyOf": [
+    {"required": ["evidence_refs"], "properties": {"evidence_refs": {"minItems": 1}}},
+    {"required": ["required_action_receipts"], "properties": {"required_action_receipts": {"minItems": 1}}}
+  ]
+}

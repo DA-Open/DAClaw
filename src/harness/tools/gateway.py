@@ -77,6 +77,8 @@ log = logging.getLogger(__name__)
 TOOL_CALL = Usage(tool_calls=1)
 # Tools whose arguments name a file the policy must check (P0: files.read).
 PATH_ARGS = {"files.read": "path", "data.connect": "path", "data.profile": "path"}
+RECIPIENT_ARGS = {"feishu.send_message": ("receive_id_type", "receive_id")}
+REPLAY_RECONCILE_TOOLS = frozenset({"feishu.send_message"})
 # Tools that are handed the directories the user allows, so they can list them.
 PATH_SCOPE_TOOLS = {"data.list"}
 
@@ -265,6 +267,13 @@ class ToolGateway:
                 return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, path_decision.reason)
             args[path_arg] = str(resolved)
             decision = path_decision if path_decision.grant_ref else decision
+        if call.tool in RECIPIENT_ARGS:
+            type_arg, id_arg = RECIPIENT_ARGS[call.tool]
+            decision = self._policy.check_recipient(
+                call.tool, f"{args[type_arg]}:{args[id_arg]}", scope_id=execution.actor.scope_id, role=execution.agent_role,
+            )
+            if not decision.allowed:
+                return _refused(ToolStatus.DENIED, ErrorCode.FORBIDDEN, decision.reason)
         # A tool that changes things outside the task waits for a human decision.
         # Without an approvals store there is nothing to decide against, so such
         # tools stay closed (spec 8: only connectors with a side-effect test may
@@ -609,14 +618,42 @@ class ToolGateway:
         content = await self._artifacts.read(ref, Actor(actor_id="harness", scope_id=scope_id))
         return json.loads(content.content.decode("utf-8"))
 
+    async def _replay_block_reason(self, task: Task, action: Action) -> str | None:
+        if task.status in (TaskStatus.CANCELLING, TaskStatus.CANCELLED) or task.cancel_requested_at is not None:
+            return "task_cancelled"
+        tool_policy_ref = self._profiles.get(task.agent_profile_ref)
+        if tool_policy_ref is None or not self._policy.check_tool(
+            action.tool, scope_id=task.scope_id, role=task.agent_role,
+            tool_policy_ref=tool_policy_ref, capability_ref=task.capability_ref,
+        ).allowed:
+            return "policy_revoked"
+        if action.tool in RECIPIENT_ARGS:
+            if not action.args_ref:
+                return "args_unavailable"
+            try:
+                args = await self._read_json(task.scope_id, action.args_ref)
+                call = ToolCall(tool=action.tool, args=args)
+                if call.request_hash() != action.request_hash or _schema_problem(self._connectors[action.tool].spec, args):
+                    return "args_unavailable"
+                type_arg, id_arg = RECIPIENT_ARGS[action.tool]
+                recipient = f"{args[type_arg]}:{args[id_arg]}"
+            except (HarnessError, OSError, ValueError, TypeError, KeyError):
+                return "args_unavailable"
+            if not self._policy.check_recipient(action.tool, recipient, scope_id=task.scope_id, role=task.agent_role).allowed:
+                return "recipient_revoked"
+        return None
+
     async def reconcile(self, task: Task, action: Action, expected_attempt: int) -> ActionStatus | None:
-        reference = ActionRef(action_id=action.id, **action.model_dump(include={
-            "task_id", "logical_key", "tool", "request_hash", "receipt_ref",
+        reference = ActionRef(action_id=action.id, scope_id=task.scope_id, **action.model_dump(include={
+            "task_id", "logical_key", "tool", "request_hash", "receipt_ref", "args_ref", "created_at",
         }))
         details = {}
         if action.tool not in self._connectors:
             result = ReconcileResult(status="unsupported")
             details["reason"] = "connector_missing"
+        elif action.tool in REPLAY_RECONCILE_TOOLS and (reason := await self._replay_block_reason(task, action)):
+            result = ReconcileResult(status="unsupported")
+            details["reason"] = reason
         else:
             try:
                 result = await self._connectors[action.tool].reconcile(reference)

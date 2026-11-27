@@ -1,0 +1,15 @@
+id: feishu_message
+version: "1"
+description: Send one approved Feishu text message and return its receipt.
+instructions_ref: ../prompts/feishu_message.md
+tools:
+  - feishu.send_message
+  - artifacts.write
+result_artifact: receipt
+result_schema: schemas/feishu_message_result.json
+verifiers:
+  - artifact_readable
+  - feishu_receipt
+required_checks:
+  - feishu_receipt
+default_mode: approval_required

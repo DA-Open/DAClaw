@@ -14,7 +14,7 @@ from ..contracts import AgentProfile, AgentRole, RunLane
 MAIN_TOOLS = frozenset(
     {
         "files.read", "artifacts.read", "artifacts.write", "background_results.read", "background_results.mention",
-        "data.list", "data.connect", "data.query",
+        "data.list", "data.connect", "data.query", "feishu.send_message",
     }
 )
 

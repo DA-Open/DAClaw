@@ -48,10 +48,11 @@ from .storage.memory import InMemoryRepositories
 from .storage.repositories import Repositories
 from .tasks import TaskService, Worker
 from .tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
-from .tools.connectors import DataConnector, data_connectors, p0_connectors
+from .tools.connectors import DataConnector, FeishuSendConnector, data_connectors, p0_connectors
 from .tools.connectors.background_results import BackgroundResultsConnector, BackgroundResultsMentionConnector
 from .tools.connectors.data_profile import DataProfileConnector
 from .results.checks.data_card import DataCardChecks
+from .results.checks.feishu import FeishuReceiptCheck
 from .results.verifier import DEFAULT_CHECKERS
 from .delivery.service import DeliveryService
 from .tasks.proactive_controller import ProactiveController
@@ -67,7 +68,7 @@ if TYPE_CHECKING:
     from .storage.postgres import PgRepositories
 
 _POLICY_KEYS = {"disabled_tools", "users", "tokens"}
-_GRANT_KEYS = {"paths", "tools", "ref"}
+_GRANT_KEYS = {"paths", "tools", "ref", "recipients"}
 _TOKEN_KEYS = {"sha256", "scope_id", "actor_id"}
 
 
@@ -107,7 +108,7 @@ def load_policy_file(path: Path | str | None) -> dict[str, Any]:
                 raise PolicyFileError(f"{p.name}: users.{scope}: unknown role {role!r}") from None
             if not isinstance(grant, dict) or set(grant) - _GRANT_KEYS:
                 raise PolicyFileError(f"{p.name}: users.{scope}.{role} allows only {sorted(_GRANT_KEYS)}")
-            for key in ("paths", "tools"):
+            for key in ("paths", "tools", "recipients"):
                 value = grant.get(key)
                 if value is not None and (not isinstance(value, list) or not all(isinstance(v, str) for v in value)):
                     raise PolicyFileError(f"{p.name}: users.{scope}.{role}.{key} must be a list of strings")
@@ -135,8 +136,10 @@ def user_grants(spec: Mapping[str, Any]) -> dict[str, dict[str, UserGrant]]:
         out[scope] = {}
         for role, grant in by_role.items():
             tools = grant.get("tools")
+            recipients = grant.get("recipients")
             out[scope][role] = UserGrant(
                 tools=frozenset(tools) if tools is not None else None,
+                recipients=frozenset(recipients) if recipients is not None else None,
                 paths=tuple(grant.get("paths") or ()),
                 ref=grant.get("ref") or f"grant:{scope}:{role}",
             )
@@ -220,6 +223,7 @@ def build_system(
         users=user_grants(spec),
         capabilities=capabilities.tool_map(),
         disabled_tools=spec.get("disabled_tools") or (),
+        allowed_recipients={"feishu.send_message": config.feishu_allowed_recipients},
     )
     owned_pg = None
     if repos is None:
@@ -237,6 +241,7 @@ def build_system(
     profile = DataProfileConnector(artifacts)
     connectors = [
         *p0_connectors(artifacts),
+        FeishuSendConnector(config, artifacts, clock),
         connect,
         *other_data,
         profile,
@@ -256,8 +261,10 @@ def build_system(
         data_sessions=connect,
     )
     data_checks = DataCardChecks(repos, policy, clock, profile)
-    verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock,
-        checkers={**DEFAULT_CHECKERS, "data_card_schema": data_checks.schema, "stats_replay": data_checks.replay})
+    verifier = CapabilityVerifier(repos, artifacts, capabilities, clock=clock, checkers={
+        **DEFAULT_CHECKERS, "data_card_schema": data_checks.schema, "stats_replay": data_checks.replay,
+        "feishu_receipt": FeishuReceiptCheck(repos),
+    })
     recomputer = Recomputer(repos, memory, artifacts, policy, clock=clock)
     builder = SimpleContextBuilder(
         repos,
