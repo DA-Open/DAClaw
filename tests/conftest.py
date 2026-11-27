@@ -67,12 +67,9 @@ def mock_config():
 
 
 # ── Global test timeout ─────────────────────────────────────────────────────
-# Kill any individual test that takes longer than 30 seconds.
-# Prevents hanging tests (subprocess spawns, blocking I/O) from stalling the
-# entire test suite.
+DEFAULT_TEST_TIMEOUT_SEC = 30
+INTEGRATION_TEST_TIMEOUT_SEC = 90
 
-def _timeout_handler(signum, frame):
-    raise TimeoutError("Test exceeded 30 second timeout")
 
 @pytest.fixture(autouse=True)
 def _ensure_current_event_loop(request):
@@ -108,14 +105,21 @@ def _ensure_current_event_loop(request):
 
 
 @pytest.fixture(autouse=True)
-def _enforce_test_timeout():
-    """Kill any individual test that takes longer than 30 seconds.
-    SIGALRM is Unix-only; skip on Windows."""
+def _enforce_test_timeout(request):
+    """Allow integration tests more time for process startup and I/O on POSIX."""
     if sys.platform == "win32":
         yield
         return
-    old = signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(30)
-    yield
-    signal.alarm(0)
-    signal.signal(signal.SIGALRM, old)
+    timeout = (INTEGRATION_TEST_TIMEOUT_SEC if request.node.get_closest_marker("integration") is not None
+               else DEFAULT_TEST_TIMEOUT_SEC)
+
+    def handle_timeout(signum, frame):
+        raise TimeoutError(f"Test exceeded {timeout} second timeout")
+
+    old_handler = signal.signal(signal.SIGALRM, handle_timeout)
+    try:
+        signal.alarm(timeout)
+        yield
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)

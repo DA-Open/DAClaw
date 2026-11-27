@@ -297,39 +297,39 @@ def test_p1_stale_worker_cannot_heartbeat_or_commit(lab, record_property):
         assert artifact(api, after["result_ref"]).status_code == 200
 
 
-def test_p1_unknown_side_effect_reconciles_without_blind_retry(lab, record_property):
+@pytest.mark.parametrize("mode", ["auto", "manual"])
+def test_p1_unknown_side_effect_reconciles_without_blind_retry(lab, record_property, mode):
     with observations(record_property) as seen, lab.api("api") as api:
-        for mode in ("auto", "manual"):
-            task = submit(api, lab.body, mode)
-            observed = seen[mode] = {"task": task}
-            item = unknown(lab, api, task, mode, observed)
-            action = item["action_id"]
-            observed["before"] = item
-            time.sleep(int(lab.env["DARAOS_HARNESS_RECONCILE_GRACE_SEC"]))
-            lab.recover()
-            if mode == "manual":
-                current = state(api, task)
-                unsettled, = current["unsettled_actions"]
-                observed["manual"] = unsettled["needs_manual_confirmation"]
-                assert current["wait_condition"] == "reconciliation" and observed["manual"] is True
-                response = api.post(f"/tasks/{task}/actions/{action}/resolve", json={"outcome": "happened"})
-                observed["resolve_http"] = response.status_code
-                assert response.status_code == 200 and response.json()["status"] == "succeeded"
-            assert state(api, task)["status"] == "queued"
-            settled = lab.ledger(task)["actions"][action]
-            observed.update(settled=settled, status=lab.run("finish")["status"], http=lab.external.for_action(action))
-            observed["reconciliations"] = [s["payload"]["status"] for s in steps(trace(api, task), "tool_reconcile")
-                                           if s["payload"]["action_id"] == action]
-            assert settled["status"] == "succeeded" and settled["receipt"]
-            if mode == "auto":
-                assert settled["receipt"] == lab.external.receipt(action)
-                assert observed["reconciliations"] == ["succeeded"]
-            else:
-                assert artifact(api, settled["receipt"]).json()["outcome"] == "happened"
-                assert observed["reconciliations"] == ["unsupported", "succeeded"]
-            assert observed["status"] == state(api, task)["status"] == "succeeded"
-            assert [(r["path"], r["key"]) for r in observed["http"]] == [("/execute", action), ("/reconcile", action)]
-        assert len(lab.external.requests("/execute")) == 2
+        task = submit(api, lab.body, mode)
+        observed = seen[mode] = {"task": task}
+        item = unknown(lab, api, task, mode, observed)
+        action = item["action_id"]
+        observed["before"] = item
+        time.sleep(int(lab.env["DARAOS_HARNESS_RECONCILE_GRACE_SEC"]))
+        lab.recover()
+        if mode == "manual":
+            current = state(api, task)
+            unsettled, = current["unsettled_actions"]
+            observed["manual"] = unsettled["needs_manual_confirmation"]
+            assert current["wait_condition"] == "reconciliation" and observed["manual"] is True
+            response = api.post(f"/tasks/{task}/actions/{action}/resolve", json={"outcome": "happened"})
+            observed["resolve_http"] = response.status_code
+            assert response.status_code == 200 and response.json()["status"] == "succeeded"
+        assert state(api, task)["status"] == "queued"
+        settled = lab.ledger(task)["actions"][action]
+        observed.update(settled=settled, status=lab.run("finish")["status"], http=lab.external.for_action(action))
+        observed["reconciliations"] = [s["payload"]["status"] for s in steps(trace(api, task), "tool_reconcile")
+                                       if s["payload"]["action_id"] == action]
+        assert settled["status"] == "succeeded" and settled["receipt"]
+        if mode == "auto":
+            assert settled["receipt"] == lab.external.receipt(action)
+            assert observed["reconciliations"] == ["succeeded"]
+        else:
+            assert artifact(api, settled["receipt"]).json()["outcome"] == "happened"
+            assert observed["reconciliations"] == ["unsupported", "succeeded"]
+        assert observed["status"] == state(api, task)["status"] == "succeeded"
+        assert [(r["path"], r["key"]) for r in observed["http"]] == [("/execute", action), ("/reconcile", action)]
+        assert len(lab.external.requests("/execute")) == 1
 
 
 def test_p1_waiting_input_resume_across_processes(lab, record_property):
