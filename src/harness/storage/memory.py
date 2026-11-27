@@ -50,7 +50,7 @@ from ..contracts import (
     assert_transition,
     new_id,
 )
-from .repositories import ActionRegistration, CreateResult, Repositories, recovery_status, round_attempts
+from .repositories import ActionRegistration, CreateResult, Repositories, new_resume_inputs, recovery_status, round_attempts
 from .memory_store import InMemoryMemoryStore
 
 M = TypeVar("M", bound=BaseModel)
@@ -350,7 +350,7 @@ class InMemoryTaskRepository:
                 if attempt is not None and attempt.ended_at is None:
                     self._s.attempts[attempt.id] = _replace(attempt, ended_at=now, exit_reason="lease_expired")
                 self._s.tasks[task.id] = updated
-                self._s.status_event(updated, task.status, now, attempt_id=attempt.id if attempt else None)
+                self._record_transition(updated, task.status, now, attempt_id=attempt.id if attempt else None)
                 recovered += 1
             return recovered
 
@@ -450,13 +450,28 @@ class InMemoryTaskRepository:
                 extra["error_code"] = str(outcome.error.code)
             if outcome.artifact_refs:
                 extra["artifact_refs"] = list(outcome.artifact_refs)
-            self._s.status_event(updated, old, now, attempt_id=attempt.id, **extra)
+            self._record_transition(updated, old, now, attempt_id=attempt.id, **extra)
             if inbox is not None and updated.status == TaskStatus.SUCCEEDED:
                 from .memory_delivery import publish
                 publish(self._s, inbox, now)
                 updated = _replace(updated, result_expires_at=inbox.valid_until)
                 self._s.tasks[task.id] = updated
             return _copy(updated)
+
+    def _invalidate_pending_approvals(self, task_id: str, now: datetime) -> list[str]:
+        voided = []
+        for action in self._s.actions.values():
+            if action.task_id == task_id and action.status is ActionStatus.NEEDS_APPROVAL:
+                self._s.actions[action.id] = _replace(action, status=ActionStatus.FAILED, updated_at=now)
+                voided.append(action.id)
+        return sorted(voided)
+
+    def _record_transition(self, task: Task, old: TaskStatus, now: datetime, **extra: Any) -> None:
+        if task.status is TaskStatus.CANCELLED:
+            voided = self._invalidate_pending_approvals(task.id, now)
+            if voided:
+                extra["voided_action_ids"] = voided
+        self._s.status_event(task, old, now, **extra)
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str, now: datetime) -> Task:
         async with self._s.lock:
@@ -481,9 +496,24 @@ class InMemoryTaskRepository:
                 updated_at=now,
             )
             self._s.tasks[task.id] = updated
-            self._s.status_event(updated, old, now, reason=reason)
+            self._record_transition(updated, old, now, reason=reason)
             return _copy(updated)
 
+    async def resume(
+        self, scope_id: str, task_id: str, *, expected_version: int, input_refs: list[str], now: datetime,
+    ) -> Task:
+        async with self._s.lock:
+            task = self._s.task(task_id)
+            if task.scope_id != scope_id:
+                raise NotFound(f"task {task_id} not found")
+            added = new_resume_inputs(task, expected_version, input_refs)
+            updated = _replace(
+                task, input_refs=task.input_refs + added, status=TaskStatus.QUEUED,
+                wait_condition=None, version=task.version + 1, updated_at=now,
+            )
+            self._s.tasks[task.id] = updated
+            self._s.status_event(updated, task.status, now, reason="resumed_with_input", added_input_refs=added)
+            return _copy(updated)
 
     async def decide_approval(
         self,
@@ -502,17 +532,25 @@ class InMemoryTaskRepository:
             task = self._s.tasks.get(task_id)
             if task is None or task.scope_id != scope_id:
                 raise NotFound(f"task {task_id} not found")
-            if task.status is not TaskStatus.WAITING or task.wait_condition is not WaitCondition.APPROVAL:
-                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
             action = self._s.actions.get(action_id)
             if action is None or action.task_id != task.id:
                 raise NotFound(f"action {action_id} not found on task {task_id}")
+            key = (action.id, request_hash)
+            existing = self._s.approvals.get(key)
+            waiting = task.status is TaskStatus.WAITING and task.wait_condition is WaitCondition.APPROVAL
+            expired = existing is not None and existing.expires_at is not None and existing.expires_at <= now
+            if (
+                existing is not None and existing.approver == approver and str(existing.decision) == decision
+                and not expired and not waiting and task.status is not TaskStatus.CANCELLED
+            ):
+                return _copy(task), _copy(existing)
+            if not waiting:
+                raise InvalidTransition(f"task {task_id} is {task.status}, not waiting for an approval")
             if action.status is not ActionStatus.NEEDS_APPROVAL or action.request_hash != request_hash:
                 raise InvalidTransition(
                     "the action is not waiting for approval with these arguments"
                 )
-            key = (action.id, request_hash)
-            if key in self._s.approvals:
+            if existing is not None and not (existing.decision is ApprovalDecision.APPROVE and expired):
                 raise ApprovalConflict(f"action {action.id} already has a decision for these arguments")
             approval = Approval(
                 action_id=action.id,
@@ -548,7 +586,7 @@ class InMemoryTaskRepository:
             )
             self._s.tasks[task.id] = updated
             self._s.status_event(updated, task.status, now, reason="approval decided")
-            return _copy(updated), approval
+            return _copy(updated), _copy(approval)
 
     async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
         async with self._s.lock:
@@ -585,7 +623,7 @@ class InMemoryTaskRepository:
                 changed = _replace(task, status=status, wait_condition=None, cancel_requested_at=now,
                                    cancel_reason="subscription revoked", version=task.version + 1, updated_at=now)
                 self._s.tasks[task.id] = changed
-                self._s.status_event(changed, task.status, now)
+                self._record_transition(changed, task.status, now)
             for item in getattr(self._s, "inbox", {}).values():
                 if item.subscription_id == sub.id and item.status == "pending":
                     item.status = "cancelled"

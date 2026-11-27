@@ -1,0 +1,47 @@
+P1 R2b · 修改前的完整 Harness 基线
+BASE: 4a7abe389c9bfed53691660c043fe4505c6f247d (origin/DaraOS)
+环境: WSL Ubuntu 22.04, Python 3.11.15, pytest 9.0.2, Docker postgres:16
+命令: python -m pytest tests/harness_runtime -q -n0 -o addopts="" -m "integration or not integration"
+退出码: 1
+失败集合（1 项）
+tests/harness_runtime/scenarios/test_proactive.py::test_fingerprint_skip_and_diff_after_baseline[postgres]
+PostgreSQL 的最后一条订阅决策 kind 为 None，断言期望 diff。
+
+完整 pytest 输出（临时路径、进程地址与随机记录 ID 已脱敏）
+........................................................................ [  8%]
+........................................................................ [ 16%]
+........................................................................ [ 24%]
+..........................................F............................. [ 32%]
+........................................................................ [ 40%]
+........................................................................ [ 48%]
+........................................................................ [ 56%]
+........................................................................ [ 65%]
+........................................................................ [ 73%]
+........................................................................ [ 81%]
+........................................................................ [ 89%]
+........................................................................ [ 97%]
+......................                                                   [100%]
+=================================== FAILURES ===================================
+___________ test_fingerprint_skip_and_diff_after_baseline[postgres] ____________
+
+repos = PgRepositories(tasks=<harness.storage.postgres.PgTaskRepository object at <address>>, events=<harness.storage.pos...bject at <address>>, approvals=<harness.storage.postgres_approvals.PgApprovalRepository object at <address>>)
+tmp_path = PosixPath('<pytest-temp>')
+
+    async def test_fingerprint_skip_and_diff_after_baseline(repos, tmp_path):
+        path = dataset(tmp_path)
+        s = system(tmp_path, repos, model=scripted(path))
+        sub = await subscribe(s, path)
+        await s.proactive.on_event(event(path))
+        assert (await s.worker(lanes=[RunLane.BACKGROUND]).run_once()).status == "succeeded"
+        assert await s.proactive.on_event(event(path, "v2", fingerprint="v1")) == []
+        assert (await repos.subscriptions.decisions("s1", sub.id))[-1].reason == "unchanged_fingerprint"
+        assert len(await s.proactive.on_event(event(path, "v3"))) == 1
+        record = (await repos.subscriptions.decisions("s1", sub.id))[-1]
+>       assert record.kind == "diff" and record.input_snapshot["previous_version"] == "v1"
+E       AssertionError: assert (None == 'diff')
+E        +  where None = AdmissionDecision(subscription_id='sub_<id>', event_id='evt_<id>...tetime(2026, 11, 26, 10, 42, 31, 663477, tzinfo=TzInfo(0)), backfill_label=None, backfilled_at=None, label_source=None).kind
+
+tests/harness_runtime/scenarios/test_proactive.py:488: AssertionError
+=========================== short test summary info ============================
+FAILED tests/harness_runtime/scenarios/test_proactive.py::test_fingerprint_skip_and_diff_after_baseline[postgres]
+1 failed, 885 passed in 157.96s (0:02:37)

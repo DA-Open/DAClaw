@@ -79,3 +79,13 @@ def test_default_limits_must_fit_caps():
 def test_reminder_thresholds_distinct():
     with pytest.raises(ValueError):
         BudgetReminderConfig(thresholds=(0.5, 0.5))
+
+
+def test_approval_ttl_config():
+    key = "DARAOS_HARNESS_APPROVAL_TTL_SEC"
+    assert HarnessConfig.from_env({}).approval_ttl_sec == 86400
+    config = HarnessConfig.from_env({key: "17"})
+    assert config.approval_ttl_sec == config.safe_dict()["approval_ttl_sec"] == 17
+    for invalid in ("0", "-1", "1.5"):
+        with pytest.raises(ValueError):
+            HarnessConfig.from_env({key: invalid})

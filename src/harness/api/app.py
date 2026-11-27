@@ -1,18 +1,20 @@
-"""The P0 HTTP API (spec 5.1), over one ``HarnessSystem``.
+"""The Harness HTTP API (spec 5.1), over one ``HarnessSystem``.
 
 | Route | Does |
 |---|---|
 | ``POST /tasks`` | create a Main task; ``Idempotency-Key`` header; 202 |
-| ``GET /tasks/{id}`` | status, wait reason, usage, result, error |
+| ``GET /tasks/{id}`` | status, version, wait reason, pending approvals, cleanup, usage, result, error |
 | ``GET /tasks/{id}/events`` | SSE progress; ``Last-Event-ID`` resumes; ``final`` once the task stops |
 | ``POST /tasks/{id}/cancel`` | idempotent cancel request |
+| ``POST /tasks/{id}/resume`` | add input references and requeue a waiting/input task at the expected version |
+| ``POST /tasks/{id}/approvals/{action_id}`` | record the owner's decision for the specified request hash |
 | ``POST /tasks/{id}/actions/{action_id}/resolve`` | record the owner's decision about an uncertain side effect |
 | ``GET /tasks/{id}/trace`` | the task's timeline (``trace.build_trace``) |
 | ``GET /artifacts/{id}`` | an artifact's content, by byte range |
 
-Checkpoint replay and explicit Recovery ticks are implemented. HTTP resume
-and approvals remain R2 work; POST /events and subscriptions are not here.
-S1 will connect recovery to a long-running process.
+Workers restore checkpoints on their next claim. The scheduler runs recovery
+ticks for expired leases and unresolved actions. The proactive routes handle
+subscriptions, events and the inbox.
 
 The API never runs model or tool calls in a request (spec 2): it only talks
 to TaskService and the stores. Workers run tasks, in this process
@@ -37,6 +39,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..app import HarnessSystem
 from ..contracts import (
     Acceptance,
+    ActionStatus,
     Actor,
     AgentRole,
     ErrorCode,
@@ -50,8 +53,10 @@ from ..contracts import (
     TaskRequest,
     TaskStatus,
     TriggerType,
+    WaitCondition,
     utcnow,
 )
+from ..storage.repositories import MAX_INPUT_REFS
 from ..trace import build_trace
 from ..tasks.recovery import needs_manual_confirmation
 from ..tools.gateway import reconciliation_history
@@ -68,7 +73,6 @@ MAIN_PROFILE = "main@1"
 STOPPED = frozenset({TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.WAITING})
 MAX_ARTIFACT_BYTES = 5 * 1024 * 1024
 MAX_GOAL_CHARACTERS = 32_768
-MAX_INPUT_REFS = 128
 MAX_INPUT_REF_CHARACTERS = 4_096
 
 
@@ -97,12 +101,22 @@ class CancelTask(BaseModel):
     reason: str = Field("user", min_length=1, max_length=500)
 
 
+class ResumeTask(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    input_refs: list[Annotated[str, Field(max_length=MAX_INPUT_REF_CHARACTERS)]] = Field(
+        default_factory=list, max_length=MAX_INPUT_REFS
+    )
+
+
 def task_view(task: Task) -> dict[str, Any]:
     """GET /tasks/{id}: what a caller may see of a task."""
     remaining = RemainingBudget.for_task(task, utcnow())
     return {
         "task_id": task.id,
         "status": str(task.status),
+        "version": task.version,
         "agent_role": str(task.agent_role),
         "run_lane": str(task.run_lane),
         "goal": task.goal,
@@ -277,9 +291,16 @@ def create_app(
     async def get_task(task_id: str, request: Request) -> dict[str, Any]:
         who = actor(request)
         task = await own_task(who, task_id)
+        actions = []
+        if task.status is TaskStatus.WAITING and task.wait_condition is WaitCondition.APPROVAL:
+            actions = await system.repos.actions.list_for_task(task.id)
         unsettled = await system.repos.actions.list_unsettled(task.id)
         history = await reconciliation_history(system.repos.events, task)
         return task_view(task) | {
+            "pending_approvals": [{
+                "action_id": action.id, "tool": action.tool, "logical_key": action.logical_key,
+                "request_hash": action.request_hash, "args_ref": action.args_ref, "created_at": action.created_at.isoformat(),
+            } for action in actions if action.status is ActionStatus.NEEDS_APPROVAL],
             "cleanup": ("pending_reconciliation" if unsettled else "done") if task.status is TaskStatus.CANCELLED else None,
             "unsettled_actions": [{
                 "action_id": action.id, "tool": action.tool, "status": action.status.value,
@@ -297,6 +318,18 @@ def create_app(
         await own_task(who, task_id)
         task = await system.tasks.request_cancel(who.scope_id, task_id, (payload or CancelTask()).reason)
         return task_view(task)
+
+    @app.post("/tasks/{task_id}/resume")
+    async def resume_task(task_id: str, payload: ResumeTask, request: Request) -> dict[str, Any]:
+        who = actor(request)
+        task = await own_task(who, task_id)
+        if task.actor_id != who.actor_id:
+            raise ApiError(403, ErrorCode.FORBIDDEN, "only the task actor may resume it")
+        check_inputs(who, payload.input_refs)
+        resumed = await system.tasks.resume(
+            who.scope_id, task_id, expected_version=payload.expected_version, input_refs=payload.input_refs
+        )
+        return task_view(resumed)
 
     @app.get("/tasks/{task_id}/trace")
     async def get_trace(task_id: str, request: Request) -> dict[str, Any]:
@@ -424,4 +457,4 @@ def create_app(
     return app
 
 
-__all__ = ["CreateTask", "create_app", "task_view"]
+__all__ = ["CreateTask", "ResumeTask", "create_app", "task_view"]

@@ -27,7 +27,7 @@ class DecideApproval(BaseModel):
 
 def approval_router(system) -> APIRouter:
     router = APIRouter()
-    approvals = Approvals(system.repos)
+    approvals = Approvals(system.repos, clock=system.clock)
 
     @router.post("/tasks/{task_id}/approvals/{action_id}")
     async def decide(task_id: str, action_id: str, payload: DecideApproval, request: Request):
@@ -38,16 +38,20 @@ def approval_router(system) -> APIRouter:
             raise ApiError(404, "not_found", f"task {task_id} not found") from None
         if task.actor_id != actor.actor_id:
             raise ApiError(403, "forbidden", "only the task actor may decide this approval")
+        decision = ApprovalDecision(payload.decision)
+        ttl = None
+        if decision is ApprovalDecision.APPROVE:
+            ttl = payload.expires_in_sec or system.config.approval_ttl_sec
         try:
             decided, approval = await approvals.decide(
                 actor.scope_id,
                 task_id,
                 action_id,
                 actor=actor,
-                decision=ApprovalDecision(payload.decision),
+                decision=decision,
                 request_hash=payload.request_hash,
                 reason=payload.reason,
-                expires_in_sec=payload.expires_in_sec,
+                expires_in_sec=ttl,
             )
         except NotFound as exc:
             raise ApiError(404, "not_found", exc.message) from None
@@ -59,6 +63,7 @@ def approval_router(system) -> APIRouter:
             "task_id": decided.id,
             "action_id": action_id,
             "decision": str(approval.decision),
+            "expires_at": approval.expires_at,
             "status": str(decided.status),
             "wait_condition": str(decided.wait_condition) if decided.wait_condition else None,
         }

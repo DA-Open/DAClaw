@@ -4,11 +4,13 @@ from datetime import timedelta
 
 import pytest
 
+from harness.config import HarnessConfig
 from harness.contracts import (
     ActionStatus,
     Approval,
     ApprovalConflict,
     ApprovalDecision,
+    EventType,
     InvalidTransition,
     TaskOutcome,
     TaskStatus,
@@ -215,6 +217,8 @@ async def _client(s):
     class Stub:
         repos = s.repos
         memory = None
+        clock = s.clock
+        config = HarnessConfig()
 
     app = create_app(Stub(), auth)
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
@@ -251,6 +255,8 @@ async def test_api_refuses_another_actor(tmp_path):
     class Stub:
         repos = s.repos
         memory = None
+        clock = s.clock
+        config = HarnessConfig()
 
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=create_app(Stub(), auth)), base_url="http://test"
@@ -261,3 +267,51 @@ async def test_api_refuses_another_actor(tmp_path):
             headers={"Authorization": "Bearer other"},
         )
     assert response.status_code == 403
+
+
+async def test_retry_failed_side_effect_with_expired_approval_reparks(tmp_path):
+    s = await Setup(tmp_path).start()
+    parked = await s.call()
+    await s.wait_for_approval()
+    await s.decide(parked.action_id, expires_in_sec=1)
+    lease = await s.repos.tasks.claim("retry", [s.task.run_lane], 60, s.clock())
+    s.execution = s.execution.model_copy(update={"lease": lease})
+    # Reconciliation has confirmed that the previous attempt did not take effect.
+    await s.repos.actions.update(parked.action_id, ActionStatus.FAILED, now=s.clock())
+    s.clock.advance(1)
+
+    assert (await s.call()).status is ToolStatus.NEEDS_APPROVAL
+    action = await s.action()
+    assert action.status is ActionStatus.NEEDS_APPROVAL
+    assert s.mail.sent == 0
+    assert (await s.call()).action_id == action.id
+    requests = [e.payload for e in await s.repos.events.list("s1", task_id=s.task.id)
+                if e.type is EventType.APPROVAL_REQUESTED]
+    assert [(e["action_id"], e["request_hash"]) for e in requests] == [(action.id, action.request_hash)] * 2
+    await s.wait_for_approval()
+    queued, approval = await s.decide(action.id, expires_in_sec=60)
+    assert queued.status is TaskStatus.QUEUED
+    assert approval.expires_at == s.clock() + timedelta(seconds=60)
+
+
+async def test_rejection_ignores_service_caller_expiry(tmp_path):
+    s = await Setup(tmp_path).start()
+    parked = await s.call()
+    await s.wait_for_approval()
+    _, approval = await s.decide(parked.action_id, decision=ApprovalDecision.REJECT, expires_in_sec=1)
+    assert approval.expires_at is None
+    assert (await s.repos.approvals.get(approval.action_id, approval.request_hash)).expires_at is None
+
+
+async def test_replay_honors_preexisting_reject_with_elapsed_expiry(tmp_path):
+    s = await Setup(tmp_path).start()
+    await s.call()
+    action = await s.action()
+    await s.repos.approvals.add(Approval(
+        action_id=action.id, request_hash=action.request_hash, approver=ACTOR.actor_id,
+        decision=ApprovalDecision.REJECT, reason="declined", expires_at=s.clock(),
+    ))
+    result = await s.call()
+    assert result.status is ToolStatus.DENIED
+    assert "declined" in result.error.message
+    assert s.mail.sent == 0

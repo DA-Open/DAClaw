@@ -38,6 +38,8 @@ from ..contracts import (
     AttemptLease,
     ErrorCode,
     Event,
+    InvalidRequest,
+    InvalidTransition,
     NoticeReservation,
     ReservationResult,
     RunLane,
@@ -51,9 +53,25 @@ from ..contracts import (
     UsageKind,
     UsageReservation,
     VerificationResult,
+    VersionConflict,
+    WaitCondition,
 )
 from ..interfaces import MemoryStore
 from ..proactive_types import InboxItem
+
+MAX_INPUT_REFS = 128
+
+
+def new_resume_inputs(task: Task, expected_version: int, input_refs: list[str]) -> list[str]:
+    """Validate the observed task version and return only the newly supplied references."""
+    if task.status is not TaskStatus.WAITING or task.wait_condition is not WaitCondition.INPUT:
+        raise InvalidTransition(f"task {task.id} is not waiting for input")
+    if task.version != expected_version:
+        raise VersionConflict(f"task {task.id} is at version {task.version}, expected {expected_version}")
+    added = [ref for ref in dict.fromkeys(input_refs) if ref not in task.input_refs]
+    if len(task.input_refs) + len(added) > MAX_INPUT_REFS:
+        raise InvalidRequest(f"a task can have at most {MAX_INPUT_REFS} input references")
+    return added
 
 
 def round_attempts(statuses: Iterable[str]) -> int:
@@ -192,8 +210,13 @@ class TaskRepository(Protocol):
         """
 
     async def request_cancel(self, scope_id: str, task_id: str, reason: str, now: datetime) -> Task:
-        """Idempotent. queued/waiting -> cancelled; running -> cancelling;
-        cancelling and terminal states are returned unchanged."""
+        """Cancel a queued or waiting task and mark its pending actions failed atomically.
+        Running tasks enter cancelling. Repeated cancellation is idempotent."""
+
+    async def resume(
+        self, scope_id: str, task_id: str, *, expected_version: int, input_refs: list[str], now: datetime,
+    ) -> Task:
+        """Requeue a waiting/input task at the given version and record its added inputs atomically."""
 
     async def decide_approval(
         self,
@@ -210,11 +233,10 @@ class TaskRepository(Protocol):
     ) -> tuple[Task, Approval]:
         """Record a human decision and requeue the task in one transaction.
 
-        Requires the task to be waiting/approval and the action to be
-        needs_approval with exactly these arguments. Raises ApprovalConflict if
-        this (action, arguments) already has a decision, so two racing requests
-        cannot overwrite each other; raises InvalidTransition or NotFound when
-        the task or action is not in a state where a decision applies.
+        While waiting/approval, only an expired approval may be replaced for
+        the same pending action and arguments. Outside that wait, the same
+        actor can replay an unexpired decision on a task that has not been
+        cancelled. A replay produces no events or version change.
         """
 
     async def requeue(self, scope_id: str, task_id: str, now: datetime) -> Task:
