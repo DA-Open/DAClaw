@@ -30,7 +30,7 @@ from harness.storage.memory import InMemoryRepositories
 from harness.tools import PolicyToolCatalog, ToolGateway, UserGrant, WhitelistPolicy
 from harness.tools.connectors import p0_connectors
 
-from ..fakes import NoRecompute, ACTOR, Clock, claimed_task
+from ..fakes import NoMemory, NoRecompute, ACTOR, Clock, claimed_task
 
 pytestmark = pytest.mark.asyncio
 
@@ -70,7 +70,7 @@ class System:
             tools=PolicyToolCatalog(self.policy, self.gateway.specs),
             capabilities=self.packs,
             clock=self.clock,
-            recomputer=NoRecompute(),
+            recomputer=NoRecompute(), memory=NoMemory(),
         )
 
     def draft_id(self):

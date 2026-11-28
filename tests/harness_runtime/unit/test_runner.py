@@ -21,7 +21,7 @@ from harness.runtime.models import ModelError, ScriptedModelAdapter, result_step
 from harness.runtime.runner import AgentRunner
 from harness.storage.memory import InMemoryRepositories
 
-from ..fakes import NoRecompute, MAIN_PROFILE, READ, WRITE, Clock, FakeGateway, FakeVerifier, MemoryArtifactStore, claimed_task
+from ..fakes import NoMemory, NoRecompute, MAIN_PROFILE, READ, WRITE, Clock, FakeGateway, FakeVerifier, MemoryArtifactStore, claimed_task
 
 pytestmark = pytest.mark.asyncio
 
@@ -52,7 +52,7 @@ class Harness:
             instructions=StaticInstructions({"main@1": "You draft documents."}),
             tools=StaticToolCatalog([READ, WRITE]),
             clock=self.clock,
-            recomputer=NoRecompute(),
+            recomputer=NoRecompute(), memory=NoMemory(),
         )
         context = await builder.build(self.task, MAIN_PROFILE, self.execution.lease)
         self.outcome = await self.runner.run(context, MAIN_PROFILE, self.execution, **kw)
@@ -136,7 +136,7 @@ async def test_second_attempt_continues_step_numbers():
         instructions=StaticInstructions({"main@1": "x"}),
         tools=StaticToolCatalog([READ, WRITE]),
         clock=h.clock,
-        recomputer=NoRecompute(),
+        recomputer=NoRecompute(), memory=NoMemory(),
     )
     context = await builder.build(task2, MAIN_PROFILE, lease2)
     outcome = await h.runner.run(context, MAIN_PROFILE, execution2)
