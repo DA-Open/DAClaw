@@ -9,7 +9,7 @@ from ..personal.analysis_admission import decide_analysis
 from ..personal.memory import is_current
 from ..contracts import (
     Acceptance, Actor, AdmissionDecision, AgentRole, CheckSpec, Event,
-    EventType, Limits, RunLane, Subscription, SubscriptionStatus, Task, TaskOrigin,
+    EventType, Limits, NotFound, RunLane, Subscription, SubscriptionStatus, Task, TaskOrigin,
     TaskRef, TaskRequest, TaskStatus, TriggerType, Usage, utcnow,
 )
 from ..proactive_types import DataEvent, default_daily_budget
@@ -232,7 +232,8 @@ class ProactiveController:
                     baseline = None
             def evaluate(current, tasks, records, usage):
                 if current.capability_ref == "analysis_watch@1":
-                    record = decide_analysis(current, event, baseline.model_dump(), tasks, records, usage, now,
+                    baseline_body = baseline.model_dump() if baseline is not None else None
+                    record = decide_analysis(current, event, baseline_body, tasks, records, usage, now,
                                              self.scope_limit, resources_allowed(current, self.policy))
                 elif current.capability_ref == "personal_watch@1":
                     record = decide_personal(current, event, window, changes, tasks, usage, now, self.scope_limit,
